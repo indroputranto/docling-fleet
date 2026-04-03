@@ -23,11 +23,13 @@ class User(db.Model):
     email         = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role          = db.Column(db.String(50), nullable=False, default="user")
-    # "admin"  — full CMS access, sees all clients
-    # "user"   — chat only, scoped to their client_id
+    # "admin"        — platform operator; full CMS access, sees all clients
+    # "client_admin" — client operator; scoped CMS access, sees own client only
+    # "user"         — end user; chat only, no CMS access
 
     client_id     = db.Column(db.String(100), nullable=True)
-    # null for admins (they see everything); set for regular users
+    # null for platform admins (they see everything)
+    # required for client_admin and user roles
 
     active        = db.Column(db.Boolean, nullable=False, default=True)
     created_at    = db.Column(db.DateTime, nullable=False,

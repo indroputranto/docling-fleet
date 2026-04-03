@@ -55,6 +55,7 @@
           <div class="form-hint">Leave blank to use initials fallback.</div>
         </div>
 
+        {% if is_platform_admin %}
         <div class="form-group full">
           <label class="toggle-label">
             <input type="checkbox" name="active" {{ 'checked' if not client or client.active else '' }} />
@@ -62,6 +63,7 @@
             Active (chatbot is publicly accessible)
           </label>
         </div>
+        {% endif %}
 
       </div>
     </div>
@@ -109,7 +111,8 @@
     </div>
   </div>
 
-  <!-- AI & Pinecone -->
+  <!-- AI & Pinecone — platform admin only -->
+  {% if is_platform_admin %}
   <div class="card" style="margin-bottom:20px;">
     <div class="card-header">AI & Knowledge Base</div>
     <div style="padding:22px;">
@@ -166,6 +169,7 @@
       </div>
     </div>
   </div>
+  {% endif %}{# end platform_admin AI section #}
 
   <!-- Chat UX -->
   <div class="card" style="margin-bottom:20px;">
@@ -210,7 +214,8 @@
     </div>
   </div>
 
-  <!-- System Prompt -->
+  <!-- System Prompt — platform admin only -->
+  {% if is_platform_admin %}
   <div class="card" style="margin-bottom:24px;">
     <div class="card-header">System Prompt</div>
     <div style="padding:22px;">
@@ -221,6 +226,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
   <div style="display:flex;gap:12px;">
     <button type="submit" class="btn btn-primary">

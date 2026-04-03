@@ -87,22 +87,71 @@ Shared JWT auth serving both the chat login and the CMS.
 - `POST /auth/refresh` — rotates tokens
 - `POST /auth/logout` — invalidates session
 - `GET /auth/me` — current user info
-- Roles: `admin` (CMS access), `user` (chat login only)
+- Roles: `admin` (full platform CMS), `client_admin` (scoped CMS), `user` (chat only)
 
-### 5.4 Admin CMS (`/cms`)
-Internal dashboard for managing client deployments. Not client-facing.
+### 5.4 CMS & User Access Model
 
-- **Dashboard:** client list, user list, quick stats
-- **Client form:** Identity, Branding, Chat UX, AI & Knowledge Base, System Prompt
-  - Identity: client ID (slug), display name, company name, chatbot name, logo URL
-  - Branding: primary/secondary/accent/text colors, dark mode color pickers
-  - Chat UX: welcome message, suggested questions, default theme, show/hide toggle
+The platform uses a **3-tier role system** serving two distinct groups through one shared CMS codebase with data scoping enforced at the route layer.
+
+#### Tier 1 — Platform Admin (`role: admin`)
+The platform operator. Full, ungated access to everything.
+
+- Sees all clients in the dashboard; can create, edit, activate, deactivate, and delete any client
+- Controls all client settings including AI & Pinecone config, LLM model selection, system prompt, and the Active flag
+- Sees all users across all clients; can promote users to any role
+- The only role that can create new clients or assign Platform Admin access to others
+
+#### Tier 2 — Client Admin (`role: client_admin`)
+The client's internal CMS operator — a ship manager or IT contact at the client company. Access is scoped strictly to their own client record.
+
+- Sees only their own client in the dashboard; cannot view or access other clients
+- Can edit branding (colors, logo, chatbot name) and Chat UX (welcome message, suggested questions, default theme)
+- Cannot modify AI/Pinecone configuration, system prompt, or the Active flag — those are platform-controlled
+- Can create and manage users for their own client only; cannot create Client Admins or Platform Admins
+- Sees only their own client's users ("Your Team" view)
+
+#### Tier 3 — User (`role: user`)
+End users of the chat interface. No CMS access at all.
+
+- Authenticate via `POST /auth/login` using a Bearer token
+- Access is scoped to the chat interface for their assigned `client_id`
+- Cannot log into the CMS (`/cms/login` rejects non-admin/non-client_admin roles)
+- Managed by Platform Admins and Client Admins via the CMS user panel
+
+#### Technical Implementation
+Scoping is enforced in `cms/routes.py` via three request-context helpers carried on Flask's `g` object:
+
+- `cms_required` decorator: validates the `cms_token` httpOnly cookie, loads the user, sets `g.is_platform_admin` and `g.scoped_client_id`
+- `platform_admin_required` decorator: wraps `cms_required`, aborts to dashboard with error flash if not platform admin
+- `_assert_client_access(client)`: called inside client edit routes; raises HTTP 403 if a client_admin tries to access another client's record
+
+All database queries in the dashboard and user management routes are branched on `g.is_platform_admin`. The `_save_client()` function splits editable fields into two groups: branding/Chat UX (editable by both tiers) and AI config/system prompt/active flag (platform admin only), ignoring the second group if the request comes from a client admin.
+
+#### CMS Route Summary
+
+| Route | Platform Admin | Client Admin |
+|---|---|---|
+| `GET /cms/` — Dashboard | All clients + all users | Own client + own team |
+| `GET/POST /cms/clients/new` | ✅ Create any client | 🚫 Blocked |
+| `GET/POST /cms/clients/<id>/edit` | ✅ All fields | ✅ Branding + Chat UX only |
+| `POST /cms/clients/<id>/toggle` | ✅ Activate/deactivate | 🚫 Blocked |
+| `POST /cms/clients/<id>/delete` | ✅ Delete | 🚫 Blocked |
+| `GET/POST /cms/users/new` | ✅ Any role, any client | ✅ User role, own client only |
+| `POST /cms/users/<id>/toggle` | ✅ Any user | ✅ Own client's users only |
+
+### 5.5 Admin CMS — Dashboard & Forms (`/cms`)
+
+- **Dashboard:** client list with status badges, user list with role badges, quick stats (total/active clients, total users)
+- **Client form:** Identity, Branding, Chat UX (all roles); AI & Knowledge Base, System Prompt (platform admin only)
+  - Identity: client ID (slug, immutable after creation), display name, company name, chatbot name, logo URL
+  - Branding: primary/secondary/accent/text colors with live color pickers
+  - Chat UX: welcome message, suggested questions (one per line → stored as JSON array), default theme, show/hide mode toggle
   - AI config: Pinecone index, namespace, LLM model, embedding model, context chunks, history turns
-  - System prompt: full editable prompt with `[PLACEHOLDER]` token system for whitelabeling
-- **User management:** create users, assign to clients, activate/deactivate
-- Auth: httpOnly cookie (`cms_token`), admin role required
+  - System prompt: full editable prompt with `[PLACEHOLDER]` token system
+- **User form:** Role and client assignment (platform admin full control); read-only for client admins
+- Auth: httpOnly `cms_token` cookie, 8h session, redirects to `/cms/login` when expired
 
-### 5.5 System Prompt (`prompt.md`)
+### 5.6 System Prompt (`prompt.md`)
 The instruction set defining how Claude behaves for a given client. Whitelabeled via placeholder tokens:
 
 - `[CLIENT_NAME]` — the client's company/fleet name
@@ -347,3 +396,5 @@ The platform is production-ready when:
 | Self-hosted embeddings? | OpenAI for now. Evaluate self-hosted if a client has data residency requirements. | Apr 2026 |
 | Container orchestration (K8s/Docker Swarm)? | Deferred. Direct Droplet per client is simpler to operate at current scale. Revisit at 20+ clients. | Apr 2026 |
 | Font: Noto Serif vs. Inter? | Inter. Better readability for dense charter party text. | Apr 2026 |
+| Single CMS vs. separate admin/client portals? | Single CMS codebase with route-level data scoping. Platform Admin and Client Admin share the same UI; capabilities differ by role. Simpler to maintain, no duplicated templates. | Apr 2026 |
+| How many CMS role tiers? | Three: Platform Admin (full access), Client Admin (scoped to own client), User (chat only, no CMS). Client Admins can manage branding and their team but cannot touch AI config or system prompts. | Apr 2026 |

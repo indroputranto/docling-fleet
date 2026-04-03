@@ -12,13 +12,18 @@ Endpoints:
 Token structure:
   {
     "sub":       "user@email.com",
-    "role":      "admin" | "user",
+    "role":      "admin" | "client_admin" | "user",
     "client_id": "acme" | null,
     "exp":       <unix timestamp>
   }
 
+Role hierarchy:
+  admin        — platform operator; full access to everything
+  client_admin — client operator; CMS access scoped to their own client_id only
+  user         — end user; chat access only, no CMS
+
 Usage in other blueprints:
-  from auth import require_auth, require_admin, get_current_user
+  from auth import require_auth, require_admin, require_cms_access, get_current_user
 """
 
 import os
@@ -105,14 +110,32 @@ def require_auth(f):
 
 def require_admin(f):
     """
-    Decorator: requires a valid token AND role == 'admin'.
-    Must be applied after @require_auth (or stacked — order matters).
+    Decorator: requires a valid token AND role == 'admin' (platform operator only).
     """
     @wraps(f)
     @require_auth
     def decorated(*args, **kwargs):
         if g.current_user.role != "admin":
             return jsonify({"error": "Admin access required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def require_cms_access(f):
+    """
+    Decorator: allows both 'admin' and 'client_admin' roles into the CMS.
+    - admin:        g.is_platform_admin = True,  g.scoped_client_id = None
+    - client_admin: g.is_platform_admin = False, g.scoped_client_id = user.client_id
+    Routes use g.is_platform_admin and g.scoped_client_id to enforce data scoping.
+    """
+    @wraps(f)
+    @require_auth
+    def decorated(*args, **kwargs):
+        role = g.current_user.role
+        if role not in ("admin", "client_admin"):
+            return jsonify({"error": "CMS access required"}), 403
+        g.is_platform_admin = (role == "admin")
+        g.scoped_client_id  = None if g.is_platform_admin else g.current_user.client_id
         return f(*args, **kwargs)
     return decorated
 

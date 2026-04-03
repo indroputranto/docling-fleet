@@ -22,25 +22,46 @@
         <input type="password" name="password" placeholder="Min. 8 characters" required />
       </div>
 
+      {% if is_platform_admin %}
       <div class="form-group">
         <label>Role</label>
         <select name="role">
-          <option value="user">User (chat only)</option>
-          <option value="admin">Admin (CMS access)</option>
+          <option value="user">User — chat only</option>
+          <option value="client_admin">Client Admin — scoped CMS access</option>
+          <option value="admin">Platform Admin — full CMS access</option>
         </select>
-        <div class="form-hint">Admins can access the CMS and manage all clients.</div>
+        <div class="form-hint">
+          Client Admins can edit their own client's branding and manage their team.
+          Platform Admins can manage all clients.
+        </div>
       </div>
 
       <div class="form-group">
         <label>Assigned Client</label>
         <select name="client_id">
-          <option value="">— All clients (admin use) —</option>
+          <option value="">— None (platform admin) —</option>
           {% for c in clients %}
           <option value="{{ c.client_id }}">{{ c.name }} ({{ c.client_id }})</option>
           {% endfor %}
         </select>
-        <div class="form-hint">Regular users are scoped to one client. Leave blank for admin accounts.</div>
+        <div class="form-hint">Required for Client Admin and User roles. Leave blank for Platform Admins.</div>
       </div>
+
+      {% else %}
+      {# Client admin view — role and client are fixed, just show context #}
+      <div class="form-group">
+        <label>Role</label>
+        <input type="text" value="User (chat only)" disabled
+               style="background:rgba(255,255,255,0.04);color:var(--muted);cursor:not-allowed;" />
+        <div class="form-hint">Client admins can only create chat users for their own client.</div>
+      </div>
+
+      <div class="form-group">
+        <label>Assigned Client</label>
+        <input type="text" value="{{ clients[0].name if clients else '' }}" disabled
+               style="background:rgba(255,255,255,0.04);color:var(--muted);cursor:not-allowed;" />
+      </div>
+      {% endif %}
 
     </div>
   </div>
