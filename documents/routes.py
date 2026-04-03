@@ -31,6 +31,20 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx"}
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Template context — mirrors what cms/routes.py passes in every render call,
+# but wired once via a context processor so no route can forget it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@documents_bp.context_processor
+def inject_cms_context():
+    """Make cms_user and is_platform_admin available in all documents templates."""
+    return dict(
+        cms_user=getattr(g, "cms_user", None),
+        is_platform_admin=getattr(g, "is_platform_admin", False),
+    )
+
 documents_bp = Blueprint(
     "documents",
     __name__,
