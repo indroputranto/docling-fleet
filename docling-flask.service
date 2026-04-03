@@ -1,0 +1,17 @@
+[Unit]
+Description=Docling Flask App
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/opt/docling
+Environment="PATH=/opt/docling_venv/bin"
+Environment="PYTHONPATH=/opt/docling"
+ExecStart=/opt/docling_venv/bin/python app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target 

@@ -1,0 +1,233 @@
+{% extends "cms/base.html" %}
+
+{% block title %}{{ 'Edit' if client else 'New' }} Client{% endblock %}
+{% block topbar_title %}{{ 'Edit Client — ' + client.name if client else 'New Client' }}{% endblock %}
+{% block topbar_actions %}
+  <a href="{{ url_for('cms.dashboard') }}" class="btn btn-secondary btn-sm">← Back</a>
+{% endblock %}
+
+{% block content %}
+<form method="POST" style="max-width:860px;">
+
+  <!-- Identity -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">Identity</div>
+    <div style="padding:22px;">
+      <div class="form-grid">
+
+        <div class="form-group">
+          <label>Client ID <span style="color:#f85149;">*</span></label>
+          <input type="text" name="client_id"
+                 value="{{ client.client_id if client else '' }}"
+                 placeholder="acme-shipping"
+                 {{ 'readonly' if client else '' }} required />
+          <div class="form-hint">Lowercase slug. Used in the subdomain: <em>acme-shipping.platform.com</em>. Cannot be changed after creation.</div>
+        </div>
+
+        <div class="form-group">
+          <label>Display Name <span style="color:#f85149;">*</span></label>
+          <input type="text" name="name"
+                 value="{{ client.name if client else '' }}"
+                 placeholder="ACME Shipping" required />
+        </div>
+
+        <div class="form-group">
+          <label>Company Name</label>
+          <input type="text" name="company_name"
+                 value="{{ client.company_name if client else '' }}"
+                 placeholder="ACME Shipping Co." />
+          <div class="form-hint">Shown in the sidebar and as logo fallback initials.</div>
+        </div>
+
+        <div class="form-group">
+          <label>Chatbot Name</label>
+          <input type="text" name="chatbot_name"
+                 value="{{ client.chatbot_name if client else 'Fleet AI' }}"
+                 placeholder="Fleet AI" />
+          <div class="form-hint">Name shown in the chat header.</div>
+        </div>
+
+        <div class="form-group full">
+          <label>Logo URL</label>
+          <input type="url" name="logo_url"
+                 value="{{ client.logo_url if client else '' }}"
+                 placeholder="https://cdn.example.com/logo.png" />
+          <div class="form-hint">Leave blank to use initials fallback.</div>
+        </div>
+
+        <div class="form-group full">
+          <label class="toggle-label">
+            <input type="checkbox" name="active" {{ 'checked' if not client or client.active else '' }} />
+            <span class="toggle-track"></span>
+            Active (chatbot is publicly accessible)
+          </label>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Branding -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      Branding
+      <span style="font-size:11px;font-weight:400;color:var(--muted);">Colors update live in the chat UI</span>
+    </div>
+    <div style="padding:22px;">
+      <div class="form-grid">
+
+        {% set colors = [
+          ('primary_color',   'Primary (sidebar background)',  '#1a1a2e'),
+          ('secondary_color', 'Secondary (sidebar header)',    '#16213e'),
+          ('accent_color',    'Accent (buttons, highlights)',  '#0f3460'),
+          ('text_color',      'Text color',                   '#ffffff'),
+        ] %}
+        {% for name, label, default in colors %}
+        <div class="form-group">
+          <label>{{ label }}</label>
+          <div class="color-row">
+            <input type="color" id="color_{{ name }}"
+                   value="{{ client[name] if client and client[name] else default }}"
+                   oninput="document.getElementById('text_{{ name }}').value=this.value" />
+            <input type="text" name="{{ name }}" id="text_{{ name }}"
+                   value="{{ client[name] if client and client[name] else default }}"
+                   placeholder="{{ default }}"
+                   oninput="document.getElementById('color_{{ name }}').value=this.value"
+                   style="font-family:monospace;" />
+          </div>
+        </div>
+        {% endfor %}
+
+        <div class="form-group">
+          <label>Font Family</label>
+          <input type="text" name="font_family"
+                 value="{{ client.font_family if client else 'Inter, sans-serif' }}"
+                 placeholder="Inter, sans-serif" />
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- AI & Pinecone -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">AI & Knowledge Base</div>
+    <div style="padding:22px;">
+      <div class="form-grid">
+
+        <div class="form-group">
+          <label>Pinecone Index</label>
+          <input type="text" name="pinecone_index"
+                 value="{{ client.pinecone_index if client else 'vessel-embeddings' }}"
+                 placeholder="vessel-embeddings" />
+        </div>
+
+        <div class="form-group">
+          <label>Pinecone Namespace</label>
+          <input type="text" name="pinecone_namespace"
+                 value="{{ client.pinecone_namespace if client else '' }}"
+                 placeholder="(leave blank for default)" />
+          <div class="form-hint">Scope the knowledge base to this client's data.</div>
+        </div>
+
+        <div class="form-group">
+          <label>LLM Model</label>
+          <select name="llm_model">
+            {% for m in ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'] %}
+            <option value="{{ m }}" {{ 'selected' if client and client.llm_model == m else '' }}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Embedding Model</label>
+          <select name="embedding_model">
+            {% for m in ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'] %}
+            <option value="{{ m }}" {{ 'selected' if client and client.embedding_model == m else '' }}>{{ m }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-hint">Must match the model used when uploading to Pinecone.</div>
+        </div>
+
+        <div class="form-group">
+          <label>Max Context Chunks</label>
+          <input type="number" name="max_context_chunks" min="1" max="20"
+                 value="{{ client.max_context_chunks if client else 8 }}" />
+          <div class="form-hint">How many Pinecone results to retrieve per query (1–20).</div>
+        </div>
+
+        <div class="form-group">
+          <label>Max Conversation History</label>
+          <input type="number" name="max_history" min="1" max="50"
+                 value="{{ client.max_history if client else 10 }}" />
+          <div class="form-hint">Number of past turns sent to the LLM (1–50).</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat UX -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      Chat UX
+      <span style="font-size:11px;font-weight:400;color:var(--muted);">Shown to end users in the chat interface</span>
+    </div>
+    <div style="padding:22px;">
+      <div class="form-grid">
+
+        <div class="form-group full">
+          <label>Welcome Message</label>
+          <textarea name="welcome_message" rows="3" placeholder="Hello! I'm your vessel documentation assistant. Ask me anything about charter parties, trading limits, vessel specifications, or cargo restrictions.">{{ client.welcome_message if client and client.welcome_message else '' }}</textarea>
+          <div class="form-hint">First message shown as an assistant bubble when a new chat starts.</div>
+        </div>
+
+        <div class="form-group full">
+          <label>Suggested Questions</label>
+          <textarea name="suggested_questions" rows="5" placeholder="What are the trading exclusions for this vessel?&#10;Show me the speed and consumption table.&#10;What cargo types are excluded?&#10;What are the delivery figures?">{{ suggested_questions_text }}</textarea>
+          <div class="form-hint">One question per line. Displayed as clickable chips in the empty chat state (max 4 shown).</div>
+        </div>
+
+        <div class="form-group">
+          <label>Default Theme</label>
+          <select name="default_theme">
+            <option value="dark"  {{ 'selected' if not client or client.default_theme == 'dark'  else '' }}>Dark</option>
+            <option value="light" {{ 'selected' if client and client.default_theme == 'light' else '' }}>Light</option>
+          </select>
+          <div class="form-hint">Initial color scheme for the chat UI.</div>
+        </div>
+
+        <div class="form-group">
+          <label style="margin-bottom:8px;">Theme Toggle</label>
+          <label class="toggle-label">
+            <input type="checkbox" name="show_mode_toggle" {{ 'checked' if not client or client.show_mode_toggle else '' }} />
+            <span class="toggle-track"></span>
+            Show dark / light mode toggle to end users
+          </label>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- System Prompt -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-header">System Prompt</div>
+    <div style="padding:22px;">
+      <div class="form-group">
+        <label>Prompt</label>
+        <textarea name="system_prompt" rows="18" style="font-family:monospace;font-size:12px;min-height:320px;">{{ default_prompt }}</textarea>
+        <div class="form-hint">This is the full instruction set sent to Claude on every request. Replace [PLACEHOLDER] tokens with client-specific values.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;">
+    <button type="submit" class="btn btn-primary">
+      {{ 'Save Changes' if client else 'Create Client' }}
+    </button>
+    <a href="{{ url_for('cms.dashboard') }}" class="btn btn-secondary">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}

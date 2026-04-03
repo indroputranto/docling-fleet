@@ -1,0 +1,650 @@
+vessel:
+  type: object
+  required:
+    - vessel_details
+    - contract_details
+    - delivery_figures
+    - speed_and_consumption
+    - lifting_equipment
+    - hseq_documentation
+  properties:
+    vessel_details:
+      type: object
+      required:
+        - name
+        - imo_number
+        - mmsi
+        - call_sign
+        - flag
+        - vessel_type
+        - year_built
+        - builder
+        - classification_society
+        - port_of_registry
+        - gross_tonnage
+        - net_tonnage
+        - deadweight
+        - length_overall
+        - beam
+        - depth
+        - draft
+        - deck_area
+        - deck_strength
+        - cargo_holds
+        - ballast_capacity
+        - fuel_capacity
+        - fresh_water_capacity
+        - crew_capacity
+        - engine_details
+        - generator_details
+        - bow_thruster
+        - stern_thruster
+        - propeller
+        - rudder
+        - anchors
+        - remarks
+      properties:
+        name:
+          type: string
+          description: "Vessel name"
+        imo_number:
+          type: string
+          description: "IMO number"
+        mmsi:
+          type: string
+          description: "Maritime Mobile Service Identity"
+        call_sign:
+          type: string
+          description: "Vessel call sign"
+        flag:
+          type: string
+          description: "Flag state"
+        vessel_type:
+          type: string
+          description: "Type of vessel"
+        year_built:
+          type: integer
+          description: "Year vessel was built"
+        builder:
+          type: string
+          description: "Shipyard that built the vessel"
+        classification_society:
+          type: string
+          description: "Classification society"
+        port_of_registry:
+          type: string
+          description: "Port of registry"
+        gross_tonnage:
+          type: number
+          description: "Gross tonnage"
+        net_tonnage:
+          type: number
+          description: "Net tonnage"
+        deadweight:
+          type: number
+          description: "Deadweight tonnage"
+        length_overall:
+          type: number
+          description: "Length overall in meters"
+        beam:
+          type: number
+          description: "Beam in meters"
+        depth:
+          type: number
+          description: "Depth in meters"
+        draft:
+          type: number
+          description: "Maximum draft in meters"
+        deck_area:
+          type: number
+          description: "Deck area in square meters"
+        deck_strength:
+          type: number
+          description: "Deck strength in tons per square meter"
+        cargo_holds:
+          type: array
+          items:
+            type: object
+            properties:
+              hold_number:
+                type: string
+              dimensions:
+                type: object
+                properties:
+                  length:
+                    type: number
+                  width:
+                    type: number
+                  height:
+                    type: number
+              capacity:
+                type: number
+              hatch_dimensions:
+                type: object
+                properties:
+                  length:
+                    type: number
+                  width:
+                    type: number
+        ballast_capacity:
+          type: number
+          description: "Ballast capacity in cubic meters"
+        fuel_capacity:
+          type: number
+          description: "Fuel capacity in cubic meters"
+        fresh_water_capacity:
+          type: number
+          description: "Fresh water capacity in cubic meters"
+        crew_capacity:
+          type: integer
+          description: "Maximum crew capacity"
+        engine_details:
+          type: object
+          properties:
+            manufacturer:
+              type: string
+            model:
+              type: string
+            power:
+              type: number
+            rpm:
+              type: number
+            fuel_type:
+              type: string
+        generator_details:
+          type: array
+          items:
+            type: object
+            properties:
+              number:
+                type: integer
+              manufacturer:
+                type: string
+              power:
+                type: number
+              fuel_type:
+                type: string
+        bow_thruster:
+          type: object
+          properties:
+            manufacturer:
+              type: string
+            power:
+              type: number
+            type:
+              type: string
+        stern_thruster:
+          type: object
+          properties:
+            manufacturer:
+              type: string
+            power:
+              type: number
+            type:
+              type: string
+        propeller:
+          type: object
+          properties:
+            type:
+              type: string
+            diameter:
+              type: number
+            pitch:
+              type: number
+            blades:
+              type: integer
+        rudder:
+          type: object
+          properties:
+            type:
+              type: string
+            area:
+              type: number
+        anchors:
+          type: array
+          items:
+            type: object
+            properties:
+              number:
+                type: integer
+              weight:
+                type: number
+              chain_length:
+                type: number
+        remarks:
+          type: string
+          description: "Additional vessel details or remarks"
+        content:
+          type: string
+          description: "All vessel identification and specification details"
+
+    contract_details:
+      type: object
+      required:
+        - charter_type
+        - charter_period
+        - delivery_date
+        - redelivery_date
+        - delivery_port
+        - redelivery_port
+        - hire_rate
+        - bunker_clause
+        - commission
+        - additional_clauses
+      properties:
+        charter_type:
+          type: string
+          description: "Type of charter (time charter, voyage charter, etc.)"
+        charter_period:
+          type: string
+          description: "Duration of charter"
+        delivery_date:
+          type: string
+          format: date
+          description: "Vessel delivery date"
+        redelivery_date:
+          type: string
+          format: date
+          description: "Vessel redelivery date"
+        delivery_port:
+          type: string
+          description: "Port of delivery"
+        redelivery_port:
+          type: string
+          description: "Port of redelivery"
+        hire_rate:
+          type: object
+          properties:
+            amount:
+              type: number
+            currency:
+              type: string
+            payment_terms:
+              type: string
+        bunker_clause:
+          type: object
+          properties:
+            delivery_quantity:
+              type: number
+            redelivery_quantity:
+              type: number
+            price:
+              type: object
+              properties:
+                amount:
+                  type: number
+                currency:
+                  type: string
+        commission:
+          type: object
+          properties:
+            percentage:
+              type: number
+            payable_to:
+              type: string
+        additional_clauses:
+          type: array
+          items:
+            type: string
+          description: "Additional charter party clauses"
+        content:
+          type: string
+          description: "All contract and charter party related information"
+
+    delivery_figures:
+      type: object
+      required:
+        - speed
+        - consumption
+        - ballast_consumption
+        - laden_consumption
+        - port_consumption
+        - idle_consumption
+      properties:
+        speed:
+          type: object
+          properties:
+            service_speed:
+              type: number
+            maximum_speed:
+              type: number
+        consumption:
+          type: object
+          properties:
+            main_engine:
+              type: object
+              properties:
+                heavy_fuel_oil:
+                  type: number
+                marine_diesel_oil:
+                  type: number
+            auxiliary_engines:
+              type: object
+              properties:
+                heavy_fuel_oil:
+                  type: number
+                marine_diesel_oil:
+                  type: number
+        ballast_consumption:
+          type: object
+          properties:
+            heavy_fuel_oil:
+              type: number
+            marine_diesel_oil:
+              type: number
+        laden_consumption:
+          type: object
+          properties:
+            heavy_fuel_oil:
+              type: number
+            marine_diesel_oil:
+              type: number
+        port_consumption:
+          type: object
+          properties:
+            heavy_fuel_oil:
+              type: number
+            marine_diesel_oil:
+              type: number
+        idle_consumption:
+          type: object
+          properties:
+            heavy_fuel_oil:
+              type: number
+            marine_diesel_oil:
+              type: number
+        content:
+          type: string
+          description: "All delivery figures and specifications"
+
+    speed_and_consumption:
+      type: object
+      required:
+        - speed_guarantees
+        - consumption_guarantees
+        - weather_conditions
+        - performance_criteria
+      properties:
+        speed_guarantees:
+          type: object
+          properties:
+            service_speed:
+              type: number
+            weather_correction:
+              type: number
+            sea_state_correction:
+              type: number
+        consumption_guarantees:
+          type: object
+          properties:
+            main_engine:
+              type: object
+              properties:
+                heavy_fuel_oil:
+                  type: number
+                marine_diesel_oil:
+                  type: number
+            auxiliary_engines:
+              type: object
+              properties:
+                heavy_fuel_oil:
+                  type: number
+                marine_diesel_oil:
+                  type: number
+        weather_conditions:
+          type: object
+          properties:
+            beaufort_scale:
+              type: number
+            wave_height:
+              type: number
+            wind_speed:
+              type: number
+        performance_criteria:
+          type: object
+          properties:
+            speed_trial:
+              type: object
+              properties:
+                speed:
+                  type: number
+                consumption:
+                  type: number
+            sea_trial:
+              type: object
+              properties:
+                speed:
+                  type: number
+                consumption:
+                  type: number
+        content:
+          type: string
+          description: "All speed and consumption related information"
+
+    lifting_equipment:
+      type: object
+      required:
+        - cranes
+        - derricks
+        - winches
+        - other_equipment
+      properties:
+        cranes:
+          type: array
+          items:
+            type: object
+            properties:
+              number:
+                type: integer
+              type:
+                type: string
+              capacity:
+                type: number
+              outreach:
+                type: number
+              manufacturer:
+                type: string
+              model:
+                type: string
+              year_installed:
+                type: integer
+              last_survey:
+                type: string
+                format: date
+              certification:
+                type: string
+        derricks:
+          type: array
+          items:
+            type: object
+            properties:
+              number:
+                type: integer
+              type:
+                type: string
+              capacity:
+                type: number
+              outreach:
+                type: number
+              manufacturer:
+                type: string
+              model:
+                type: string
+              year_installed:
+                type: integer
+              last_survey:
+                type: string
+                format: date
+              certification:
+                type: string
+        winches:
+          type: array
+          items:
+            type: object
+            properties:
+              number:
+                type: integer
+              type:
+                type: string
+              capacity:
+                type: number
+              manufacturer:
+                type: string
+              model:
+                type: string
+              year_installed:
+                type: integer
+              last_survey:
+                type: string
+                format: date
+              certification:
+                type: string
+        other_equipment:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+              capacity:
+                type: number
+              manufacturer:
+                type: string
+              model:
+                type: string
+              year_installed:
+                type: integer
+              last_survey:
+                type: string
+                format: date
+              certification:
+                type: string
+        content:
+          type: string
+          description: "All lifting equipment and machinery details"
+
+    hseq_documentation:
+      type: object
+      required:
+        - certificates
+        - surveys
+        - class_reports
+        - safety_equipment
+        - environmental_compliance
+        - crew_certificates
+      properties:
+        certificates:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              number:
+                type: string
+              issue_date:
+                type: string
+                format: date
+              expiry_date:
+                type: string
+                format: date
+              issuing_authority:
+                type: string
+              status:
+                type: string
+        surveys:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              date:
+                type: string
+                format: date
+              status:
+                type: string
+              findings:
+                type: string
+              next_due:
+                type: string
+                format: date
+        class_reports:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              date:
+                type: string
+                format: date
+              status:
+                type: string
+              findings:
+                type: string
+              next_due:
+                type: string
+                format: date
+        safety_equipment:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              quantity:
+                type: integer
+              last_inspection:
+                type: string
+                format: date
+              next_inspection:
+                type: string
+                format: date
+              status:
+                type: string
+        environmental_compliance:
+          type: array
+          items:
+            type: object
+            properties:
+              regulation:
+                type: string
+              compliance_status:
+                type: string
+              documentation:
+                type: string
+              last_verification:
+                type: string
+                format: date
+              next_verification:
+                type: string
+                format: date
+        crew_certificates:
+          type: array
+          items:
+            type: object
+            properties:
+              position:
+                type: string
+              name:
+                type: string
+              certificate_type:
+                type: string
+              certificate_number:
+                type: string
+              issue_date:
+                type: string
+                format: date
+              expiry_date:
+                type: string
+                format: date
+              issuing_authority:
+                type: string
+              status:
+                type: string
+        content:
+          type: string
+          description: "All HSEQ documentation and certification information" 

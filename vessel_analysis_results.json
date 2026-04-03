@@ -1,0 +1,848 @@
+{
+  "total_vessels": 7,
+  "total_clauses": 426,
+  "vessels": [
+    "MV_ATLANTIC_DAWN",
+    "MV_FRANZISKA",
+    "MV_ARA_ROTTERDAM",
+    "MV__FREDENSBORG_",
+    "MV_ALASKABORG",
+    "MV_HC_EVA_MARIE",
+    "MV_FREDENSBORG"
+  ],
+  "clause_types": {
+    "31. Protective Clauses": 3,
+    "41. Stowaways": 1,
+    "37. Taxes": 3,
+    "45. Arbitration": 3,
+    "35. Stevedore Damage": 3,
+    "34. Requisition": 3,
+    "33. Ice": 3,
+    "38. Charterers\u2019 Colors": 1,
+    "32. War Cancellation": 3,
+    "40. Documentation": 3,
+    "44. Address Commission": 1,
+    "42. Smuggling": 3,
+    "36. Cleaning of Holds": 3,
+    "43. Commissions": 3,
+    "BIMCO U.S. Census Bureau Mandatory Automated Export System (AES) Clause for Time Charter Parties": 3,
+    "BIMCO Electronic Bills of Lading Clause": 3,
+    "BIMCO North American Advance Cargo Noti\ufb01cation Clause for Time Charter Parties": 2,
+    "Singular/Plural": 3,
+    "Notices": 3,
+    "Laydays/Cancelling": 3,
+    "Stevedore Damage": 3,
+    "Requisition": 3,
+    "International Ship and Port Facility Security Code (ISPS Code)/Maritime Transportation Security Act (MTSA)": 3,
+    "O\ufb00-Hire": 1,
+    "Period Applicable Clauses": 3,
+    "Bills of Lading": 3,
+    "Law and Arbitration": 3,
+    "Stowaways": 3,
+    "Ice": 3,
+    "Ballast Water Exchange Regulations": 3,
+    "Supercargo": 3,
+    "Exceptions": 3,
+    "Liens": 3,
+    "Liberties": 3,
+    "Delivery": 3,
+    "Taxes": 3,
+    "Industrial Action": 3,
+    "BIMCO Designated Entities Clause for Charter Parties": 3,
+    "Total Loss": 3,
+    "Headings": 3,
+    "BIMCO War Risks Clause CONWARTIME 2013": 3,
+    "Pollution": 3,
+    "BIMCO Piracy Clause for Time Charter Parties 2013": 3,
+    "International Safety Management (ISM)": 3,
+    "Owners to Provide": 3,
+    "Protective Clauses": 3,
+    "Drydocking": 6,
+    "Hire Payment": 3,
+    "Sailing Orders and Logs": 3,
+    "Navigation": 3,
+    "Cargo Handling Gear and Lights": 3,
+    "Performance of Voyages": 3,
+    "Speed and Consumption": 3,
+    "Cargo Claims": 3,
+    "Cargo Exclusions": 3,
+    "Smuggling": 3,
+    "Charterers to Provide": 3,
+    "Salvage": 3,
+    "Duration/Trip Description": 3,
+    "Commissions": 3,
+    "Spaces Available": 3,
+    "Slow Steaming": 3,
+    "BIMCO EU Advance Cargo Declaration Clause for Time Charter Parties 2012": 3,
+    "Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses": 3,
+    "General Average": 3,
+    "Redelivery": 3,
+    "2. Delivery": 3,
+    "16. Delivery/Cancelling": 2,
+    "3. On-Off Hire Survey": 3,
+    "39. Laid Up Returns": 3,
+    "ADDITIONAL CLAUSES TO MV \"ALASKABORG\" CHARTER PARTY DATED 25TH MARCH 2025": 7,
+    "BIMCO US AMS CLAUSE": 2,
+    "6. Owners to Provide": 3,
+    "WEATHER ROUTING/OCEAN ROUTES": 2,
+    "CANCELLATION DUE OFF-HIRE": 2,
+    "STEVEDORES DAMAGES": 2,
+    "17. Off Hire": 3,
+    "BUNKERS": 2,
+    "EXTRA INSURANCE": 2,
+    "WAR RISKS CLAUSE FOR TIME CHARTERS 2004 (CODE NAME: CONWARTIME 2004)": 2,
+    "[STRIKETHROUGH]* Same tons apply throughout this clause.[/STRIKETHROUGH]": 1,
+    "On/Off-Hire Survey": 1,
+    "General Clause Paramount": 1,
+    "STOWAGE PLANS": 2,
+    "BIMCO Sanctions Clause for Time Charter Parties 2020*": 1,
+    "Clause 30 (c) is deleted and superseded by Rider Clause 57": 2,
+    "BIMCO North American Advance Cargo Notification Clause for Time Charter Parties": 1,
+    "Between NOR 1957 A/S c/o Weco Projects ApS, Rungsted Strandvej 113, 2960 Rungsted Kyst, Denmark": 2,
+    "1. Duration": 3,
+    "within World wide, always within international navigating limits, see also Clause 47 and Clause 76": 2,
+    "Off-Hire": 1,
+    "BOWTHRUSTER": 2,
+    "27. Cargo Claims": 3,
+    "BLACK LIST": 2,
+    "PAD-EYES": 2,
+    "PAINTING": 2,
+    "DOUBLE BANKING CLAUSE": 2,
+    "OWNERS\u2019 EQUIPMENT": 2,
+    "INTERNATIONAL SAFETY MANAGEMENT (ISM)": 2,
+    "Description of Vessel": 2,
+    "Between HC Eva-Marie Schifffahrts UG (haftungsbeschrankt) & Co. KGc/o HC-Chartering GmbH & Co.": 1,
+    "GEAR AND EQUIPMENT": 2,
+    "Solid Bulk Cargoes/Dangerous Goods Subject to Cargo Exclusion List": 1,
+    "9. Bunkers": 3,
+    "18. Sublet": 3,
+    "VESSEL DESCRIPTION": 2,
+    "PERFORMANCE": 2,
+    "U.S. TAX RETURN CLAUSE": 2,
+    "20. Total Loss": 3,
+    "30. Bills of Lading": 3,
+    "Charterers as stated in line 5 of this Charter Party to remain ultimatively responsible including but not limited for payment of hire etc.": 2,
+    "DELIVERING CARGO WITHOUT PRODUCTION OF THE ORIGINAL BILL OF LADING.": 2,
+    "29. Crew Overtime": 2,
+    "Bunkers": 3,
+    "CONFIDENTIAL FIXTURE": 2,
+    "See Clause 52": 2,
+    "BILL OF LADING": 2,
+    "ITF CLAUSE": 2,
+    "/ Russia": 2,
+    "10. Rate of Hire/Redelivery Areas and Notices": 2,
+    "P&I INSURANCE": 2,
+    "EU ADVANCED CARGO DECLARATION CLAUSE FOR TIME CHARTER PARTIES": 2,
+    "BIMCO PIRACY CLAUSE FOR TIME CHARTER PARTY": 2,
+    "OIL POLLUTION": 2,
+    "19. Drydocking": 3,
+    "War risk premium plus crew bonus, if any, to be for account of the Charterers i.e. Bimco Conwartime 2004 war clause to apply.": 2,
+    "15. Sailing Orders and Logs": 3,
+    "CHARTERERS\u2019 EQUIPMENT": 2,
+    "WATCHMEN": 2,
+    "of minimum 6 months up to about 8 months exact duration in Charterers option trading worldwide": 2,
+    "14. Supercargo and Meals": 3,
+    "AGENCY": 2,
+    "26. Navigation": 3,
+    "BUNKERING": 2,
+    "ARREST/SEIZURE": 2,
+    "New Jason Clause": 1,
+    "US COAST GUARD NOTIFICATION OF SHIPS ARRIVAL": 2,
+    "492 \t 44. Address Commission": 1,
+    "SERVICES": 2,
+    "22. Liberties": 3,
+    "TRADING EXCLUSIONS": 2,
+    "RINA CERTIFICATES": 2,
+    "DECK CARGO": 2,
+    "LANGUAGE": 2,
+    "HOLDS ON DELIVERY": 2,
+    "PLANS": 2,
+    "CERTIFICATES": 2,
+    "7. Charterers to Provide": 3,
+    "Both-to-Blame Collision Clause": 1,
+    "SUEZ CANAL AND PANAMA CANAL CERTIFICATE / GREAT LAKES": 2,
+    "[STRIKETHROUGH]APPENDIX \"A\"[/STRIKETHROUGH]": 2,
+    "REEFER CONTAINER CLAUSE": 2,
+    "38. Charterers' Colors": 2,
+    "11. Hire Payment": 3,
+    "5. Trading Limits": 3,
+    "4. Dangerous Cargo/Cargo Exclusions": 2,
+    "21. Exceptions": 3,
+    "12. Berths": 3,
+    "FUMIGATION/DERATISATION": 2,
+    "See Clause 75": 2,
+    "23. Liens": 3,
+    "25. General Average": 3,
+    "CARGO EXCLUSIONS": 2,
+    "8. Performance of Voyages": 3,
+    "28. Cargo Gear and Lights See also Clause 71": 2,
+    "24. Salvage": 3,
+    "13. Spaces Available": 3,
+    "ADDITIONAL CLAUSES TO MV \"ALASKABORG\" CHARTER PARTYDATED 25TH MARCH 2025": 1,
+    "[STRIKETHROUGH]* Same tons apply throughout this clause .[/STRIKETHROUGH]": 1,
+    "16. Delivery / Cancelling": 1,
+    "OFF HIRE CLAUSE": 1,
+    "10. Rate of Hire / Redelivery Areas and Notices": 1,
+    "Sanctions": 1,
+    "BIMCO Hull Fouling Clause for Time Charter Parties": 1,
+    "28. Cargo Gear and Lights": 1,
+    "4. Dangerous Cargo / Cargo Exclusions": 1,
+    "On/O\ufb00-Hire Survey": 1,
+    "492\t44. Address Commission": 1
+  },
+  "important_clauses": [
+    "Bunkers",
+    "Insurance",
+    "Delivery",
+    "Redelivery",
+    "Rate of Hire",
+    "Performance of Voyages",
+    "Off-Hire",
+    "Bills of Lading",
+    "Law and Arbitration",
+    "Protective Clauses",
+    "War Risks",
+    "Stevedore Damage",
+    "General Average"
+  ],
+  "important_clause_data": {
+    "Protective Clauses": [
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_31. Protective Clauses",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_31__Protective_Clauses_31"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Protective Clauses",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Protective_Clauses_33"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Protective Clauses",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Protective_Clauses_34"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_31. Protective Clauses",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_31__Protective_Clauses_41"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Protective Clauses",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Protective_Clauses_32"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_31. Protective Clauses",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_31__Protective_Clauses_41"
+      }
+    ],
+    "Stevedore Damage": [
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_35. Stevedore Damage",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_35__Stevedore_Damage_35"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Stevedore Damage",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Stevedore_Damage_37"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Stevedore Damage",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Stevedore_Damage_41"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_35. Stevedore Damage",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_35__Stevedore_Damage_47"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Stevedore Damage",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Stevedore_Damage_36"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_35. Stevedore Damage",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_35__Stevedore_Damage_47"
+      }
+    ],
+    "Bills of Lading": [
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_BIMCO Electronic Bills of Lading Clause",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_BIMCO_Electronic_Bills_of_Lading_Clause_32"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Bills of Lading",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Bills_of_Lading_31"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_BIMCO Electronic Bills of Lading Clause",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_BIMCO_Electronic_Bills_of_Lading_Clause_33"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_30. Bills of Lading",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_30__Bills_of_Lading_39"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Bills of Lading",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Bills_of_Lading_32"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_BIMCO Electronic Bills of Lading Clause",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_BIMCO_Electronic_Bills_of_Lading_Clause_31"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Bills of Lading",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Bills_of_Lading_30"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_30. Bills of Lading",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_30__Bills_of_Lading_30"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_30. Bills of Lading",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_30__Bills_of_Lading_39"
+      }
+    ],
+    "Law and Arbitration": [
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Law and Arbitration",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Law_and_Arbitration_54"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Law and Arbitration",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Law_and_Arbitration_59"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Law and Arbitration",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Law_and_Arbitration_54"
+      }
+    ],
+    "Delivery": [
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Delivery",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Delivery_3"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Redelivery",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Redelivery_5"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_2. Delivery",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_2__Delivery_7"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_16. Delivery/Cancelling",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_16__Delivery_Cancelling_24"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Delivery",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Delivery_4"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Redelivery",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Redelivery_6"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire/Redelivery Areas and Notices",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_10__Rate_of_Hire_Redelivery_Areas_and_Notices_18"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_HOLDS ON DELIVERY",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_HOLDS_ON_DELIVERY_62"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_2. Delivery",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_2__Delivery_7"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_16. Delivery/Cancelling",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_16__Delivery_Cancelling_24"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire/Redelivery Areas and Notices",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_10__Rate_of_Hire_Redelivery_Areas_and_Notices_18"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_16. Delivery / Cancelling",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_16__Delivery___Cancelling_17"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire / Redelivery Areas and Notices",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_10__Rate_of_Hire___Redelivery_Areas_and_Notices_11"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_2. Delivery",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_2__Delivery_3"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Delivery",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Delivery_4"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Redelivery",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Redelivery_6"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_HOLDS ON DELIVERY",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_HOLDS_ON_DELIVERY_62"
+      }
+    ],
+    "War Risks": [
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_BIMCO War Risks Clause CONWARTIME 2013",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_BIMCO_War_Risks_Clause_CONWARTIME_2013_34"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_WAR RISKS CLAUSE FOR TIME CHARTERS 2004 (CODE NAME: CONWARTIME 2004)",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_WAR_RISKS_CLAUSE_FOR_TIME_CHARTERS_2004__CODE_NAME__CONWARTIME_2004__102"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_BIMCO War Risks Clause CONWARTIME 2013",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_BIMCO_War_Risks_Clause_CONWARTIME_2013_38"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_BIMCO War Risks Clause CONWARTIME 2013",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_BIMCO_War_Risks_Clause_CONWARTIME_2013_33"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_WAR RISKS CLAUSE FOR TIME CHARTERS 2004 (CODE NAME: CONWARTIME 2004)",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_WAR_RISKS_CLAUSE_FOR_TIME_CHARTERS_2004__CODE_NAME__CONWARTIME_2004__102"
+      }
+    ],
+    "Performance of Voyages": [
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Performance of Voyages",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Performance_of_Voyages_8"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Performance of Voyages",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Performance_of_Voyages_10"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Performance of Voyages",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Performance_of_Voyages_10"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_8. Performance of Voyages",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_8__Performance_of_Voyages_15"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_8. Performance of Voyages",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_8__Performance_of_Voyages_15"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_8. Performance of Voyages",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_8__Performance_of_Voyages_9"
+      }
+    ],
+    "Rate of Hire": [
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Rate_of_Hire__Hold_Cleaning__Communications__Victualing_and_Expenses_12"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire/Redelivery Areas and Notices",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_10__Rate_of_Hire_Redelivery_Areas_and_Notices_18"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Rate_of_Hire__Hold_Cleaning__Communications__Victualing_and_Expenses_12"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire/Redelivery Areas and Notices",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_10__Rate_of_Hire_Redelivery_Areas_and_Notices_18"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire / Redelivery Areas and Notices",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_10__Rate_of_Hire___Redelivery_Areas_and_Notices_11"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Rate_of_Hire__Hold_Cleaning__Communications__Victualing_and_Expenses_10"
+      }
+    ],
+    "General Average": [
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_General Average",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_General_Average_27"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_25. General Average",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_25__General_Average_34"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_General Average",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_General_Average_27"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_25. General Average",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_25__General_Average_34"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_25. General Average",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_25__General_Average_26"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_General Average",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_General_Average_25"
+      }
+    ],
+    "Redelivery": [
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Redelivery",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Redelivery_5"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Redelivery",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Redelivery_6"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire/Redelivery Areas and Notices",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_10__Rate_of_Hire_Redelivery_Areas_and_Notices_18"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire/Redelivery Areas and Notices",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_10__Rate_of_Hire_Redelivery_Areas_and_Notices_18"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_10. Rate of Hire / Redelivery Areas and Notices",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_10__Rate_of_Hire___Redelivery_Areas_and_Notices_11"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Redelivery",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Redelivery_6"
+      }
+    ],
+    "Off-Hire": [
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_CANCELLATION DUE OFF-HIRE",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_CANCELLATION_DUE_OFF-HIRE_79"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_On/Off-Hire Survey",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_On_Off-Hire_Survey_7"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Off-Hire",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Off-Hire_19"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_CANCELLATION DUE OFF-HIRE",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_CANCELLATION_DUE_OFF-HIRE_79"
+      }
+    ],
+    "Bunkers": [
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_BUNKERS",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_BUNKERS_89"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_9. Bunkers",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_9__Bunkers_16"
+      },
+      {
+        "vessel": "MV_HC_EVA_MARIE",
+        "heading": "contract_details/CLAUSE_Bunkers",
+        "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Bunkers_11"
+      },
+      {
+        "vessel": "MV_FRANZISKA",
+        "heading": "contract_details/CLAUSE_Bunkers",
+        "id": "MV_FRANZISKA_contract_details_CLAUSE_Bunkers_11"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_9. Bunkers",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_9__Bunkers_16"
+      },
+      {
+        "vessel": "MV_ATLANTIC_DAWN",
+        "heading": "contract_details/CLAUSE_9. Bunkers",
+        "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_9__Bunkers_10"
+      },
+      {
+        "vessel": "MV_ARA_ROTTERDAM",
+        "heading": "contract_details/CLAUSE_Bunkers",
+        "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Bunkers_9"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_BUNKERS",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_BUNKERS_89"
+      }
+    ],
+    "Insurance": [
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_EXTRA INSURANCE",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_EXTRA_INSURANCE_60"
+      },
+      {
+        "vessel": "MV__FREDENSBORG_",
+        "heading": "contract_details/CLAUSE_P&I INSURANCE",
+        "id": "MV__FREDENSBORG__contract_details_CLAUSE_P_I_INSURANCE_64"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_EXTRA INSURANCE",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_EXTRA_INSURANCE_60"
+      },
+      {
+        "vessel": "MV_FREDENSBORG",
+        "heading": "contract_details/CLAUSE_P&I INSURANCE",
+        "id": "MV_FREDENSBORG_contract_details_CLAUSE_P_I_INSURANCE_64"
+      }
+    ]
+  },
+  "reference_clauses": [
+    {
+      "vessel": "MV_ATLANTIC_DAWN",
+      "heading": "contract_details/CLAUSE_45. Arbitration",
+      "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_45__Arbitration_45"
+    },
+    {
+      "vessel": "MV_ARA_ROTTERDAM",
+      "heading": "contract_details/CLAUSE_Performance of Voyages",
+      "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Performance_of_Voyages_8"
+    },
+    {
+      "vessel": "MV_FRANZISKA",
+      "heading": "contract_details/CLAUSE_Performance of Voyages",
+      "id": "MV_FRANZISKA_contract_details_CLAUSE_Performance_of_Voyages_10"
+    },
+    {
+      "vessel": "MV_FRANZISKA",
+      "heading": "contract_details/CLAUSE_Spaces Available",
+      "id": "MV_FRANZISKA_contract_details_CLAUSE_Spaces_Available_15"
+    },
+    {
+      "vessel": "MV_FRANZISKA",
+      "heading": "contract_details/CLAUSE_Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses",
+      "id": "MV_FRANZISKA_contract_details_CLAUSE_Rate_of_Hire__Hold_Cleaning__Communications__Victualing_and_Expenses_12"
+    },
+    {
+      "vessel": "MV_FRANZISKA",
+      "heading": "contract_details/CLAUSE_General Average",
+      "id": "MV_FRANZISKA_contract_details_CLAUSE_General_Average_27"
+    },
+    {
+      "vessel": "MV_ARA_ROTTERDAM",
+      "heading": "contract_details/CLAUSE_Redelivery",
+      "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Redelivery_5"
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_9. Bunkers",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_9__Bunkers_16"
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_41. Stowaways - See Clause 52",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_41__Stowaways_-_See_Clause_52_53"
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_35. Stevedore Damage",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_35__Stevedore_Damage_47"
+    },
+    {
+      "vessel": "MV_HC_EVA_MARIE",
+      "heading": "contract_details/CLAUSE_Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses",
+      "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Rate_of_Hire__Hold_Cleaning__Communications__Victualing_and_Expenses_12"
+    },
+    {
+      "vessel": "MV_HC_EVA_MARIE",
+      "heading": "contract_details/CLAUSE_Spaces Available",
+      "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Spaces_Available_15"
+    },
+    {
+      "vessel": "MV_HC_EVA_MARIE",
+      "heading": "contract_details/CLAUSE_Performance of Voyages",
+      "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_Performance_of_Voyages_10"
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_See Clause 75",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_See_Clause_75_10"
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_25. General Average",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_25__General_Average_34"
+    },
+    {
+      "vessel": "MV_HC_EVA_MARIE",
+      "heading": "contract_details/CLAUSE_General Average",
+      "id": "MV_HC_EVA_MARIE_contract_details_CLAUSE_General_Average_27"
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_9. Bunkers",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_9__Bunkers_16"
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_See Clause 75",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_See_Clause_75_10"
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_25. General Average",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_25__General_Average_34"
+    },
+    {
+      "vessel": "MV_ARA_ROTTERDAM",
+      "heading": "contract_details/CLAUSE_Rate of Hire; Hold Cleaning; Communications; Victualing and Expenses",
+      "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Rate_of_Hire__Hold_Cleaning__Communications__Victualing_and_Expenses_10"
+    },
+    {
+      "vessel": "MV_ATLANTIC_DAWN",
+      "heading": "contract_details/CLAUSE_25. General Average",
+      "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_25__General_Average_26"
+    },
+    {
+      "vessel": "MV_ARA_ROTTERDAM",
+      "heading": "contract_details/CLAUSE_Spaces Available",
+      "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_Spaces_Available_13"
+    },
+    {
+      "vessel": "MV_ATLANTIC_DAWN",
+      "heading": "contract_details/CLAUSE_8. Performance of Voyages",
+      "id": "MV_ATLANTIC_DAWN_contract_details_CLAUSE_8__Performance_of_Voyages_9"
+    },
+    {
+      "vessel": "MV_ARA_ROTTERDAM",
+      "heading": "contract_details/CLAUSE_General Average",
+      "id": "MV_ARA_ROTTERDAM_contract_details_CLAUSE_General_Average_25"
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_41. Stowaways - See Clause 52",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_41__Stowaways_-_See_Clause_52_53"
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_35. Stevedore Damage",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_35__Stevedore_Damage_47"
+    }
+  ],
+  "short_clauses": [
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_VESSEL DESCRIPTION",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_VESSEL_DESCRIPTION_98",
+      "length": 40
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_CONFIDENTIAL FIXTURE",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_CONFIDENTIAL_FIXTURE_81",
+      "length": 95
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_RINA CERTIFICATES",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_RINA_CERTIFICATES_83",
+      "length": 33
+    },
+    {
+      "vessel": "MV__FREDENSBORG_",
+      "heading": "contract_details/CLAUSE_LANGUAGE",
+      "id": "MV__FREDENSBORG__contract_details_CLAUSE_LANGUAGE_80",
+      "length": 97
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_VESSEL DESCRIPTION",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_VESSEL_DESCRIPTION_98",
+      "length": 40
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_CONFIDENTIAL FIXTURE",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_CONFIDENTIAL_FIXTURE_81",
+      "length": 95
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_LANGUAGE",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_LANGUAGE_80",
+      "length": 97
+    },
+    {
+      "vessel": "MV_FREDENSBORG",
+      "heading": "contract_details/CLAUSE_RINA CERTIFICATES",
+      "id": "MV_FREDENSBORG_contract_details_CLAUSE_RINA_CERTIFICATES_83",
+      "length": 33
+    }
+  ]
+}

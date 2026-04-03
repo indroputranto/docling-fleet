@@ -1,0 +1,65 @@
+# ── Secrets & environment ────────────────────────────────────────────────────
+.env
+*.env
+*.env.*
+env_production.txt
+env_example.txt
+env_*.txt
+*_production.txt
+ngrok.yml
+production_config.py
+
+# ── Client data — NEVER commit (classified vessel documents & processed output)
+source/
+output/
+*.docx
+*.pdf
+*.xlsx
+*.xls
+.embedding_state.json
+
+# ── Database ─────────────────────────────────────────────────────────────────
+platform.db
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+pip-wheel-metadata/
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverrideName
+._*
+Thumbs.db
+
+# ── Backups & scratch ────────────────────────────────────────────────────────
+Backup/
+*.bak
+[BAK]*
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+flask.log
+debug.log
+langdock_upload.log
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+agency_attachment_mappings.json
+attachment_mappings.json
+CLAUSE_AUDIT_REPORT*.md
+~$*

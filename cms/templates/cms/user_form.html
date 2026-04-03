@@ -1,0 +1,53 @@
+{% extends "cms/base.html" %}
+
+{% block title %}New User{% endblock %}
+{% block topbar_title %}New User{% endblock %}
+{% block topbar_actions %}
+  <a href="{{ url_for('cms.dashboard') }}" class="btn btn-secondary btn-sm">← Back</a>
+{% endblock %}
+
+{% block content %}
+<form method="POST" style="max-width:500px;">
+  <div class="card">
+    <div class="card-header">User Details</div>
+    <div style="padding:22px;display:flex;flex-direction:column;gap:18px;">
+
+      <div class="form-group">
+        <label>Email <span style="color:#f85149;">*</span></label>
+        <input type="email" name="email" placeholder="user@client.com" required />
+      </div>
+
+      <div class="form-group">
+        <label>Password <span style="color:#f85149;">*</span></label>
+        <input type="password" name="password" placeholder="Min. 8 characters" required />
+      </div>
+
+      <div class="form-group">
+        <label>Role</label>
+        <select name="role">
+          <option value="user">User (chat only)</option>
+          <option value="admin">Admin (CMS access)</option>
+        </select>
+        <div class="form-hint">Admins can access the CMS and manage all clients.</div>
+      </div>
+
+      <div class="form-group">
+        <label>Assigned Client</label>
+        <select name="client_id">
+          <option value="">— All clients (admin use) —</option>
+          {% for c in clients %}
+          <option value="{{ c.client_id }}">{{ c.name }} ({{ c.client_id }})</option>
+          {% endfor %}
+        </select>
+        <div class="form-hint">Regular users are scoped to one client. Leave blank for admin accounts.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;margin-top:20px;">
+    <button type="submit" class="btn btn-primary">Create User</button>
+    <a href="{{ url_for('cms.dashboard') }}" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}

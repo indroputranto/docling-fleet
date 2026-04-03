@@ -1,0 +1,154 @@
+{% extends "cms/base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block topbar_title %}Dashboard{% endblock %}
+{% block topbar_actions %}
+  <a href="{{ url_for('cms.client_new') }}" class="btn btn-primary btn-sm">
+    + New Client
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stats row -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Total Clients</div>
+    <div style="font-size:28px;font-weight:700;">{{ clients|length }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Active Clients</div>
+    <div style="font-size:28px;font-weight:700;">{{ clients|selectattr('active')|list|length }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Total Users</div>
+    <div style="font-size:28px;font-weight:700;">{{ users|length }}</div>
+  </div>
+</div>
+
+<!-- Clients table -->
+<div class="card">
+  <div class="card-header">
+    Clients
+    <a href="{{ url_for('cms.client_new') }}" class="btn btn-secondary btn-sm">+ Add</a>
+  </div>
+  {% if clients %}
+  <table>
+    <thead>
+      <tr>
+        <th>Client ID</th>
+        <th>Name</th>
+        <th>LLM Model</th>
+        <th>Pinecone Namespace</th>
+        <th>Status</th>
+        <th>Updated</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+        <td><span class="font-mono">{{ c.client_id }}</span></td>
+        <td style="font-weight:500;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:28px;height:28px;border-radius:6px;background:{{ c.accent_color }};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">
+              {{ c.company_name[:2].upper() if c.company_name else c.client_id[:2].upper() }}
+            </div>
+            {{ c.name }}
+          </div>
+        </td>
+        <td class="text-muted font-mono">{{ c.llm_model }}</td>
+        <td class="text-muted font-mono">{{ c.pinecone_namespace or '(default)' }}</td>
+        <td>
+          {% if c.active %}
+            <span class="badge badge-green">Active</span>
+          {% else %}
+            <span class="badge badge-red">Inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-muted" style="font-size:12px;">
+          {{ c.updated_at.strftime('%d %b %Y') if c.updated_at else '—' }}
+        </td>
+        <td>
+          <div style="display:flex;gap:6px;justify-content:flex-end;">
+            <a href="{{ url_for('cms.client_edit', client_db_id=c.id) }}" class="btn btn-secondary btn-sm">Edit</a>
+            <form method="POST" action="{{ url_for('cms.client_toggle', client_db_id=c.id) }}" style="display:inline;">
+              <button class="btn btn-secondary btn-sm" type="submit">
+                {{ 'Deactivate' if c.active else 'Activate' }}
+              </button>
+            </form>
+            <form method="POST" action="{{ url_for('cms.client_delete', client_db_id=c.id) }}"
+                  style="display:inline;"
+                  onsubmit="return confirm('Delete client {{ c.name }}? This cannot be undone.')">
+              <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:40px;text-align:center;color:var(--muted);">
+    No clients yet. <a href="{{ url_for('cms.client_new') }}" style="color:var(--text);">Create your first client →</a>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Users table -->
+<div class="card section-gap">
+  <div class="card-header">
+    Users
+    <a href="{{ url_for('cms.user_new') }}" class="btn btn-secondary btn-sm">+ Add</a>
+  </div>
+  {% if users %}
+  <table>
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Client</th>
+        <th>Status</th>
+        <th>Last login</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td style="font-weight:500;">{{ u.email }}</td>
+        <td>
+          {% if u.role == 'admin' %}
+            <span class="badge badge-yellow">Admin</span>
+          {% else %}
+            <span class="badge" style="background:rgba(255,255,255,.07);color:var(--muted);">User</span>
+          {% endif %}
+        </td>
+        <td class="text-muted font-mono">{{ u.client_id or '(all)' }}</td>
+        <td>
+          {% if u.active %}
+            <span class="badge badge-green">Active</span>
+          {% else %}
+            <span class="badge badge-red">Inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-muted" style="font-size:12px;">
+          {{ u.last_login_at.strftime('%d %b %Y %H:%M') if u.last_login_at else 'Never' }}
+        </td>
+        <td>
+          <form method="POST" action="{{ url_for('cms.user_toggle', user_id=u.id) }}" style="display:inline;">
+            <button class="btn btn-secondary btn-sm" type="submit">
+              {{ 'Deactivate' if u.active else 'Activate' }}
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:40px;text-align:center;color:var(--muted);">No users yet.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

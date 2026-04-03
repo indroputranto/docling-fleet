@@ -1,0 +1,104 @@
+agency_schema:
+  agents:
+    - country: string  # Country name
+      port: string  # Port name
+      agent_name: string  # Full name of the agency
+      status: string  # Current status (e.g., "PREFERRED", "SECONDARY")
+      sanctioned: string  # Sanction status (e.g., "NO", "YES", "CHECK")
+      
+      contact:
+        email: string  # Primary email address
+        phone: string  # Primary phone number
+        fax: string  # Fax number
+        website: string  # Company website
+        address:
+          street: string  # Street address
+          city: string  # City
+          state_province: string  # State or province
+          postal_code: string  # Postal/ZIP code
+          country: string  # Country (should match parent country)
+        port3: string  # Additional port information
+      
+      contact_person:
+        name: string  # Person in charge (PIC)
+        position: string  # Position/title
+        email: string  # Contact person's email
+        phone: string  # Contact person's phone
+        mobile: string  # Contact person's mobile number
+      
+      services:
+        port_agency: boolean  # Whether provides port agency services
+        husbandry: boolean  # Whether provides husbandry services
+        cargo_operations: boolean  # Whether handles cargo operations
+        bunker_arrangements: boolean  # Whether arranges bunkers
+        crew_change: boolean  # Whether handles crew changes
+        spare_parts: boolean  # Whether handles spare parts
+        cash_to_master: boolean  # Whether provides cash to master
+        other_services: string  # List of other services provided
+      
+      operational_details:
+        working_hours: string  # Working hours
+        emergency_contact: string  # Emergency contact details
+        vessel_restrictions: string  # Any vessel restrictions
+        port_restrictions: string  # Any port restrictions
+        special_requirements: string  # Special requirements or notes
+      
+      financial:
+        currency: string  # Preferred currency
+        payment_terms: string  # Payment terms
+        bank_details:
+          bank_name: string  # Bank name
+          account_name: string  # Account name
+          account_number: string  # Account number
+          swift_code: string  # SWIFT/BIC code
+          iban: string  # IBAN (if applicable)
+      
+      documentation:
+        required_documents:  # List of required documents
+          - type: string  # Document type
+            format: string  # Document format (e.g., "PDF", "Original")
+            notes: string  # Any special notes
+        standard_forms:  # List of standard forms
+          - name: string  # Form name
+            format: string  # Form format
+            availability: string  # How to obtain the form
+      
+      compliance:
+        certifications:  # List of certifications
+          - type: string  # Certification type
+            number: string  # Certification number
+            issue_date: string  # Date of issue
+            expiry_date: string  # Date of expiry
+        insurance:
+          type: string  # Insurance type
+          coverage: string  # Coverage details
+          provider: string  # Insurance provider
+          policy_number: string  # Policy number
+      
+      remarks: string  # Additional remarks or notes
+
+  port_captains:
+    - country_resident: string  # Country of residence
+      company_name: string  # Company or individual name
+      status: string  # Current status (e.g., "PREFERRED", "SECONDARY", "BLACKLISTED")
+      contact:
+        name: string  # Contact person name
+        phone: string  # Phone number
+        email: string  # Email address
+      regions: string  # Regions covered
+      remarks: string  # Additional remarks or notes
+
+  suppliers:
+    - country: string  # Country name
+      services:
+        lashing_lifting: boolean  # Whether provides lashing/lifting equipment
+        manpower: boolean  # Whether provides manpower (lashing/welding)
+        other: string  # Other supplier services
+      company_name: string  # Company name
+      contact:
+        email: string  # Email address
+        phone: string  # Phone number
+      contact_person:
+        primary: string  # Primary contact person
+        secondary: string  # Secondary contact person
+      remarks: string  # Additional remarks or notes 

@@ -1,0 +1,88 @@
+
+DEBUG: First 20 paragraphs from DOCX:
+Para 0: 1. Vessel Details
+Para 1: Vessel name:MV ARA ROTTERDAM
+Para 2: Vessel Specifications: Refer to original document for full specifications.
+Para 3: Registration
+Para 4: Call sign: CQ2030
+Para 5: IMO number: 9549566
+Para 6: Port of registry: Madeira
+Para 7: Flag state: Portugal
+Para 8: Shipyard: Damen Yichang Shipyard
+Para 9: Year/Place of delivery: 2012 / Shanghai
+Para 10: Class: DNV
+Para 11: Class notation:
+100 A5 E3 DBC DG
+Multi-purpose dry cargo ship
+Strength. for heavy cargo
+MC E3 AUT
+Ice class 1A
+Para 12: 
+Para 13: P&I Club
+Para 14: NorthStandard
+Para 15: 
+Para 16: Tonnage
+Para 17: DWAT: 13,536 mt (incl. tween decks)
+Para 18: DWCC: 12,400 mt (est.)
+Para 19: Gross tonnage: 9,963
+DEBUG: Processing section: vessel_details
+DEBUG: Entered vessel_details extraction block
+
+DEBUG: vessel_details - First 40 paragraphs (normalized):
+Para 0: "1. Vessel Details" | normalized: "1.vesseldetails"
+Para 1: "Vessel name:MV ARA ROTTERDAM" | normalized: "vesselname:mvararotterdam"
+Para 2: "Vessel Specifications: Refer to original document for full specifications." | normalized: "vesselspecifications:refertooriginaldocumentforfullspecifications."
+Para 3: "Registration" | normalized: "registration"
+Para 4: "Call sign: CQ2030" | normalized: "callsign:cq2030"
+Para 5: "IMO number: 9549566" | normalized: "imonumber:9549566"
+Para 6: "Port of registry: Madeira" | normalized: "portofregistry:madeira"
+Para 7: "Flag state: Portugal" | normalized: "flagstate:portugal"
+Para 8: "Shipyard: Damen Yichang Shipyard" | normalized: "shipyard:damenyichangshipyard"
+Para 9: "Year/Place of delivery: 2012 / Shanghai" | normalized: "year/placeofdelivery:2012/shanghai"
+Para 10: "Class: DNV" | normalized: "class:dnv"
+Para 11: "Class notation:
+100 A5 E3 DBC DG
+Multi-purpose dry cargo ship
+Strength. for heavy cargo
+MC E3 AUT
+Ice class 1A" | normalized: "classnotation:100a5e3dbcdgmulti-purposedrycargoshipstrength.forheavycargomce3auticeclass1a"
+Para 12: "" | normalized: ""
+Para 13: "P&I Club" | normalized: "p&iclub"
+Para 14: "NorthStandard" | normalized: "northstandard"
+Para 15: "" | normalized: ""
+Para 16: "Tonnage" | normalized: "tonnage"
+Para 17: "DWAT: 13,536 mt (incl. tween decks)" | normalized: "dwat:13,536mt(incl.tweendecks)"
+Para 18: "DWCC: 12,400 mt (est.)" | normalized: "dwcc:12,400mt(est.)"
+Para 19: "Gross tonnage: 9,963" | normalized: "grosstonnage:9,963"
+Para 20: "Net tonnage: 4,937" | normalized: "nettonnage:4,937"
+Para 21: "" | normalized: ""
+Para 22: "Dimensions" | normalized: "dimensions"
+Para 23: "Length over all: 146.25 m" | normalized: "lengthoverall:146.25m"
+Para 24: "Length between p.p.: 136.99 m" | normalized: "lengthbetweenp.p.:136.99m"
+Para 25: "Breadth overall / moulded: 20.10 m" | normalized: "breadthoverall/moulded:20.10m"
+Para 26: "Summer draught: 8.25 m" | normalized: "summerdraught:8.25m"
+Para 27: "Depth moulded: 11.45 m" | normalized: "depthmoulded:11.45m"
+Para 28: "Height keel to top mast: 39.70 m" | normalized: "heightkeeltotopmast:39.70m"
+Para 29: "" | normalized: ""
+Para 30: "Propulsion / Manoeuvring" | normalized: "propulsion/manoeuvring"
+Para 31: "Main Engine: 6,000 kW" | normalized: "mainengine:6,000kw"
+Para 32: "Bow thruster: 720 kW" | normalized: "bowthruster:720kw"
+Para 33: "Propeller: CPP" | normalized: "propeller:cpp"
+Para 34: "Rudder: Balanced" | normalized: "rudder:balanced"
+Para 35: "Service speed: 14.0 kn" | normalized: "servicespeed:14.0kn"
+Para 36: "" | normalized: ""
+Para 37: "Bunkers / Ballast Capacity" | normalized: "bunkers/ballastcapacity"
+Para 38: "Heavy fuel oil: 733 m³" | normalized: "heavyfueloil:733m³"
+Para 39: "Marine gas oil: 91 m³" | normalized: "marinegasoil:91m³"
+Found vessel_details start marker at paragraph 0: "1. Vessel Details"
+Found vessel_details end marker at paragraph 84: "2. Contract Details"
+Extracting vessel_details from index 1 to 84
+Extracted lines for vessel_details: ['Vessel name:MV ARA ROTTERDAM', 'Vessel Specifications: Refer to original document for full specifications.', 'Registration', 'Call sign: CQ2030', 'IMO number: 9549566', 'Port of registry: Madeira', 'Flag state: Portugal', 'Shipyard: Damen Yichang Shipyard', 'Year/Place of delivery: 2012 / Shanghai', 'Class: DNV', 'Class notation:\n100 A5 E3 DBC DG\nMulti-purpose dry cargo ship\nStrength. for heavy cargo\nMC E3 AUT\nIce class 1A', 'P&I Club', 'NorthStandard', 'Tonnage', 'DWAT: 13,536 mt (incl. tween decks)', 'DWCC: 12,400 mt (est.)', 'Gross tonnage: 9,963', 'Net tonnage: 4,937', 'Dimensions', 'Length over all: 146.25 m', 'Length between p.p.: 136.99 m', 'Breadth overall / moulded: 20.10 m', 'Summer draught: 8.25 m', 'Depth moulded: 11.45 m', 'Height keel to top mast: 39.70 m', 'Propulsion / Manoeuvring', 'Main Engine: 6,000 kW', 'Bow thruster: 720 kW', 'Propeller: CPP', 'Rudder: Balanced', 'Service speed: 14.0 kn', 'Bunkers / Ballast Capacity', 'Heavy fuel oil: 733 m³', 'Marine gas oil: 91 m³', 'Fresh water: 117 m³', 'Ballast water: 6,383 m³', 'Cargo Gear', 'Cranes on port side: 2 × MacGregor × 80 mt SWL', 'Load/Outreach:', '80 mt @ 6.0–14.0 m', '60 mt @ 6.0–19.0 m', '40 mt @ 6.0–26.0 m', '32 mt @ 2.5–34.0 m', 'Tandem load: 160 mt SWL', 'Lifting/spreader beams: None on board', 'Hold/Hatch Sizes', 'Holds/Hatches: 2 / 2', 'Hold capacity: 17,242 m³ / 609,000 ft³', '#1 tanktop: 26.91 × 15.77 / 10.45 / 5.20 m', '#1 tween: 26.91 × 10.45 / 10.45 / 5.20 m', '#1 hatch: 27.00 × 16.27 / 10.96 m', '#2 tanktop: 69.00 × 15.77 / 10.48 m', '#2 tween: 69.00 × 15.77 m', '#2 hatch: 70.00 × 16.27 m', 'Heights', 'Hold height: 12.10 m', '1st pos. Tanktop → TD: 5.61 m', 'TD → Hatch: 5.58 m', '2nd pos. Tanktop → TD: 3.03 m', 'TD → Hatch: 8.19 m', 'Surface Areas', 'Hold floor surface: 1,350 m²', 'Hatch cover surface: 1,516 m²', 'Container Capacity', 'Hold: 312 TEU', 'Deck: 400 TEU (80 reefer)', 'Total: 712 TEU', 'Stack weight TEU/FEU:', 'Tanktop: 100 / 135 mt', 'Hatchcovers: 50 / 65 mt', 'IMDG slots:', 'Class 1.1–1.6: In Hold #1 and on deck', 'Class 1.4S: In Hold #1 & #2 and on deck']
+Extracted 73 lines for vessel_details.
+DEBUG: Processing section: contract_details
+DEBUG: Processing section: delivery_figures
+DEBUG: Processing section: speed_and_consumption
+DEBUG: Processing section: lifting_equipment
+DEBUG: Processing section: hseq_documentation
+DEBUG: Processing section: addendum
+Vessel data processing completed. Output file generated in the output directory.
