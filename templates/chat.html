@@ -898,15 +898,34 @@ function _clearAuth() {
   sessionStorage.removeItem('auth_user');
   _applyAuthUI();
 }
-function _restoreAuth() {
+async function _restoreAuth() {
+  // 1. Try sessionStorage first (same-tab logins and page refreshes)
   const t = sessionStorage.getItem('auth_token');
   const u = sessionStorage.getItem('auth_user');
-  if (t && u) { authToken = t; currentUser = JSON.parse(u); _applyAuthUI(); }
+  if (t && u) {
+    authToken = t; currentUser = JSON.parse(u);
+    _applyAuthUI();
+    return;
+  }
+  // 2. Fall back to the CMS session cookie — handles the case where the user
+  //    is already logged into the CMS and opens the chat in a new tab.
+  //    /auth/session checks the httpOnly cms_token cookie server-side and
+  //    returns a fresh Bearer token if valid, so we never touch the cookie directly.
+  try {
+    const res = await fetch('/auth/session', { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      _saveAuth(data.access_token, data.user);  // also calls _applyAuthUI
+    }
+  } catch (_) {
+    // Network error or 401 — not logged in, leave UI as-is (Sign In visible)
+  }
 }
 function _applyAuthUI() {
+  const hasCmsAccess = currentUser?.role === 'admin' || currentUser?.role === 'client_admin';
   document.getElementById('login-btn').style.display  = currentUser ? 'none' : 'flex';
   document.getElementById('logout-btn').style.display = currentUser ? 'flex' : 'none';
-  document.getElementById('cms-btn').style.display    = (currentUser?.role === 'admin') ? 'flex' : 'none';
+  document.getElementById('cms-btn').style.display    = hasCmsAccess ? 'flex' : 'none';
 }
 
 function openLoginModal()  {
@@ -1244,7 +1263,7 @@ function escHtml(str) {
 // ============================================================
 // Boot
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const input = document.getElementById('user-input');
   input.addEventListener('input', () => autoResize(input));
   input.addEventListener('keydown', e => {
@@ -1255,7 +1274,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === document.getElementById('login-modal')) closeLoginModal();
   });
 
-  _restoreAuth();
+  await _restoreAuth();   // async: checks sessionStorage then falls back to cms_token cookie
   init();
 });
 </script>

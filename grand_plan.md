@@ -151,7 +151,29 @@ All database queries in the dashboard and user management routes are branched on
 - **User form:** Role and client assignment (platform admin full control); read-only for client admins
 - Auth: httpOnly `cms_token` cookie, 8h session, redirects to `/cms/login` when expired
 
-### 5.6 System Prompt (`prompt.md`)
+### 5.7 Document Upload Pipeline (`/documents`)
+
+A human-in-the-loop upload interface for building and maintaining each client's knowledge base. Accessible to Platform Admins and Client Admins; end users (chat-only) cannot upload.
+
+**Workflow:**
+
+1. **Upload** — drag-and-drop or file-browse; accepts `.docx`, `.pdf`, `.xlsx`
+2. **Extract** — `documents/extractor.py` parses the file into discrete chunks using clause-aware detection (matches `CLAUSE N`, `N.`, `PART II`, `ANNEX A` patterns common in charter parties). Each chunk gets a title and body.
+3. **Review & Edit** — the user sees every chunk as an editable card. They can correct titles, fix parser errors, delete junk chunks, or add chunks manually. Nothing is sent to Pinecone until this step is approved.
+4. **Save** — `documents/embedder.py` embeds each chunk via OpenAI `text-embedding-3-small` and upserts to the client's Pinecone index/namespace. Each vector is stored with metadata (client_id, document_id, filename, chunk_title, position).
+5. **Library** — the document history page shows all uploaded documents with status (Draft / Live / Error), chunk count, upload date, and uploader. Delete removes both the DB record and all associated Pinecone vectors.
+
+**DB models:**
+- `Document` — one row per uploaded file; tracks filename, type, status, chunk_count, uploaded_by, uploaded_at, activated_at
+- `DocumentChunk` — one row per embeddable chunk; stores title, body, position, and pinecone_id after embedding
+
+**Key design decisions:**
+- Extraction is synchronous (fast enough for charter parties; no async/SSE needed in Phase 2)
+- The review step is the differentiator — operators can catch parser misses before they corrupt the knowledge base
+- Deletion is clean: vector IDs are deterministic (`{client_id}:doc:{doc_id}:chunk:{pos}`) and stored on each chunk row, enabling targeted Pinecone deletes
+- Platform Admins see a client-switcher dropdown; Client Admins are auto-scoped to their own client
+
+### 5.8 System Prompt (`prompt.md`)
 The instruction set defining how Claude behaves for a given client. Whitelabeled via placeholder tokens:
 
 - `[CLIENT_NAME]` — the client's company/fleet name
@@ -177,10 +199,12 @@ Single-tenant Flask app with hardcoded client config, full RAG pipeline, chat UI
 Database-driven client management. Same Flask app, new `/cms` blueprint.
 
 **Deliverables completed:**
-- `models.py` — `ClientConfig` and `User` SQLAlchemy models
-- `cms/routes.py` — full CRUD for clients and users
+- `models.py` — `ClientConfig`, `User`, `Document`, `DocumentChunk` SQLAlchemy models
+- `cms/routes.py` — full CRUD for clients and users; 3-tier role scoping
 - CMS templates: dashboard, client form (with Chat UX section), user form, login
 - `client_config.py` updated to query DB first, fall back to hardcoded registry
+- `documents/` Blueprint — full document upload pipeline (see Section 5.7)
+- `migrate_db.py` — idempotent schema migration script for adding columns to existing DBs
 
 **Remaining CMS items:**
 - Usage counters (API calls per client, per day/month)

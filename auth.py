@@ -266,3 +266,51 @@ def me():
     Returns the current user's profile.
     """
     return jsonify(g.current_user.to_dict())
+
+
+@auth_bp.route("/session", methods=["GET"])
+def session():
+    """
+    GET /auth/session
+    Cookie-to-Bearer bridge for the chat interface.
+
+    The CMS sets an httpOnly cms_token cookie on login. When the user
+    opens the chat in a new tab, sessionStorage is empty so the chat
+    shows "Sign In" even though the user is already authenticated.
+
+    This endpoint checks the cms_token cookie and — if valid — returns
+    a fresh access token + user dict that the chat can store in
+    sessionStorage, creating a seamless cross-entity logged-in state.
+
+    Returns 401 (no body) if the cookie is absent, invalid, or expired.
+    The chat treats 401 as "not logged in" and shows the Sign In button normally.
+    """
+    token = request.cookies.get("cms_token")
+    if not token:
+        return jsonify({"error": "No session cookie"}), 401
+
+    try:
+        payload = _decode_token(token)
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Session expired"}), 401
+    except jwt.PyJWTError:
+        return jsonify({"error": "Invalid session"}), 401
+
+    if payload.get("type") != "access":
+        return jsonify({"error": "Invalid token type"}), 401
+
+    user = User.query.filter_by(email=payload["sub"], active=True).first()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 401
+
+    # Issue a fresh access token so the chat has a valid Bearer token
+    # to attach to /api/chat/ requests for this session.
+    access_token = _make_token(user, ACCESS_EXPIRES)
+
+    logger.info(f"[auth] Session hydrated for {user.email} via cms_token cookie")
+
+    return jsonify({
+        "access_token": access_token,
+        "expires_in":   int(ACCESS_EXPIRES.total_seconds()),
+        "user":         user.to_dict(),
+    })
