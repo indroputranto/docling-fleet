@@ -15,7 +15,7 @@ from typing import List, Dict, Any
 import hashlib
 
 # Pinecone configuration
-PINECONE_API_KEY = "pcsk_3Q5vmu_E7oUn86efDCN2LoKoWnmrAzogTfjNQMXfCe82CR6RQTjRX1JAa1DspBirEKEC5v"
+PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "")
 PINECONE_HOST = "https://vessel-embeddings-u2t79ad.svc.aped-4627-b74a.pinecone.io"
 INDEX_NAME = "vessel-embeddings"
 
