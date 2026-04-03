@@ -1,0 +1,361 @@
+{% extends "cms/base.html" %}
+
+{% block title %}Review — {{ doc.filename }}{% endblock %}
+{% block topbar_title %}Review Document{% endblock %}
+
+{% block head %}
+<style>
+  /* ── Progress bar ── */
+  .steps {
+    display: flex; align-items: center; gap: 0;
+    margin-bottom: 28px;
+  }
+  .step {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 500; color: var(--muted);
+  }
+  .step-num {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    background: rgba(255,255,255,.08); color: var(--muted);
+    flex-shrink: 0;
+  }
+  .step.done .step-num   { background: var(--green); color: #fff; }
+  .step.active .step-num { background: var(--accent); color: #fff; }
+  .step.active           { color: var(--text); }
+  .step-line {
+    flex: 1; height: 1px; background: var(--border);
+    margin: 0 12px; min-width: 32px;
+  }
+
+  /* ── Doc meta ── */
+  .doc-meta {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 20px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 24px; font-size: 13px;
+  }
+  .doc-meta-name { font-weight: 600; }
+  .doc-meta-info { color: var(--muted); }
+
+  /* ── Chunk cards ── */
+  .chunk-list { display: flex; flex-direction: column; gap: 16px; }
+
+  .chunk-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    transition: border-color .15s;
+  }
+  .chunk-card:focus-within { border-color: var(--accent-h); }
+  .chunk-card.deleted {
+    opacity: .4; pointer-events: none; position: relative;
+  }
+  .chunk-card.deleted::after {
+    content: 'Marked for deletion';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: var(--red);
+    background: rgba(0,0,0,.5); border-radius: var(--radius);
+  }
+
+  .chunk-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .chunk-num {
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    background: rgba(255,255,255,.06);
+    padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
+  }
+  .chunk-title-input {
+    flex: 1; background: transparent; border: none; outline: none;
+    font-size: 13px; font-weight: 600; color: var(--text);
+    font-family: inherit; padding: 0;
+  }
+  .chunk-title-input::placeholder { color: var(--muted); font-weight: 400; }
+
+  .chunk-body-wrap { padding: 12px 14px; }
+  .chunk-body-textarea {
+    width: 100%; background: transparent; border: none; outline: none;
+    font-size: 13px; line-height: 1.7; color: var(--text);
+    font-family: inherit; resize: vertical; min-height: 120px; padding: 0;
+  }
+
+  .chunk-footer {
+    padding: 8px 14px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--muted);
+  }
+  .chunk-word-count { }
+
+  .btn-delete-chunk {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500;
+    background: rgba(218,54,51,.1); color: var(--red);
+    border: 1px solid rgba(218,54,51,.2); cursor: pointer;
+    font-family: inherit; transition: background .15s;
+  }
+  .btn-delete-chunk:hover { background: rgba(218,54,51,.2); }
+  .btn-undo-chunk {
+    display: none; /* shown only on deleted cards via JS */
+    padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500;
+    background: rgba(35,134,54,.1); color: var(--green);
+    border: 1px solid rgba(35,134,54,.2); cursor: pointer;
+    font-family: inherit;
+  }
+
+  /* ── Add chunk button ── */
+  .add-chunk-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px; border: 2px dashed var(--border); border-radius: var(--radius);
+    background: transparent; color: var(--muted); font-size: 13px;
+    font-family: inherit; cursor: pointer; width: 100%; margin-top: 4px;
+    transition: border-color .15s, color .15s;
+  }
+  .add-chunk-btn:hover { border-color: var(--accent); color: var(--text); }
+
+  /* ── Bottom action bar ── */
+  .action-bar {
+    position: sticky; bottom: 0; z-index: 10;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 28px -28px -28px;
+  }
+  .action-bar-left { font-size: 13px; color: var(--muted); }
+  .action-bar-left strong { color: var(--text); }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+  <a href="{{ url_for('documents.library', client=doc.client_id) }}"
+     class="btn btn-secondary btn-sm">← Back to Library</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Step progress ── #}
+<div class="steps">
+  <div class="step done">
+    <div class="step-num">✓</div>
+    <span>Upload</span>
+  </div>
+  <div class="step-line"></div>
+  <div class="step active">
+    <div class="step-num">2</div>
+    <span>Review &amp; Edit</span>
+  </div>
+  <div class="step-line"></div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <span>Save to Knowledge Base</span>
+  </div>
+</div>
+
+{# ── Document meta ── #}
+<div class="doc-meta">
+  <span class="file-type-badge" style="font-size:11px; padding:3px 9px; border-radius:20px; background:rgba(255,255,255,.08); color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em;">
+    {{ doc.file_type | upper }}
+  </span>
+  <span class="doc-meta-name">{{ doc.filename }}</span>
+  <span class="doc-meta-info">·</span>
+  <span class="doc-meta-info" id="live-chunk-count">{{ chunks | length }} chunks</span>
+  <span class="doc-meta-info">·</span>
+  <span class="doc-meta-info">Uploaded {{ doc.uploaded_at.strftime('%d %b %Y, %H:%M') }}</span>
+</div>
+
+<p style="font-size:13px; color:var(--muted); margin-bottom:20px;">
+  Review each chunk below. Edit titles and content as needed — the title will be
+  used as context when the AI retrieves this chunk. Delete chunks that contain
+  junk or irrelevant content. When satisfied, click <strong>Save to Knowledge Base</strong>.
+</p>
+
+{# ── Chunk editor form ── #}
+<form id="preview-form" method="POST"
+      action="{{ url_for('documents.save', doc_id=doc.id) }}">
+  <input type="hidden" name="deleted_positions" id="deleted-positions" value="" />
+
+  <div class="chunk-list" id="chunk-list">
+    {% for chunk in chunks %}
+    <div class="chunk-card" id="card-{{ chunk.position }}" data-position="{{ chunk.position }}">
+      <div class="chunk-header">
+        <span class="chunk-num">#{{ loop.index }}</span>
+        <input
+          class="chunk-title-input"
+          type="text"
+          name="chunk_{{ chunk.position }}_title"
+          value="{{ chunk.title or '' }}"
+          placeholder="Add a title for this chunk…"
+        />
+      </div>
+      <div class="chunk-body-wrap">
+        <textarea
+          class="chunk-body-textarea"
+          name="chunk_{{ chunk.position }}_body"
+          oninput="autoResize(this); updateWordCount(this)"
+        >{{ chunk.body }}</textarea>
+      </div>
+      <div class="chunk-footer">
+        <span class="chunk-word-count" id="wc-{{ chunk.position }}">
+          {{ chunk.body.split() | length }} words
+        </span>
+        <div>
+          <button type="button" class="btn-delete-chunk"
+                  onclick="markDeleted({{ chunk.position }}, this)">
+            Remove chunk
+          </button>
+          <button type="button" class="btn-undo-chunk" style="display:none;"
+                  onclick="undoDeleted({{ chunk.position }}, this)">
+            Undo remove
+          </button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Add chunk ── #}
+  <button type="button" class="add-chunk-btn" onclick="addChunk()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Add a chunk manually
+  </button>
+
+  {# ── Action bar ── #}
+  <div class="action-bar">
+    <div class="action-bar-left">
+      <strong id="final-chunk-count">{{ chunks | length }}</strong> chunks will be saved to the knowledge base
+    </div>
+    <div style="display:flex; gap:10px;">
+      <a href="{{ url_for('documents.library', client=doc.client_id) }}"
+         class="btn btn-secondary">Discard</a>
+      <button type="submit" class="btn btn-primary" id="save-btn"
+              onclick="return confirmSave()">
+        Save to Knowledge Base →
+      </button>
+    </div>
+  </div>
+</form>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  const deletedPositions = new Set();
+  let nextPosition = {{ chunks | length }};  // for new chunks
+
+  // ── Auto-resize textareas ──────────────────────────────────────────────────
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = (el.scrollHeight) + 'px';
+  }
+
+  document.querySelectorAll('.chunk-body-textarea').forEach(ta => {
+    autoResize(ta);
+  });
+
+  // ── Word count ────────────────────────────────────────────────────────────
+  function updateWordCount(ta) {
+    const card = ta.closest('.chunk-card');
+    const pos  = card.dataset.position;
+    const wcEl = document.getElementById('wc-' + pos);
+    if (wcEl) {
+      const words = ta.value.trim().split(/\s+/).filter(Boolean).length;
+      wcEl.textContent = words + ' words';
+    }
+  }
+
+  document.querySelectorAll('.chunk-body-textarea').forEach(ta => {
+    ta.addEventListener('input', () => updateWordCount(ta));
+  });
+
+  // ── Delete / undo chunk ───────────────────────────────────────────────────
+  function markDeleted(position, btn) {
+    deletedPositions.add(position);
+    syncDeletedField();
+    const card = document.getElementById('card-' + position);
+    card.classList.add('deleted');
+    btn.style.display = 'none';
+    const undoBtn = card.querySelector('.btn-undo-chunk');
+    if (undoBtn) undoBtn.style.display = 'inline-flex';
+    updateChunkCount();
+  }
+
+  function undoDeleted(position, btn) {
+    deletedPositions.delete(position);
+    syncDeletedField();
+    const card = document.getElementById('card-' + position);
+    card.classList.remove('deleted');
+    btn.style.display = 'none';
+    const delBtn = card.querySelector('.btn-delete-chunk');
+    if (delBtn) delBtn.style.display = 'inline-flex';
+    updateChunkCount();
+  }
+
+  function syncDeletedField() {
+    document.getElementById('deleted-positions').value =
+      Array.from(deletedPositions).join(',');
+  }
+
+  // ── Chunk count display ───────────────────────────────────────────────────
+  function updateChunkCount() {
+    const total = document.querySelectorAll('.chunk-card').length;
+    const active = total - deletedPositions.size;
+    document.getElementById('final-chunk-count').textContent = active;
+    document.getElementById('live-chunk-count').textContent  = active + ' chunks';
+  }
+
+  // ── Add new chunk ─────────────────────────────────────────────────────────
+  function addChunk() {
+    const pos  = nextPosition++;
+    const list = document.getElementById('chunk-list');
+    const card = document.createElement('div');
+    card.className = 'chunk-card';
+    card.id        = 'card-' + pos;
+    card.dataset.position = pos;
+    const index = list.children.length + 1;
+
+    card.innerHTML = `
+      <div class="chunk-header">
+        <span class="chunk-num">#${index}</span>
+        <input class="chunk-title-input" type="text"
+               name="chunk_${pos}_title" placeholder="Chunk title…" />
+      </div>
+      <div class="chunk-body-wrap">
+        <textarea class="chunk-body-textarea"
+                  name="chunk_${pos}_body"
+                  oninput="autoResize(this); updateWordCount(this)"
+                  style="min-height:80px;"></textarea>
+      </div>
+      <div class="chunk-footer">
+        <span class="chunk-word-count" id="wc-${pos}">0 words</span>
+        <div>
+          <button type="button" class="btn-delete-chunk"
+                  onclick="markDeleted(${pos}, this)">Remove chunk</button>
+          <button type="button" class="btn-undo-chunk" style="display:none;"
+                  onclick="undoDeleted(${pos}, this)">Undo remove</button>
+        </div>
+      </div>
+    `;
+
+    list.appendChild(card);
+    card.querySelector('textarea').focus();
+    updateChunkCount();
+  }
+
+  // ── Confirm save ──────────────────────────────────────────────────────────
+  function confirmSave() {
+    const total  = document.querySelectorAll('.chunk-card').length;
+    const active = total - deletedPositions.size;
+    if (active === 0) {
+      alert('No chunks to save. Add content before saving.');
+      return false;
+    }
+    const btn = document.getElementById('save-btn');
+    btn.textContent = 'Saving…';
+    btn.disabled = true;
+    return true;
+  }
+</script>
+{% endblock %}

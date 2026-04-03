@@ -1,0 +1,281 @@
+{% extends "cms/base.html" %}
+
+{% block title %}Documents{% endblock %}
+{% block topbar_title %}Knowledge Base{% endblock %}
+
+{% block head %}
+<style>
+  .doc-toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .doc-toolbar .client-picker {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .doc-toolbar select {
+    width: auto; min-width: 180px;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 40px 28px; text-align: center;
+    background: var(--surface); margin-bottom: 28px;
+    transition: border-color .2s, background .2s;
+    cursor: pointer;
+  }
+  .upload-zone.drag-over {
+    border-color: var(--accent); background: rgba(15,52,96,.12);
+  }
+  .upload-zone h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .upload-zone p  { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .upload-zone .file-types {
+    display: inline-flex; gap: 8px; margin-bottom: 20px;
+  }
+  .file-type-badge {
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    background: rgba(255,255,255,.08); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  #file-input { display: none; }
+  #selected-file {
+    font-size: 13px; color: var(--text); margin-top: 10px;
+    display: none; align-items: center; gap: 8px; justify-content: center;
+  }
+  #selected-file svg { color: var(--green); }
+
+  /* Status badges */
+  .badge-blue   { background: rgba(15,52,96,.3);  color: #58a6ff; }
+  .badge-blue::before   { background: #58a6ff; }
+  .badge-orange { background: rgba(210,153,34,.2); color: #f0a500; }
+  .badge-orange::before { background: #f0a500; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 60px 28px;
+    color: var(--muted);
+  }
+  .empty-state svg { opacity: .3; margin-bottom: 16px; }
+  .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .empty-state p  { font-size: 13px; }
+
+  /* Progress spinner for upload button */
+  .btn-uploading { opacity: .7; pointer-events: none; }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+  {% if is_platform_admin and active_client %}
+    <span class="text-muted" style="font-size:13px;">
+      Viewing: <strong>{{ active_client.name }}</strong>
+    </span>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{# ── Client switcher (Platform Admin only) ── #}
+{% if is_platform_admin %}
+<div class="doc-toolbar">
+  <div class="client-picker">
+    <label style="margin:0; font-size:13px; color:var(--muted);">Client:</label>
+    <select onchange="window.location.href='/documents/?client='+this.value">
+      <option value="">— All clients —</option>
+      {% for c in all_clients %}
+        <option value="{{ c.client_id }}"
+          {% if active_client and c.client_id == active_client.client_id %}selected{% endif %}>
+          {{ c.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+{% endif %}
+
+{# ── Upload form (only shown when a client is selected) ── #}
+{% if active_client_id %}
+<form id="upload-form" method="POST" action="{{ url_for('documents.upload') }}"
+      enctype="multipart/form-data">
+  <input type="hidden" name="client_id" value="{{ active_client_id }}" />
+
+  <div class="upload-zone" id="drop-zone"
+       onclick="document.getElementById('file-input').click()">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="1.5" style="opacity:.4;margin-bottom:12px;">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <h3>Drop a document here or click to browse</h3>
+    <p>Vessel charter parties, addenda, schedules, and spreadsheets</p>
+    <div class="file-types">
+      <span class="file-type-badge">DOCX</span>
+      <span class="file-type-badge">PDF</span>
+      <span class="file-type-badge">XLSX</span>
+    </div>
+    <input type="file" id="file-input" name="file"
+           accept=".docx,.pdf,.xlsx" />
+    <div id="selected-file">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      <span id="selected-file-name"></span>
+    </div>
+    <div style="margin-top:16px;">
+      <button type="submit" class="btn btn-primary" id="upload-btn"
+              onclick="event.stopPropagation()" style="display:none;">
+        Extract &amp; Preview →
+      </button>
+    </div>
+  </div>
+</form>
+{% else %}
+  {% if is_platform_admin %}
+  <div class="card" style="padding:20px 24px; margin-bottom:24px; color:var(--muted); font-size:13px;">
+    Select a client above to upload documents or view their knowledge base.
+  </div>
+  {% endif %}
+{% endif %}
+
+{# ── Document table ── #}
+<div class="card">
+  <div class="card-header">
+    <span>
+      Documents
+      {% if active_client %}— {{ active_client.name }}{% endif %}
+    </span>
+    <span class="text-muted" style="font-size:12px; font-weight:400;">
+      {{ docs | length }} document{% if docs | length != 1 %}s{% endif %}
+    </span>
+  </div>
+
+  {% if docs %}
+  <table>
+    <thead>
+      <tr>
+        <th>Filename</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Chunks</th>
+        {% if is_platform_admin and not active_client_id %}<th>Client</th>{% endif %}
+        <th>Uploaded</th>
+        <th>By</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in docs %}
+      <tr>
+        <td>
+          <span style="font-weight:500;">{{ doc.filename }}</span>
+          {% if doc.status == 'error' and doc.error_message %}
+          <br><span style="font-size:11px; color:var(--red);">{{ doc.error_message[:80] }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="file-type-badge" style="font-size:11px;">{{ doc.file_type | upper }}</span>
+        </td>
+        <td>
+          {% if doc.status == 'active' %}
+            <span class="badge badge-green">Live</span>
+          {% elif doc.status == 'draft' %}
+            <span class="badge badge-blue">Draft</span>
+          {% elif doc.status == 'processing' %}
+            <span class="badge badge-orange">Processing</span>
+          {% else %}
+            <span class="badge badge-red">Error</span>
+          {% endif %}
+        </td>
+        <td class="text-muted">{{ doc.chunk_count }}</td>
+        {% if is_platform_admin and not active_client_id %}
+          <td class="text-muted font-mono">{{ doc.client_id }}</td>
+        {% endif %}
+        <td class="text-muted" style="white-space:nowrap;">
+          {{ doc.uploaded_at.strftime('%d %b %Y') if doc.uploaded_at else '—' }}
+        </td>
+        <td class="text-muted">{{ doc.uploaded_by or '—' }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          {% if doc.status == 'draft' %}
+            <a href="{{ url_for('documents.preview', doc_id=doc.id) }}"
+               class="btn btn-secondary btn-sm">Review →</a>
+          {% endif %}
+          <form method="POST"
+                action="{{ url_for('documents.delete', doc_id=doc.id) }}"
+                style="display:inline;"
+                onsubmit="return confirm('Delete \'{{ doc.filename }}\' and remove it from the knowledge base?')">
+            <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+    <h3>No documents yet</h3>
+    <p>
+      {% if active_client_id %}Upload a document above to add it to the knowledge base.
+      {% elif is_platform_admin %}Select a client to view their documents.
+      {% else %}No documents have been uploaded yet.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  const zone     = document.getElementById('drop-zone');
+  const input    = document.getElementById('file-input');
+  const nameEl   = document.getElementById('selected-file');
+  const nameTxt  = document.getElementById('selected-file-name');
+  const uploadBtn = document.getElementById('upload-btn');
+  const form     = document.getElementById('upload-form');
+
+  function showFile(file) {
+    if (!file) return;
+    nameTxt.textContent = file.name;
+    nameEl.style.display = 'flex';
+    if (uploadBtn) uploadBtn.style.display = 'inline-flex';
+  }
+
+  if (input) {
+    input.addEventListener('change', () => showFile(input.files[0]));
+  }
+
+  if (zone) {
+    zone.addEventListener('dragover', e => {
+      e.preventDefault(); zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      // Validate extension
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!['docx','pdf','xlsx'].includes(ext)) {
+        alert('Only .docx, .pdf, and .xlsx files are supported.');
+        return;
+      }
+      // Inject into file input via DataTransfer
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      showFile(file);
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', () => {
+      if (uploadBtn) {
+        uploadBtn.textContent = 'Extracting…';
+        uploadBtn.classList.add('btn-uploading');
+      }
+    });
+  }
+</script>
+{% endblock %}

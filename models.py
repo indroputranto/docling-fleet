@@ -161,3 +161,71 @@ class ClientConfig(db.Model):
 
     def __repr__(self):
         return f"<ClientConfig {self.client_id} active={self.active}>"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Document pipeline models
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Document(db.Model):
+    """
+    Represents one uploaded source file (docx / pdf / xlsx).
+
+    Lifecycle:
+      draft      → file received, text extracted, chunks saved — awaiting review
+      processing → save-to-Pinecone in progress
+      active     → all chunks embedded and live in the vector store
+      error      → embedding failed; error_message contains details
+    """
+    __tablename__ = "documents"
+
+    id           = db.Column(db.Integer, primary_key=True)
+    client_id    = db.Column(db.String(100), nullable=False, index=True)
+    filename     = db.Column(db.String(500), nullable=False)
+    file_type    = db.Column(db.String(10),  nullable=False)   # docx | pdf | xlsx
+    status       = db.Column(db.String(20),  nullable=False, default="draft")
+    chunk_count  = db.Column(db.Integer,     nullable=False, default=0)
+    error_message = db.Column(db.Text, nullable=True)
+
+    uploaded_by  = db.Column(db.String(255), nullable=True)    # user email
+    uploaded_at  = db.Column(db.DateTime,    nullable=False,
+                             default=lambda: datetime.now(timezone.utc))
+    activated_at = db.Column(db.DateTime,    nullable=True)    # when sent to Pinecone
+
+    chunks = db.relationship(
+        "DocumentChunk",
+        backref="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentChunk.position",
+        lazy="dynamic",
+    )
+
+    def __repr__(self):
+        return f"<Document {self.filename} client={self.client_id} status={self.status}>"
+
+
+class DocumentChunk(db.Model):
+    """
+    One embeddable unit of text from a Document.
+
+    The user reviews and edits these in the preview UI before committing
+    them to Pinecone.  Each chunk maps to one Pinecone vector after save.
+    """
+    __tablename__ = "document_chunks"
+
+    id          = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("documents.id",
+                            ondelete="CASCADE"), nullable=False, index=True)
+    position    = db.Column(db.Integer, nullable=False)   # ordering within document
+    title       = db.Column(db.String(500), nullable=True)
+    body        = db.Column(db.Text, nullable=False)
+    pinecone_id = db.Column(db.String(300), nullable=True)
+    # Format: "{client_id}:doc:{document_id}:chunk:{position}"
+    # Populated after successful embedding; used for deletion.
+
+    def vector_id(self) -> str:
+        """Deterministic Pinecone vector ID for this chunk."""
+        return f"{self.document.client_id}:doc:{self.document_id}:chunk:{self.position}"
+
+    def __repr__(self):
+        return f"<DocumentChunk doc={self.document_id} pos={self.position}>"
