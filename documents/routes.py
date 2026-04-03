@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx"}
 
+documents_bp = Blueprint(
+    "documents",
+    __name__,
+    url_prefix="/documents",
+    template_folder="templates",
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Template context — mirrors what cms/routes.py passes in every render call,
@@ -44,13 +51,6 @@ def inject_cms_context():
         cms_user=getattr(g, "cms_user", None),
         is_platform_admin=getattr(g, "is_platform_admin", False),
     )
-
-documents_bp = Blueprint(
-    "documents",
-    __name__,
-    url_prefix="/documents",
-    template_folder="templates",
-)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
