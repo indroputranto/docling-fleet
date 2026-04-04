@@ -1,34 +1,47 @@
 {% extends "cms/base.html" %}
 
-{% block title %}New User{% endblock %}
-{% block topbar_title %}New User{% endblock %}
+{% set is_edit = user is not none %}
+
+{% block title %}{{ 'Edit User' if is_edit else 'New User' }}{% endblock %}
+{% block topbar_title %}{{ 'Edit User' if is_edit else 'New User' }}{% endblock %}
 {% block topbar_actions %}
   <a href="{{ url_for('cms.dashboard') }}" class="btn btn-secondary btn-sm">← Back</a>
 {% endblock %}
 
 {% block content %}
-<form method="POST" style="max-width:500px;">
+<form method="POST"
+      action="{{ url_for('cms.user_edit', user_id=user.id) if is_edit else url_for('cms.user_new') }}"
+      style="max-width:500px;">
   <div class="card">
     <div class="card-header">User Details</div>
     <div style="padding:22px;display:flex;flex-direction:column;gap:18px;">
 
       <div class="form-group">
         <label>Email <span style="color:#f85149;">*</span></label>
-        <input type="email" name="email" placeholder="user@client.com" required />
+        <input type="email" name="email" placeholder="user@client.com" required
+               value="{{ user.email if is_edit else '' }}" />
       </div>
 
       <div class="form-group">
-        <label>Password <span style="color:#f85149;">*</span></label>
-        <input type="password" name="password" placeholder="Min. 8 characters" required />
+        <label>
+          Password
+          {% if not is_edit %}<span style="color:#f85149;">*</span>{% endif %}
+        </label>
+        <input type="password" name="password"
+               placeholder="{{ 'Leave blank to keep current password' if is_edit else 'Min. 8 characters' }}"
+               {{ 'required' if not is_edit else '' }} />
+        {% if is_edit %}
+        <div class="form-hint">Only fill this in if you want to set a new password.</div>
+        {% endif %}
       </div>
 
       {% if is_platform_admin %}
       <div class="form-group">
         <label>Role</label>
         <select name="role">
-          <option value="user">User — chat only</option>
-          <option value="client_admin">Client Admin — scoped CMS access</option>
-          <option value="admin">Platform Admin — full CMS access</option>
+          <option value="user"         {{ 'selected' if is_edit and user.role == 'user'         }}>User — chat only</option>
+          <option value="client_admin" {{ 'selected' if is_edit and user.role == 'client_admin' }}>Client Admin — scoped CMS access</option>
+          <option value="admin"        {{ 'selected' if is_edit and user.role == 'admin'        }}>Platform Admin — full CMS access</option>
         </select>
         <div class="form-hint">
           Client Admins can edit their own client's branding and manage their team.
@@ -41,7 +54,10 @@
         <select name="client_id">
           <option value="">— None (platform admin) —</option>
           {% for c in clients %}
-          <option value="{{ c.client_id }}">{{ c.name }} ({{ c.client_id }})</option>
+          <option value="{{ c.client_id }}"
+                  {{ 'selected' if is_edit and user.client_id == c.client_id }}>
+            {{ c.name }} ({{ c.client_id }})
+          </option>
           {% endfor %}
         </select>
         <div class="form-hint">Required for Client Admin and User roles. Leave blank for Platform Admins.</div>
@@ -63,11 +79,32 @@
       </div>
       {% endif %}
 
+      {% if is_edit %}
+      <div class="form-group">
+        <label>Account Status</label>
+        <input type="text"
+               value="{{ 'Active' if user.active else 'Inactive' }}" disabled
+               style="background:rgba(255,255,255,0.04);color:var(--muted);cursor:not-allowed;" />
+        <div class="form-hint">Use the Activate / Deactivate button on the dashboard to change status.</div>
+      </div>
+
+      {% if user.last_login_at %}
+      <div class="form-group">
+        <label>Last Login</label>
+        <input type="text"
+               value="{{ user.last_login_at.strftime('%d %b %Y %H:%M UTC') }}" disabled
+               style="background:rgba(255,255,255,0.04);color:var(--muted);cursor:not-allowed;" />
+      </div>
+      {% endif %}
+      {% endif %}
+
     </div>
   </div>
 
   <div style="display:flex;gap:12px;margin-top:20px;">
-    <button type="submit" class="btn btn-primary">Create User</button>
+    <button type="submit" class="btn btn-primary">
+      {{ 'Save Changes' if is_edit else 'Create User' }}
+    </button>
     <a href="{{ url_for('cms.dashboard') }}" class="btn btn-secondary">Cancel</a>
   </div>
 </form>

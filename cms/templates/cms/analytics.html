@@ -1,0 +1,274 @@
+{% extends "cms/base.html" %}
+
+{% macro fmt_tokens(n) %}
+  {%- set n = n | int -%}
+  {%- if n >= 1000000 -%}{{ "%.1f"|format(n / 1000000) }}M
+  {%- elif n >= 1000 -%}{{ "%.1f"|format(n / 1000) }}K
+  {%- else -%}{{ n }}
+  {%- endif -%}
+{% endmacro %}
+
+{% block title %}Analytics{% endblock %}
+{% block topbar_title %}Analytics{% endblock %}
+{% block topbar_actions %}
+  <span style="font-size:12px;color:var(--muted);">
+    Month to date: {{ month_start.strftime('%d %b') }} → today
+  </span>
+{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  .stat-grid   { display:grid; gap:16px; margin-bottom:28px; }
+  .stat-grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .stat-grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .stat-card   { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; }
+  .stat-label  { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:8px; }
+  .stat-value  { font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .stat-sub    { font-size:11px; color:var(--muted); margin-top:4px; }
+
+  .chart-card  { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:24px; }
+  .chart-title { font-size:13px; font-weight:600; margin-bottom:16px; }
+  .chart-wrap  { position:relative; }
+
+  .charts-row  { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px; }
+
+  /* table inside card */
+  .analytics-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .analytics-table th {
+    padding:10px 16px; text-align:left; font-size:11px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+    border-bottom:1px solid var(--border);
+  }
+  .analytics-table th.right,
+  .analytics-table td.right { text-align:right; }
+  .analytics-table td { padding:11px 16px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .analytics-table tr:last-child td { border-bottom:none; }
+  .analytics-table tr:hover td { background:rgba(255,255,255,.02); }
+
+  .rank-chip {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:50%;
+    font-size:11px; font-weight:700; background:rgba(255,255,255,.07);
+    color:var(--muted); margin-right:8px;
+  }
+  .rank-chip.gold   { background:rgba(210,153,34,.2); color:#e3b341; }
+  .rank-chip.silver { background:rgba(255,255,255,.12); color:#ccc; }
+  .rank-chip.bronze { background:rgba(180,100,30,.2);  color:#cd7f32; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Month-to-date summary cards ──────────────────────────────────────────── #}
+<div class="stat-grid stat-grid-4">
+  <div class="stat-card">
+    <div class="stat-label">Requests This Month</div>
+    <div class="stat-value">{{ totals.requests or 0 }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Tokens In</div>
+    <div class="stat-value">{{ fmt_tokens(totals.tokens_in or 0) }}</div>
+    <div class="stat-sub">prompt tokens</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Tokens Out</div>
+    <div class="stat-value">{{ fmt_tokens(totals.tokens_out or 0) }}</div>
+    <div class="stat-sub">completion tokens</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Avg Response Time</div>
+    <div class="stat-value">
+      {% set ms = (totals.avg_ms or 0)|int %}
+      {% if ms >= 1000 %}{{ "%.1f"|format(ms / 1000) }}s{% else %}{{ ms }}ms{% endif %}
+    </div>
+    <div class="stat-sub">per request</div>
+  </div>
+</div>
+
+{# ── Daily charts row ─────────────────────────────────────────────────────── #}
+<div class="charts-row">
+  <div class="chart-card">
+    <div class="chart-title">Daily Requests — Last 30 Days</div>
+    <div class="chart-wrap" style="height:220px;">
+      <canvas id="chartRequests"></canvas>
+    </div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Daily Tokens — Last 30 Days</div>
+    <div class="chart-wrap" style="height:220px;">
+      <canvas id="chartTokens"></canvas>
+    </div>
+  </div>
+</div>
+
+{# ── Per-client chart (platform admin only) ───────────────────────────────── #}
+{% if is_platform_admin and client_chart_labels %}
+<div class="chart-card" style="margin-bottom:24px;">
+  <div class="chart-title">Requests by Client — This Month</div>
+  <div class="chart-wrap" style="height:180px;">
+    <canvas id="chartClients"></canvas>
+  </div>
+</div>
+{% endif %}
+
+{# ── Top users table ──────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header">
+    Top Users This Month
+    {% if not top_users %}<span style="font-size:12px;color:var(--muted);font-weight:400;">No activity yet</span>{% endif %}
+  </div>
+  {% if top_users %}
+  <table class="analytics-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>User</th>
+        <th class="right">Requests</th>
+        <th class="right">Tokens</th>
+        <th class="right">Avg Response</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in top_users %}
+      <tr>
+        <td style="width:40px;">
+          <span class="rank-chip {% if loop.index == 1 %}gold{% elif loop.index == 2 %}silver{% elif loop.index == 3 %}bronze{% endif %}">
+            {{ loop.index }}
+          </span>
+        </td>
+        <td>{{ u.user_email or '(anonymous)' }}</td>
+        <td class="right" style="font-weight:600;">{{ u.requests }}</td>
+        <td class="right text-muted">{{ fmt_tokens(u.tokens) }}</td>
+        <td class="right text-muted">
+          {% set ms = u.avg_ms|int %}
+          {% if ms >= 1000 %}{{ "%.1f"|format(ms / 1000) }}s{% else %}{{ ms }}ms{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:40px;text-align:center;color:var(--muted);">No chat activity this month yet.</div>
+  {% endif %}
+</div>
+
+{# ── Chart.js setup ───────────────────────────────────────────────────────── #}
+<script>
+(function () {
+  const MUTED   = 'rgba(255,255,255,0.25)';
+  const GRID    = 'rgba(255,255,255,0.06)';
+  const ACCENT  = '#0f3460';
+  const ACCENT2 = '#1a6a8a';
+
+  Chart.defaults.color = MUTED;
+  Chart.defaults.font.family = "'Inter', sans-serif";
+  Chart.defaults.font.size   = 11;
+
+  const baseScales = {
+    x: {
+      grid:  { color: GRID },
+      ticks: { maxTicksLimit: 10, maxRotation: 0 },
+    },
+    y: {
+      grid:  { color: GRID },
+      ticks: { maxTicksLimit: 5 },
+      beginAtZero: true,
+    },
+  };
+
+  const labels   = {{ chart_labels   | tojson }};
+  const requests = {{ chart_requests | tojson }};
+  const tokens   = {{ chart_tokens   | tojson }};
+
+  // ── Requests bar chart ──────────────────────────────────────────────────
+  new Chart(document.getElementById('chartRequests'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Requests',
+        data: requests,
+        backgroundColor: 'rgba(15,52,96,0.75)',
+        borderColor:     '#1a5a8a',
+        borderWidth: 1,
+        borderRadius: 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: baseScales,
+    },
+  });
+
+  // ── Tokens area chart ───────────────────────────────────────────────────
+  new Chart(document.getElementById('chartTokens'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Tokens',
+        data: tokens,
+        borderColor:     '#1a6a8a',
+        backgroundColor: 'rgba(26,106,138,0.15)',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        ...baseScales,
+        y: {
+          ...baseScales.y,
+          ticks: {
+            ...baseScales.y.ticks,
+            callback: v => v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v,
+          },
+        },
+      },
+    },
+  });
+
+  {% if is_platform_admin and client_chart_labels %}
+  // ── Per-client bar chart (platform admin) ───────────────────────────────
+  const clientLabels = {{ client_chart_labels | tojson }};
+  const clientData   = {{ client_chart_data   | tojson }};
+
+  // Generate a slightly different shade per bar for readability
+  const palette = clientLabels.map((_, i) => `hsl(${210 + i * 22}, 55%, ${38 + i * 4}%)`);
+
+  new Chart(document.getElementById('chartClients'), {
+    type: 'bar',
+    data: {
+      labels: clientLabels,
+      datasets: [{
+        label: 'Requests',
+        data: clientData,
+        backgroundColor: palette,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: GRID }, beginAtZero: true, ticks: { maxTicksLimit: 6 } },
+        y: { grid: { color: GRID } },
+      },
+    },
+  });
+  {% endif %}
+})();
+</script>
+
+{% endblock %}

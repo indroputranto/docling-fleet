@@ -217,13 +217,16 @@
           {{ u.last_login_at.strftime('%d %b %Y %H:%M') if u.last_login_at else 'Never' }}
         </td>
         <td>
-          {% if u.role != 'admin' or is_platform_admin %}
-          <form method="POST" action="{{ url_for('cms.user_toggle', user_id=u.id) }}" style="display:inline;">
-            <button class="btn btn-secondary btn-sm" type="submit">
-              {{ 'Deactivate' if u.active else 'Activate' }}
-            </button>
-          </form>
-          {% endif %}
+          <div style="display:flex;gap:6px;justify-content:flex-end;">
+            <a href="{{ url_for('cms.user_edit', user_id=u.id) }}" class="btn btn-secondary btn-sm">Edit</a>
+            {% if u.role != 'admin' or is_platform_admin %}
+            <form method="POST" action="{{ url_for('cms.user_toggle', user_id=u.id) }}" style="display:inline;">
+              <button class="btn btn-secondary btn-sm" type="submit">
+                {{ 'Deactivate' if u.active else 'Activate' }}
+              </button>
+            </form>
+            {% endif %}
+          </div>
         </td>
       </tr>
       {% endfor %}

@@ -18,7 +18,11 @@ Routes:
 
   GET  /cms/users/new               → create user form            [admin + client_admin]
   POST /cms/users/new               → save new user               [admin + client_admin]
+  GET  /cms/users/<id>/edit         → edit user / reset password  [admin + scoped client_admin]
+  POST /cms/users/<id>/edit         → save user edits             [admin + scoped client_admin]
   POST /cms/users/<id>/toggle       → activate / deactivate user  [admin + scoped client_admin]
+
+  GET  /cms/analytics               → usage charts & top users    [admin + client_admin]
 
 Login/logout are open (no auth required).
 """
@@ -42,6 +46,16 @@ cms_bp = Blueprint(
     url_prefix="/cms",
     template_folder="templates",
 )
+
+
+@cms_bp.context_processor
+def inject_cms_context():
+    """Make cms_user and is_platform_admin available in every CMS template."""
+    return dict(
+        cms_user=getattr(g, "cms_user", None),
+        is_platform_admin=getattr(g, "is_platform_admin", False),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Auth gate helpers
@@ -229,12 +243,113 @@ def dashboard():
         "cms/dashboard.html",
         clients=clients,
         users=users,
-        cms_user=g.cms_user,
-        is_platform_admin=g.is_platform_admin,
         usage_stats=usage_stats,
         total_today=total_today,
         total_month=total_month,
         total_tokens=total_tokens,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+
+@cms_bp.route("/analytics")
+@cms_required
+def analytics():
+    from models import UsageLog
+    from sqlalchemy import func
+    from datetime import timedelta
+
+    today       = date_type.today()
+    days_30_ago = today - timedelta(days=29)
+    month_start = today.replace(day=1)
+
+    # Helper: apply client scope to a query
+    def scoped(q):
+        if not g.is_platform_admin:
+            return q.filter(UsageLog.client_id == g.scoped_client_id)
+        return q
+
+    # ── Daily breakdown for the last 30 days ─────────────────────────────────
+    daily_rows = scoped(
+        db.session.query(
+            UsageLog.date,
+            func.count(UsageLog.id).label("requests"),
+            func.coalesce(
+                func.sum(UsageLog.tokens_in + UsageLog.tokens_out), 0
+            ).label("tokens"),
+            func.coalesce(func.avg(UsageLog.response_ms), 0).label("avg_ms"),
+        )
+        .filter(UsageLog.date >= days_30_ago)
+        .group_by(UsageLog.date)
+        .order_by(UsageLog.date)
+    ).all()
+
+    daily_map = {
+        str(r.date): {"requests": r.requests, "tokens": r.tokens, "avg_ms": round(r.avg_ms)}
+        for r in daily_rows
+    }
+
+    chart_labels, chart_requests, chart_tokens = [], [], []
+    for i in range(30):
+        d  = days_30_ago + timedelta(days=i)
+        ds = str(d)
+        chart_labels.append(d.strftime("%-d %b"))
+        chart_requests.append(daily_map.get(ds, {}).get("requests", 0))
+        chart_tokens.append(daily_map.get(ds, {}).get("tokens", 0))
+
+    # ── Month-to-date summary totals ─────────────────────────────────────────
+    totals = scoped(
+        db.session.query(
+            func.count(UsageLog.id).label("requests"),
+            func.coalesce(func.sum(UsageLog.tokens_in),  0).label("tokens_in"),
+            func.coalesce(func.sum(UsageLog.tokens_out), 0).label("tokens_out"),
+            func.coalesce(func.avg(UsageLog.response_ms), 0).label("avg_ms"),
+        )
+        .filter(UsageLog.date >= month_start)
+    ).first()
+
+    # ── Top users this month ─────────────────────────────────────────────────
+    top_users = scoped(
+        db.session.query(
+            UsageLog.user_email,
+            func.count(UsageLog.id).label("requests"),
+            func.coalesce(func.sum(UsageLog.tokens_in + UsageLog.tokens_out), 0).label("tokens"),
+            func.coalesce(func.avg(UsageLog.response_ms), 0).label("avg_ms"),
+        )
+        .filter(UsageLog.date >= month_start)
+        .group_by(UsageLog.user_email)
+        .order_by(func.count(UsageLog.id).desc())
+        .limit(10)
+    ).all()
+
+    # ── Per-client breakdown (platform admin only) ────────────────────────────
+    client_chart_labels, client_chart_data = [], []
+    if g.is_platform_admin:
+        client_rows = (
+            db.session.query(
+                UsageLog.client_id,
+                func.count(UsageLog.id).label("requests"),
+            )
+            .filter(UsageLog.date >= month_start)
+            .group_by(UsageLog.client_id)
+            .order_by(func.count(UsageLog.id).desc())
+            .all()
+        )
+        client_chart_labels = [r.client_id for r in client_rows]
+        client_chart_data   = [r.requests  for r in client_rows]
+
+    return render_template(
+        "cms/analytics.html",
+        chart_labels=chart_labels,
+        chart_requests=chart_requests,
+        chart_tokens=chart_tokens,
+        totals=totals,
+        top_users=top_users,
+        client_chart_labels=client_chart_labels,
+        client_chart_data=client_chart_data,
+        month_start=month_start,
     )
 
 
@@ -269,8 +384,6 @@ def client_new():
             client=None,
             default_prompt=default_prompt,
             suggested_questions_text="",
-            cms_user=g.cms_user,
-            is_platform_admin=g.is_platform_admin,
         )
     return _save_client(client=None)
 
@@ -287,8 +400,6 @@ def client_edit(client_db_id: int):
             client=client,
             default_prompt=client.system_prompt,
             suggested_questions_text=_suggested_questions_to_text(client),
-            cms_user=g.cms_user,
-            is_platform_admin=g.is_platform_admin,
         )
     return _save_client(client=client)
 
@@ -391,8 +502,6 @@ def user_new():
             "cms/user_form.html",
             user=None,
             clients=clients,
-            cms_user=g.cms_user,
-            is_platform_admin=g.is_platform_admin,
         )
 
     f         = request.form
@@ -420,6 +529,58 @@ def user_new():
     db.session.add(user)
     db.session.commit()
     flash(f"User '{email}' created.", "success")
+    return redirect(url_for("cms.dashboard"))
+
+
+@cms_bp.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
+@cms_required
+def user_edit(user_id: int):
+    user = User.query.get_or_404(user_id)
+
+    # Scope check: client_admin can only edit users in their own client
+    if not g.is_platform_admin and user.client_id != g.scoped_client_id:
+        abort(403)
+
+    if request.method == "GET":
+        if g.is_platform_admin:
+            clients = ClientConfig.query.filter_by(active=True).all()
+        else:
+            clients = ClientConfig.query.filter_by(
+                client_id=g.scoped_client_id, active=True
+            ).all()
+        return render_template(
+            "cms/user_form.html",
+            user=user,
+            clients=clients,
+        )
+
+    f         = request.form
+    new_email = f.get("email", "").strip().lower()
+    new_pw    = f.get("password", "").strip()
+
+    if not new_email:
+        flash("Email is required.", "error")
+        return redirect(request.url)
+
+    # Check email uniqueness (allow same email = no change)
+    existing = User.query.filter_by(email=new_email).first()
+    if existing and existing.id != user.id:
+        flash(f"Email '{new_email}' is already taken.", "error")
+        return redirect(request.url)
+
+    user.email = new_email
+
+    # client_admin can't change roles or client assignments
+    if g.is_platform_admin:
+        user.role      = f.get("role", user.role)
+        user.client_id = f.get("client_id", "").strip() or None
+
+    # Only update password if a new one was provided
+    if new_pw:
+        user.set_password(new_pw)
+
+    db.session.commit()
+    flash(f"User '{user.email}' updated.", "success")
     return redirect(url_for("cms.dashboard"))
 
 

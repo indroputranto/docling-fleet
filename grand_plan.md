@@ -172,7 +172,53 @@ A human-in-the-loop upload interface for building and maintaining each client's 
 - Deletion is clean: vector IDs are deterministic (`{client_id}:doc:{doc_id}:chunk:{pos}`) and stored on each chunk row, enabling targeted Pinecone deletes
 - Platform Admins see a client-switcher dropdown; Client Admins are auto-scoped to their own client
 
-### 5.7 System Prompt (`prompt.md`)
+### 5.7 Usage Logging & Rate Limiting
+
+Every chat request is logged to a `usage_logs` table for billing, monitoring, and abuse prevention.
+
+**Data captured per request:**
+- `client_id` — which client the request belongs to
+- `user_email` — extracted from the Bearer JWT if present (null for anonymous)
+- `timestamp` / `date` — wall-clock time and indexed date column for fast daily queries
+- `tokens_in` / `tokens_out` — prompt and completion token counts from the Anthropic response object
+- `model` — the LLM model used (per-client configurable)
+- `response_ms` — end-to-end latency in milliseconds
+
+**Rate limiting:**
+Each client can be assigned a `daily_request_limit` (0 = unlimited) via the CMS client form (platform admin only). Before processing a chat request, the API checks today's `UsageLog` row count for that client. If the limit is exceeded, it returns HTTP 429 with a user-readable message.
+
+**Key design decisions:**
+- A separate indexed `date` column is used instead of date-truncating `timestamp`, because SQLite cannot index computed expressions. This makes `COUNT(*) WHERE date = today` a fast index scan.
+- Token counts are read directly from `response.usage.input_tokens` / `response.usage.output_tokens` on the non-streaming Anthropic response object.
+- The daily limit check uses the same `date` column, making it O(1) with the index rather than a full table scan.
+- The user email is extracted from the JWT silently (no auth required for chat) — if no token is present, `user_email` is stored as NULL.
+
+### 5.8 Analytics Dashboard (`/cms/analytics`)
+
+A dedicated analytics page providing time-series and ranked usage data. Access is role-scoped: platform admins see all clients, client admins see only their own.
+
+**Summary cards (month-to-date):**
+- Total requests
+- Tokens in (prompt tokens consumed)
+- Tokens out (completion tokens generated)
+- Average response time (ms)
+
+**Charts (last 30 days, Chart.js):**
+- Daily requests — bar chart, one bar per day
+- Daily tokens — area/line chart with K-formatted y-axis
+- Requests by client — horizontal bar chart (platform admin only), coloured per client
+
+**Top users table (month-to-date):**
+Ranked list of up to 10 users by request count, showing email, total requests, tokens consumed, and average response time. Anonymous (unauthenticated) requests are grouped under "(anonymous)".
+
+**Route:** `GET /cms/analytics` — `@cms_required`, data scoped via `g.is_platform_admin` / `g.scoped_client_id`.
+
+**Key design decisions:**
+- All chart data is passed from the route as JSON-safe Python lists; Chart.js is loaded from cdnjs CDN with no build step.
+- Missing days (zero-activity gaps) are filled in Python before the template renders, so the x-axis always shows a continuous 30-day range.
+- Token values are formatted client-side (K/M suffix) in Chart.js tick callbacks and in a reusable Jinja macro (`fmt_tokens`) in the template.
+
+### 5.9 System Prompt (`prompt.md`)
 The instruction set defining how Claude behaves for a given client. Whitelabeled via placeholder tokens:
 
 - `[CLIENT_NAME]` — the client's company/fleet name
@@ -202,12 +248,15 @@ Database-driven client management. Same Flask app, new `/cms` blueprint.
 - `cms/routes.py` — full CRUD for clients and users; 3-tier role scoping
 - CMS templates: dashboard, client form (with Chat UX section), user form, login
 - `client_config.py` updated to query DB first, fall back to hardcoded registry
-- `documents/` Blueprint — full document upload pipeline (see Section 5.7)
+- `documents/` Blueprint — full document upload pipeline (see Section 5.6)
 - `migrate_db.py` — idempotent schema migration script for adding columns to existing DBs
+- `UsageLog` model — per-request logging (client, user, tokens, latency)
+- Rate limiting — per-client daily request cap with 429 enforcement (see Section 5.7)
+- Analytics dashboard — `/cms/analytics` with Chart.js charts and top-users table (see Section 5.8)
+- User edit / password reset — `/cms/users/<id>/edit` for admin-side credential management
+- Role-scoped sidebar — nav items hidden (not just disabled) based on user role
 
 **Remaining CMS items:**
-- Usage counters (API calls per client, per day/month)
-- Rate limiting (per-client configurable request caps)
 - Embed code generator (iframe/script snippet for client's own website)
 - Preview button (open a sandboxed chat window from within the CMS)
 - Duplicate client (clone config as starting point for new client)
