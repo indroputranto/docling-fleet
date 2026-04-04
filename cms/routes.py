@@ -311,18 +311,21 @@ def analytics():
     ).first()
 
     # ── Top users this month ─────────────────────────────────────────────────
-    top_users = scoped(
-        db.session.query(
-            UsageLog.user_email,
-            func.count(UsageLog.id).label("requests"),
-            func.coalesce(func.sum(UsageLog.tokens_in + UsageLog.tokens_out), 0).label("tokens"),
-            func.coalesce(func.avg(UsageLog.response_ms), 0).label("avg_ms"),
+    top_users = (
+        scoped(
+            db.session.query(
+                UsageLog.user_email,
+                func.count(UsageLog.id).label("requests"),
+                func.coalesce(func.sum(UsageLog.tokens_in + UsageLog.tokens_out), 0).label("tokens"),
+                func.coalesce(func.avg(UsageLog.response_ms), 0).label("avg_ms"),
+            )
+            .filter(UsageLog.date >= month_start)
+            .group_by(UsageLog.user_email)
+            .order_by(func.count(UsageLog.id).desc())
         )
-        .filter(UsageLog.date >= month_start)
-        .group_by(UsageLog.user_email)
-        .order_by(func.count(UsageLog.id).desc())
         .limit(10)
-    ).all()
+        .all()
+    )
 
     # ── Per-client breakdown (platform admin only) ────────────────────────────
     client_chart_labels, client_chart_data = [], []
