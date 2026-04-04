@@ -6,7 +6,8 @@ werkzeug>=3.0.0
 mammoth==1.6.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
-pdfplumber>=0.11.0   # PDF text extraction for document upload
+PyMuPDF>=1.24.0      # PDF text extraction — handles ligatures and custom font encodings
+pdfplumber>=0.11.0   # PDF fallback extractor
 
 # AI / LLM
 openai>=1.30.0

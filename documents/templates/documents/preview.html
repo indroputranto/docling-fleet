@@ -136,6 +136,38 @@
 
 {% block content %}
 
+{# ── Multi-file progress banner (only shown when total > 1) ── #}
+{% if total > 1 %}
+<div style="display:flex; align-items:center; gap:14px; padding:12px 18px;
+            background:rgba(15,52,96,.2); border:1px solid rgba(15,52,96,.4);
+            border-radius:var(--radius); margin-bottom:22px; font-size:13px;">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+       stroke="#58a6ff" stroke-width="2" style="flex-shrink:0;">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+    <polyline points="13 2 13 9 20 9"/>
+  </svg>
+  <span>
+    <strong style="color:#58a6ff;">File {{ file_index }} of {{ total }}</strong>
+    <span style="color:var(--muted); margin-left:6px;">
+      —
+      {% set remaining = total - file_index %}
+      {% if remaining > 0 %}
+        {{ remaining }} more file{% if remaining > 1 %}s{% endif %} to review after this
+      {% else %}
+        last file in this batch
+      {% endif %}
+    </span>
+  </span>
+  {# Progress dots #}
+  <div style="display:flex; gap:5px; margin-left:auto;">
+    {% for i in range(1, total + 1) %}
+    <div style="width:8px; height:8px; border-radius:50%;
+                background:{% if i < file_index %}var(--green){% elif i == file_index %}#58a6ff{% else %}rgba(255,255,255,.15){% endif %};"></div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# ── Step progress ── #}
 <div class="steps">
   <div class="step done">
@@ -150,7 +182,7 @@
   <div class="step-line"></div>
   <div class="step">
     <div class="step-num">3</div>
-    <span>Save to Knowledge Base</span>
+    <span>{% if total > 1 and file_index < total %}Save &amp; Continue →{% else %}Save to Knowledge Base{% endif %}</span>
   </div>
 </div>
 
@@ -176,6 +208,8 @@
 <form id="preview-form" method="POST"
       action="{{ url_for('documents.save', doc_id=doc.id) }}">
   <input type="hidden" name="deleted_positions" id="deleted-positions" value="" />
+  <input type="hidden" name="queue" value="{{ queue }}" />
+  <input type="hidden" name="total" value="{{ total }}" />
 
   <div class="chunk-list" id="chunk-list">
     {% for chunk in chunks %}
@@ -234,7 +268,11 @@
          class="btn btn-secondary">Discard</a>
       <button type="submit" class="btn btn-primary" id="save-btn"
               onclick="return confirmSave()">
-        Save to Knowledge Base →
+        {% if total > 1 and file_index < total %}
+          Save &amp; Review Next →
+        {% else %}
+          Save to Knowledge Base →
+        {% endif %}
       </button>
     </div>
   </div>

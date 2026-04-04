@@ -77,6 +77,16 @@ def run():
         cur.execute("CREATE INDEX ix_usage_logs_date ON usage_logs (date)")
         print("  [+] usage_logs table created")
 
+    # ── documents: group_name column ─────────────────────────────────────────
+    if col_exists(cur, "documents", "group_name"):
+        print("  [skip] documents.group_name already exists")
+    else:
+        try:
+            cur.execute("ALTER TABLE documents ADD COLUMN group_name VARCHAR(500)")
+            print("  [+] documents.group_name (VARCHAR(500))")
+        except Exception:
+            pass  # table may not exist yet — handled below
+
     # ── documents table ───────────────────────────────────────────────────────
     if table_exists(cur, "documents"):
         print("  [skip] documents table already exists")
@@ -90,6 +100,7 @@ def run():
                 status        VARCHAR(20)  NOT NULL DEFAULT 'draft',
                 chunk_count   INTEGER      NOT NULL DEFAULT 0,
                 error_message TEXT,
+                group_name    VARCHAR(500),
                 uploaded_by   VARCHAR(255),
                 uploaded_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 activated_at  DATETIME

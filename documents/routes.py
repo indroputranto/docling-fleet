@@ -159,8 +159,9 @@ def library():
 @documents_required
 def upload():
     """
-    Accept a file upload, extract text into chunks, and redirect to the preview.
-    The file is processed in-memory; only the extracted chunks are persisted.
+    Accept one or more file uploads, extract text from each, and redirect to
+    the preview of the first file.  Remaining files are passed as a comma-
+    separated ?queue= of doc IDs so the user reviews them sequentially.
     """
     from documents.extractor import extract
 
@@ -170,7 +171,6 @@ def upload():
         flash("Please select a client before uploading.", "error")
         return redirect(url_for("documents.library"))
 
-    # Scope check
     if not g.is_platform_admin and client_id != g.scoped_client_id:
         abort(403)
 
@@ -179,62 +179,74 @@ def upload():
         flash("Client not found.", "error")
         return redirect(url_for("documents.library"))
 
-    file = request.files.get("file")
-    if not file or file.filename == "":
-        flash("No file selected.", "error")
+    group_name = request.form.get("group_name", "").strip() or None
+    files      = [f for f in request.files.getlist("files") if f and f.filename]
+
+    if not files:
+        flash("No files selected.", "error")
         return redirect(url_for("documents.library", client=client_id))
 
-    filename = secure_filename(file.filename)
-    if not _allowed_file(filename):
-        flash(f"File type not supported. Upload .docx, .pdf, or .xlsx files.", "error")
-        return redirect(url_for("documents.library", client=client_id))
+    doc_ids = []
 
-    ext = filename.rsplit(".", 1)[1].lower()
+    for file in files:
+        filename = secure_filename(file.filename)
 
-    # ── Extract chunks ────────────────────────────────────────────────────────
-    try:
-        raw_chunks = extract(file.stream, filename)
-    except ImportError as e:
-        flash(f"Missing dependency: {e}", "error")
-        logger.error(f"[documents] Missing dependency for {filename}: {e}")
-        return redirect(url_for("documents.library", client=client_id))
-    except Exception as e:
-        flash(f"Could not extract text from the file: {e}", "error")
-        logger.error(f"[documents] Extraction error for {filename}: {e}", exc_info=True)
-        return redirect(url_for("documents.library", client=client_id))
+        if not _allowed_file(filename):
+            flash(f"'{file.filename}' skipped — unsupported type (use .docx, .pdf, .xlsx).", "error")
+            continue
 
-    if not raw_chunks or not any(c["body"].strip() for c in raw_chunks):
-        flash("No text could be extracted from the file. Is it a scanned image PDF?", "error")
-        return redirect(url_for("documents.library", client=client_id))
+        ext = filename.rsplit(".", 1)[1].lower()
 
-    # ── Persist Document + chunks ─────────────────────────────────────────────
-    doc = Document(
-        client_id=client_id,
-        filename=filename,
-        file_type=ext,
-        status="draft",
-        uploaded_by=g.cms_user.email,
-        chunk_count=len(raw_chunks),
-    )
-    db.session.add(doc)
-    db.session.flush()   # get doc.id before adding chunks
+        try:
+            raw_chunks = extract(file.stream, filename)
+        except Exception as e:
+            flash(f"'{filename}' skipped — could not extract text: {e}", "error")
+            logger.error(f"[documents] Extraction error for {filename}: {e}", exc_info=True)
+            continue
 
-    for pos, chunk in enumerate(raw_chunks):
-        dc = DocumentChunk(
-            document_id=doc.id,
-            position=pos,
-            title=chunk.get("title") or "",
-            body=chunk["body"],
+        if not raw_chunks or not any(c["body"].strip() for c in raw_chunks):
+            flash(f"'{filename}' skipped — no text found (scanned image PDF?).", "error")
+            continue
+
+        doc = Document(
+            client_id=client_id,
+            filename=filename,
+            file_type=ext,
+            status="draft",
+            uploaded_by=g.cms_user.email,
+            chunk_count=len(raw_chunks),
+            group_name=group_name,
         )
-        db.session.add(dc)
+        db.session.add(doc)
+        db.session.flush()
 
-    db.session.commit()
-    logger.info(
-        f"[documents] Uploaded '{filename}' → doc {doc.id} "
-        f"({len(raw_chunks)} chunks) for client '{client_id}'"
-    )
+        for pos, chunk in enumerate(raw_chunks):
+            db.session.add(DocumentChunk(
+                document_id=doc.id,
+                position=pos,
+                title=chunk.get("title") or "",
+                body=chunk["body"],
+            ))
 
-    return redirect(url_for("documents.preview", doc_id=doc.id))
+        db.session.commit()
+        doc_ids.append(doc.id)
+        logger.info(
+            f"[documents] Uploaded '{filename}' → doc {doc.id} "
+            f"({len(raw_chunks)} chunks) for client '{client_id}'"
+        )
+
+    if not doc_ids:
+        return redirect(url_for("documents.library", client=client_id))
+
+    first_id  = doc_ids[0]
+    queue     = ",".join(str(i) for i in doc_ids[1:])
+    total     = len(doc_ids)
+    return redirect(url_for(
+        "documents.preview",
+        doc_id=first_id,
+        queue=queue or None,
+        total=total,
+    ))
 
 
 @documents_bp.route("/<int:doc_id>/preview", methods=["GET"])
@@ -255,7 +267,20 @@ def preview(doc_id: int):
         .all()
     )
 
-    return render_template("documents/preview.html", doc=doc, chunks=chunks)
+    # Multi-file queue state
+    queue      = request.args.get("queue", "")
+    total      = int(request.args.get("total", 1))
+    queue_ids  = [i for i in queue.split(",") if i.strip().isdigit()]
+    file_index = total - len(queue_ids)   # e.g. total=3, 1 remaining → index=2
+
+    return render_template(
+        "documents/preview.html",
+        doc=doc,
+        chunks=chunks,
+        queue=queue,
+        total=total,
+        file_index=file_index,
+    )
 
 
 @documents_bp.route("/<int:doc_id>/save", methods=["POST"])
@@ -362,10 +387,23 @@ def save(doc_id: int):
         f"[documents] Doc {doc_id} '{doc.filename}' live — "
         f"{upserted} vectors in {client.pinecone_index}/{client.pinecone_namespace}"
     )
-    flash(
-        f"'{doc.filename}' is now live — {upserted} chunks added to the knowledge base.",
-        "success",
-    )
+    flash(f"'{doc.filename}' is now live — {upserted} chunks added to the knowledge base.", "success")
+
+    # Multi-file queue: advance to next doc if there is one
+    queue     = request.form.get("queue", "").strip()
+    total     = request.form.get("total", "1")
+    queue_ids = [i for i in queue.split(",") if i.strip().isdigit()]
+
+    if queue_ids:
+        next_id   = queue_ids[0]
+        remaining = ",".join(queue_ids[1:])
+        return redirect(url_for(
+            "documents.preview",
+            doc_id=next_id,
+            queue=remaining or None,
+            total=total,
+        ))
+
     return redirect(url_for("documents.library", client=doc.client_id))
 
 

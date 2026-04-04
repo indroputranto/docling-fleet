@@ -156,19 +156,31 @@ A human-in-the-loop upload interface for building and maintaining each client's 
 
 **Workflow:**
 
-1. **Upload** — drag-and-drop or file-browse; accepts `.docx`, `.pdf`, `.xlsx`
-2. **Extract** — `documents/extractor.py` parses the file into discrete chunks using clause-aware detection (matches `CLAUSE N`, `N.`, `PART II`, `ANNEX A` patterns common in charter parties). Each chunk gets a title and body.
-3. **Review & Edit** — the user sees every chunk as an editable card. They can correct titles, fix parser errors, delete junk chunks, or add chunks manually. Nothing is sent to Pinecone until this step is approved.
-4. **Save** — `documents/embedder.py` embeds each chunk via OpenAI `text-embedding-3-small` and upserts to the client's Pinecone index/namespace. Each vector is stored with metadata (client_id, document_id, filename, chunk_title, position).
-5. **Library** — the document history page shows all uploaded documents with status (Draft / Live / Error), chunk count, upload date, and uploader. Delete removes both the DB record and all associated Pinecone vectors.
+1. **Upload** — drag-and-drop or file-browse; accepts `.docx`, `.pdf`, `.xlsx`; supports multiple files in a single session. An optional Group / Vessel Name label ties related files together in the library.
+2. **Extract** — `documents/extractor.py` parses each file into discrete chunks using clause-aware detection (matches `CLAUSE N`, `N.`, `PART II`, `ANNEX A` patterns common in charter parties). Each chunk gets a title and body.
+3. **Review & Edit (sequential)** — the user reviews each file one at a time. A "File X of N" banner tracks progress through the batch. They can correct titles, fix parser errors, delete junk chunks, or add chunks manually. Nothing is sent to Pinecone until this step is approved per file.
+4. **Save & Continue** — `documents/embedder.py` embeds each chunk via OpenAI `text-embedding-3-small` and upserts to the client's Pinecone namespace. After saving, the system automatically advances to the next file in the queue. The save button reads "Save & Review Next →" until the last file, then "Save to Knowledge Base →".
+5. **Library** — shows all documents grouped by their Group / Vessel Name label. Each group shows as a folder-style header. Status per file: Draft / Live / Processing / Error. Delete removes both the DB record and all associated Pinecone vectors.
 
 **DB models:**
-- `Document` — one row per uploaded file; tracks filename, type, status, chunk_count, uploaded_by, uploaded_at, activated_at
+- `Document` — one row per uploaded file; tracks filename, type, status, chunk_count, group_name (optional grouping label), uploaded_by, uploaded_at, activated_at
 - `DocumentChunk` — one row per embeddable chunk; stores title, body, position, and pinecone_id after embedding
 
+**Multi-file queue mechanism:**
+The upload route accepts `files[]` (multiple), extracts all files server-side, creates a `Document` record per file, then redirects to the first preview with a `?queue=id1,id2&total=N` query string. Each preview passes queue/total through hidden form fields into the save POST. After a successful save, the save route checks the queue and redirects to the next doc's preview or, when empty, to the library. This keeps the per-file review flow unchanged while enabling batch uploads.
+
+**PDF extraction & encoding:**
+- Primary extractor: PyMuPDF (`fitz`) — handles most fonts cleanly, including ligatures encoded with standard ToUnicode CMaps.
+- Fallback extractor: pdfplumber — used if PyMuPDF is not installed.
+- Post-extraction cleaning (`_clean_pdf_text()`): applied to raw page text before chunking; two-pass:
+  1. **NFKC normalisation** — decomposes standard Unicode ligatures (ﬁ→fi, ﬂ→fl, ﬀ→ff, ﬃ→ffi, ﬄ→ffl) into ASCII sequences.
+  2. **BIMCO substitution map** — corrects wrong-codepoint ligature mappings specific to BIMCO SmartCon and similar commercial charter-party fonts whose ToUnicode CMap incorrectly maps ti/ft/tt ligature glyphs to Latin Extended codepoints (Ɵ→ti, Ō→ft, Ʃ→tt). The map is a module-level `dict` (`_BIMCO_LIGATURE_MAP`) for easy extension if new artifacts are discovered.
+
 **Key design decisions:**
-- Extraction is synchronous (fast enough for charter parties; no async/SSE needed in Phase 2)
+- Extraction is synchronous per file (fast enough for charter parties; no async/SSE needed in Phase 2)
 - The review step is the differentiator — operators can catch parser misses before they corrupt the knowledge base
+- Multi-file is handled as a sequential review queue rather than a parallel batch, keeping the review UI simple and focused
+- Grouping is an optional label, not a strict schema — operators can upload ungrouped files, or group by vessel, charter party package, or any other logical unit
 - Deletion is clean: vector IDs are deterministic (`{client_id}:doc:{doc_id}:chunk:{pos}`) and stored on each chunk row, enabling targeted Pinecone deletes
 - Platform Admins see a client-switcher dropdown; Client Admins are auto-scoped to their own client
 

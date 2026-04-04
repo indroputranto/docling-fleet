@@ -17,12 +17,53 @@ Chunking strategy for maritime documents:
 """
 
 import re
+import unicodedata
 import logging
 from typing import IO, List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 MAX_CHUNK_WORDS = 600   # soft word limit per chunk before splitting
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF text cleaning — ligature & encoding artifact repair
+# ─────────────────────────────────────────────────────────────────────────────
+
+# BIMCO SmartCon and similar commercial charter-party PDFs embed proprietary
+# fonts whose ToUnicode CMap tables incorrectly map common ligature glyphs to
+# Latin Extended codepoints instead of the correct ASCII sequences.
+#
+# Observed mappings (confirmed on BIMCO SmartCon GENCON 2022):
+#   U+019F  Ɵ  → "ti"   (LATIN CAPITAL LETTER O WITH MIDDLE TILDE used for ti-ligature)
+#   U+014C  Ō  → "ft"   (LATIN CAPITAL LETTER O WITH MACRON used for ft-ligature)
+#   U+01A9  Ʃ  → "tt"   (LATIN CAPITAL LETTER ESH used for tt-ligature)
+#
+# Add further entries here if new artifacts are discovered in other PDF sources.
+_BIMCO_LIGATURE_MAP: dict = {
+    '\u019F': 'ti',   # Ɵ → ti
+    '\u014C': 'ft',   # Ō → ft
+    '\u01A9': 'tt',   # Ʃ → tt
+}
+
+# Build a str.translate()-compatible table (codepoint → replacement string)
+_PDF_TRANSLATE_TABLE = str.maketrans(_BIMCO_LIGATURE_MAP)
+
+
+def _clean_pdf_text(text: str) -> str:
+    """
+    Repair encoding artifacts from PDFs with broken ToUnicode CMap entries.
+
+    Two-pass strategy:
+      1. NFKC normalization — decomposes standard Unicode ligatures
+         (ﬁ→fi, ﬂ→fl, ﬀ→ff, ﬃ→ffi, ﬄ→ffl, ﬅ/ﬆ→st) into ASCII pairs.
+      2. Character substitution — corrects BIMCO SmartCon font mis-encodings
+         where ligature glyphs are mapped to wrong Latin Extended codepoints.
+    """
+    # Pass 1: standard Unicode ligatures (U+FB00–U+FB06)
+    text = unicodedata.normalize('NFKC', text)
+    # Pass 2: BIMCO-specific wrong-codepoint mappings
+    return text.translate(_PDF_TRANSLATE_TABLE)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,29 +198,45 @@ def extract_docx(file_obj: IO[bytes]) -> List[Dict]:
 
 def extract_pdf(file_obj: IO[bytes]) -> List[Dict]:
     """
-    Extract chunks from a .pdf file using pdfplumber.
+    Extract chunks from a .pdf file.
 
     Strategy:
-    - Extract text page by page.
-    - Detect clause headers within each page's text.
-    - Group paragraphs into chunks at clause boundaries.
-    - Fall back to page-per-chunk if no clause structure detected.
+    - Try PyMuPDF (fitz) first — handles ligatures and custom font encodings well.
+    - Fall back to pdfplumber if PyMuPDF is not installed.
+    - Extract text page by page, detect clause headers, group into chunks.
+    - Fall back to fixed-size chunks if no clause structure is detected.
     """
+    import io
+
+    raw_bytes = file_obj.read()
+
+    # ── Attempt 1: PyMuPDF ────────────────────────────────────────────────────
     try:
-        import pdfplumber
+        import fitz  # PyMuPDF
+        full_text_lines: List[str] = []
+        with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
+            for page in pdf:
+                text = page.get_text("text")
+                if text:
+                    text = _clean_pdf_text(text)
+                    full_text_lines.extend(text.splitlines())
+
     except ImportError:
-        raise ImportError(
-            "pdfplumber is required for PDF extraction. "
-            "Run: pip install pdfplumber"
-        )
-
-    full_text_lines: List[str] = []
-
-    with pdfplumber.open(file_obj) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                full_text_lines.extend(text.splitlines())
+        # ── Fallback: pdfplumber ──────────────────────────────────────────────
+        try:
+            import pdfplumber
+        except ImportError:
+            raise ImportError(
+                "No PDF library found. Run: pip install PyMuPDF  "
+                "(or pip install pdfplumber as a fallback)"
+            )
+        full_text_lines = []
+        with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    text = _clean_pdf_text(text)
+                    full_text_lines.extend(text.splitlines())
 
     if not full_text_lines:
         return [{"title": None, "body": ""}]

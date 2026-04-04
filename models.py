@@ -193,6 +193,9 @@ class Document(db.Model):
     chunk_count  = db.Column(db.Integer,     nullable=False, default=0)
     error_message = db.Column(db.Text, nullable=True)
 
+    # Optional label grouping related files (e.g. "MV Industrial Ruby")
+    group_name   = db.Column(db.String(500), nullable=True, index=True)
+
     uploaded_by  = db.Column(db.String(255), nullable=True)    # user email
     uploaded_at  = db.Column(db.DateTime,    nullable=False,
                              default=lambda: datetime.now(timezone.utc))
