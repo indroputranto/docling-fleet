@@ -17,7 +17,9 @@ query — nothing else in this file needs to change.
 
 import os
 import uuid
+import time
 import logging
+from datetime import datetime, timezone, date as date_type
 from flask import Blueprint, request, jsonify
 from openai import OpenAI
 from anthropic import Anthropic
@@ -231,6 +233,26 @@ def chat(client_id: str = None):
     if cfg is None:
         return jsonify({"error": f"Client '{resolved}' not found or inactive"}), 404
 
+    # --- Rate limit check -----------------------------------------------------
+    daily_limit = cfg.get("daily_request_limit", 0)
+    if daily_limit > 0:
+        from models import db, UsageLog
+        today = date_type.today()
+        today_count = UsageLog.query.filter_by(
+            client_id=resolved, date=today
+        ).count()
+        if today_count >= daily_limit:
+            logger.warning(
+                f"[chat] Rate limit hit: client={resolved} "
+                f"count={today_count} limit={daily_limit}"
+            )
+            return jsonify({
+                "error": (
+                    f"Daily request limit of {daily_limit} reached for this account. "
+                    "Please try again tomorrow."
+                )
+            }), 429
+
     # --- Parse request --------------------------------------------------------
     body = request.get_json(silent=True)
     if not body:
@@ -242,6 +264,20 @@ def chat(client_id: str = None):
 
     conversation_id = body.get("conversation_id") or str(uuid.uuid4())
     history = _validate_history(body.get("history", []))
+
+    # Extract user email from JWT if present (optional auth — chat is open)
+    user_email = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            import jwt as _jwt
+            _secret = os.getenv("JWT_SECRET", "change-me-in-production")
+            _payload = _jwt.decode(auth_header[7:], _secret, algorithms=["HS256"])
+            user_email = _payload.get("sub")
+        except Exception:
+            pass
+
+    t_start = time.monotonic()
 
     logger.info(
         f"[chat] client={resolved} conversation={conversation_id} "
@@ -290,15 +326,38 @@ def chat(client_id: str = None):
         )
 
         reply = response.content[0].text
+        tokens_in  = response.usage.input_tokens
+        tokens_out = response.usage.output_tokens
 
         logger.info(
-            f"[chat] Claude responded: input_tokens={response.usage.input_tokens} "
-            f"output_tokens={response.usage.output_tokens}"
+            f"[chat] Claude responded: input_tokens={tokens_in} "
+            f"output_tokens={tokens_out}"
         )
 
     except Exception as e:
         logger.error(f"[chat] LLM call failed: {e}")
         return jsonify({"error": "Failed to generate response", "detail": str(e)}), 500
+
+    # --- Log usage -----------------------------------------------------------
+    try:
+        from models import db, UsageLog
+        response_ms = int((time.monotonic() - t_start) * 1000)
+        now = datetime.now(timezone.utc)
+        log = UsageLog(
+            client_id=resolved,
+            user_email=user_email,
+            timestamp=now,
+            date=now.date(),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            model=cfg["llm_model"],
+            response_ms=response_ms,
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        # Never let logging failure break the chat response
+        logger.error(f"[chat] Usage logging failed: {e}")
 
     # --- Step 5: Return response ---------------------------------------------
     sources = [

@@ -109,6 +109,11 @@ class ClientConfig(db.Model):
     show_mode_toggle = db.Column(db.Boolean, nullable=False, default=True)
     # Whether to show the dark/light toggle button to end users.
 
+    # ── Rate limiting ─────────────────────────────────────────────────────────
+    daily_request_limit = db.Column(db.Integer, nullable=False, default=0)
+    # 0 = unlimited. When > 0, the chat API rejects requests once this
+    # many requests have been logged for this client on the current UTC day.
+
     # ── Status ───────────────────────────────────────────────────────────────
     active     = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False,
@@ -149,6 +154,7 @@ class ClientConfig(db.Model):
                 "show_mode_toggle": self.show_mode_toggle,
             },
             "active": self.active,
+            "daily_request_limit": self.daily_request_limit,
         }
 
     def to_dict(self) -> dict:
@@ -229,3 +235,41 @@ class DocumentChunk(db.Model):
 
     def __repr__(self):
         return f"<DocumentChunk doc={self.document_id} pos={self.position}>"
+
+
+class UsageLog(db.Model):
+    """
+    One row per successful chat API request.
+
+    Written synchronously after Claude returns a response so token counts
+    are available.  The `date` column is a denormalised copy of the UTC date
+    portion of `timestamp` — stored separately so daily aggregations can use
+    a plain equality filter on an indexed column instead of a date-truncation
+    expression (which SQLite can't index).
+
+    Used for:
+      - Per-client usage dashboards in the CMS
+      - Rate limit enforcement (count today's rows before processing)
+      - Future billing reconciliation
+    """
+    __tablename__ = "usage_logs"
+
+    id           = db.Column(db.Integer, primary_key=True)
+    client_id    = db.Column(db.String(100), nullable=False, index=True)
+    user_email   = db.Column(db.String(255), nullable=True)
+    # null when the request was made without a JWT (anonymous end-user)
+
+    timestamp    = db.Column(db.DateTime, nullable=False,
+                             default=lambda: datetime.now(timezone.utc))
+    date         = db.Column(db.Date, nullable=False, index=True)
+    # UTC date — indexed for fast daily counts and aggregations
+
+    tokens_in    = db.Column(db.Integer, nullable=False, default=0)
+    tokens_out   = db.Column(db.Integer, nullable=False, default=0)
+    model        = db.Column(db.String(100), nullable=True)
+    response_ms  = db.Column(db.Integer, nullable=True)
+    # wall-clock milliseconds from request receipt to response sent
+
+    def __repr__(self):
+        return (f"<UsageLog client={self.client_id} date={self.date} "
+                f"in={self.tokens_in} out={self.tokens_out}>")

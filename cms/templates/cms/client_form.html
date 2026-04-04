@@ -166,6 +166,13 @@
           <div class="form-hint">Number of past turns sent to the LLM (1–50).</div>
         </div>
 
+        <div class="form-group">
+          <label>Daily Request Limit</label>
+          <input type="number" name="daily_request_limit" min="0"
+                 value="{{ client.daily_request_limit if client else 0 }}" />
+          <div class="form-hint">Max chat requests per day (UTC). Set to 0 for unlimited. Requests over the limit receive a 429 error.</div>
+        </div>
+
       </div>
     </div>
   </div>

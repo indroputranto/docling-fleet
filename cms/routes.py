@@ -26,7 +26,7 @@ Login/logout are open (no auth required).
 import os
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as date_type
 from functools import wraps
 from flask import (
     Blueprint, render_template, redirect, url_for,
@@ -180,12 +180,61 @@ def dashboard():
             client_id=g.scoped_client_id
         ).order_by(User.created_at.desc()).all()
 
+    # ── Usage stats ──────────────────────────────────────────────────────────
+    from models import UsageLog
+    from sqlalchemy import func
+
+    today       = date_type.today()
+    month_start = today.replace(day=1)
+
+    # Per-client counts for today
+    today_rows = (
+        db.session.query(UsageLog.client_id, func.count(UsageLog.id))
+        .filter(UsageLog.date == today)
+        .group_by(UsageLog.client_id)
+        .all()
+    )
+    today_by_client = {cid: cnt for cid, cnt in today_rows}
+
+    # Per-client counts + tokens for this month
+    month_rows = (
+        db.session.query(
+            UsageLog.client_id,
+            func.count(UsageLog.id),
+            func.coalesce(func.sum(UsageLog.tokens_in + UsageLog.tokens_out), 0),
+        )
+        .filter(UsageLog.date >= month_start)
+        .group_by(UsageLog.client_id)
+        .all()
+    )
+    month_by_client = {cid: (cnt, tok) for cid, cnt, tok in month_rows}
+
+    # Build a per-client stats dict to pass to the template
+    usage_stats = {}
+    for c in clients:
+        cid = c.client_id
+        m_cnt, m_tok = month_by_client.get(cid, (0, 0))
+        usage_stats[cid] = {
+            "today":        today_by_client.get(cid, 0),
+            "month":        m_cnt,
+            "tokens_month": m_tok,
+        }
+
+    # Platform-level totals for the top stat cards
+    total_today  = sum(v["today"]        for v in usage_stats.values())
+    total_month  = sum(v["month"]        for v in usage_stats.values())
+    total_tokens = sum(v["tokens_month"] for v in usage_stats.values())
+
     return render_template(
         "cms/dashboard.html",
         clients=clients,
         users=users,
         cms_user=g.cms_user,
         is_platform_admin=g.is_platform_admin,
+        usage_stats=usage_stats,
+        total_today=total_today,
+        total_month=total_month,
+        total_tokens=total_tokens,
     )
 
 
@@ -287,11 +336,12 @@ def _save_client(client: ClientConfig | None):
         client.pinecone_index     = f.get("pinecone_index", "vessel-embeddings").strip()
         client.pinecone_namespace = f.get("pinecone_namespace", "").strip()
         client.embedding_model    = f.get("embedding_model", "text-embedding-3-small").strip()
-        client.llm_model          = f.get("llm_model", "claude-opus-4-6").strip()
-        client.system_prompt      = f.get("system_prompt", "").strip()
-        client.max_context_chunks = int(f.get("max_context_chunks", 8))
-        client.max_history        = int(f.get("max_history", 10))
-        client.active             = "active" in f
+        client.llm_model            = f.get("llm_model", "claude-opus-4-6").strip()
+        client.system_prompt        = f.get("system_prompt", "").strip()
+        client.max_context_chunks   = int(f.get("max_context_chunks", 8))
+        client.max_history          = int(f.get("max_history", 10))
+        client.daily_request_limit  = max(0, int(f.get("daily_request_limit", 0) or 0))
+        client.active               = "active" in f
 
     client.updated_at = datetime.now(timezone.utc)
     db.session.commit()

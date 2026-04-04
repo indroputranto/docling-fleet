@@ -11,7 +11,8 @@
 {% block content %}
 
 <!-- Stats row -->
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
+{% if is_platform_admin %}
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:28px;">
   <div class="card" style="padding:20px;">
     <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Total Clients</div>
     <div style="font-size:28px;font-weight:700;">{{ clients|length }}</div>
@@ -24,7 +25,58 @@
     <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Total Users</div>
     <div style="font-size:28px;font-weight:700;">{{ users|length }}</div>
   </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Requests Today</div>
+    <div style="font-size:28px;font-weight:700;">{{ total_today }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Requests This Month</div>
+    <div style="font-size:28px;font-weight:700;">{{ total_month }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Tokens This Month</div>
+    <div style="font-size:28px;font-weight:700;">
+      {% if total_tokens >= 1000000 %}
+        {{ "%.1f"|format(total_tokens / 1000000) }}M
+      {% elif total_tokens >= 1000 %}
+        {{ "%.1f"|format(total_tokens / 1000) }}K
+      {% else %}
+        {{ total_tokens }}
+      {% endif %}
+    </div>
+  </div>
 </div>
+{% else %}
+{# Client admin — show their client's usage #}
+{% set my_stats = usage_stats.get(cms_user.client_id, {}) %}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;">
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Total Users</div>
+    <div style="font-size:28px;font-weight:700;">{{ users|length }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Requests Today</div>
+    <div style="font-size:28px;font-weight:700;">{{ my_stats.get('today', 0) }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Requests This Month</div>
+    <div style="font-size:28px;font-weight:700;">{{ my_stats.get('month', 0) }}</div>
+  </div>
+  <div class="card" style="padding:20px;">
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Tokens This Month</div>
+    <div style="font-size:28px;font-weight:700;">
+      {% set tok = my_stats.get('tokens_month', 0) %}
+      {% if tok >= 1000000 %}
+        {{ "%.1f"|format(tok / 1000000) }}M
+      {% elif tok >= 1000 %}
+        {{ "%.1f"|format(tok / 1000) }}K
+      {% else %}
+        {{ tok }}
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Clients table -->
 <div class="card">
@@ -43,12 +95,15 @@
         <th>LLM Model</th>
         <th>Pinecone Namespace</th>
         <th>Status</th>
+        <th style="text-align:right;">Today</th>
+        <th style="text-align:right;">This Month</th>
         <th>Updated</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for c in clients %}
+      {% set cs = usage_stats.get(c.client_id, {}) %}
       <tr>
         <td><span class="font-mono">{{ c.client_id }}</span></td>
         <td style="font-weight:500;">
@@ -66,6 +121,24 @@
             <span class="badge badge-green">Active</span>
           {% else %}
             <span class="badge badge-red">Inactive</span>
+          {% endif %}
+        </td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;">
+          {% if cs.get('today', 0) > 0 %}
+            <span style="font-weight:600;">{{ cs['today'] }}</span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+          {% if c.daily_request_limit > 0 %}
+            <span class="text-muted" style="font-size:11px;">&nbsp;/&nbsp;{{ c.daily_request_limit }}</span>
+          {% endif %}
+        </td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;">
+          {% set m = cs.get('month', 0) %}
+          {% if m > 0 %}
+            <span style="font-weight:600;">{{ m }}</span>
+          {% else %}
+            <span class="text-muted">—</span>
           {% endif %}
         </td>
         <td class="text-muted" style="font-size:12px;">

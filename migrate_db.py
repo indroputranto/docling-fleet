@@ -49,6 +49,34 @@ def run():
             cur.execute(f"ALTER TABLE client_configs ADD COLUMN {col} {typedef}")
             print(f"  [+] client_configs.{col} ({typedef})")
 
+    # ── client_configs: rate limiting ────────────────────────────────────────
+    if col_exists(cur, "client_configs", "daily_request_limit"):
+        print("  [skip] client_configs.daily_request_limit already exists")
+    else:
+        cur.execute("ALTER TABLE client_configs ADD COLUMN daily_request_limit INTEGER NOT NULL DEFAULT 0")
+        print("  [+] client_configs.daily_request_limit (INTEGER NOT NULL DEFAULT 0)")
+
+    # ── usage_logs table ──────────────────────────────────────────────────────
+    if table_exists(cur, "usage_logs"):
+        print("  [skip] usage_logs table already exists")
+    else:
+        cur.execute("""
+            CREATE TABLE usage_logs (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id    VARCHAR(100) NOT NULL,
+                user_email   VARCHAR(255),
+                timestamp    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                date         DATE     NOT NULL,
+                tokens_in    INTEGER  NOT NULL DEFAULT 0,
+                tokens_out   INTEGER  NOT NULL DEFAULT 0,
+                model        VARCHAR(100),
+                response_ms  INTEGER
+            )
+        """)
+        cur.execute("CREATE INDEX ix_usage_logs_client_id ON usage_logs (client_id)")
+        cur.execute("CREATE INDEX ix_usage_logs_date ON usage_logs (date)")
+        print("  [+] usage_logs table created")
+
     # ── documents table ───────────────────────────────────────────────────────
     if table_exists(cur, "documents"):
         print("  [skip] documents table already exists")

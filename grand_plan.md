@@ -1,8 +1,7 @@
 # Grand Plan — Functional Specification Document
 **Project:** Maritime AI Chatbot SaaS Platform
-**Codename:** docling
+**Codename:** TBD (let's call it docling for now) 
 **Last Updated:** April 2026
-**Status:** Phase 1 complete · Phase 2 in progress
 
 ---
 
@@ -151,7 +150,7 @@ All database queries in the dashboard and user management routes are branched on
 - **User form:** Role and client assignment (platform admin full control); read-only for client admins
 - Auth: httpOnly `cms_token` cookie, 8h session, redirects to `/cms/login` when expired
 
-### 5.7 Document Upload Pipeline (`/documents`)
+### 5.6 Document Upload Pipeline (`/documents`)
 
 A human-in-the-loop upload interface for building and maintaining each client's knowledge base. Accessible to Platform Admins and Client Admins; end users (chat-only) cannot upload.
 
@@ -173,7 +172,7 @@ A human-in-the-loop upload interface for building and maintaining each client's 
 - Deletion is clean: vector IDs are deterministic (`{client_id}:doc:{doc_id}:chunk:{pos}`) and stored on each chunk row, enabling targeted Pinecone deletes
 - Platform Admins see a client-switcher dropdown; Client Admins are auto-scoped to their own client
 
-### 5.8 System Prompt (`prompt.md`)
+### 5.7 System Prompt (`prompt.md`)
 The instruction set defining how Claude behaves for a given client. Whitelabeled via placeholder tokens:
 
 - `[CLIENT_NAME]` — the client's company/fleet name
@@ -186,7 +185,7 @@ The instruction set defining how Claude behaves for a given client. Whitelabeled
 
 ## 6. Development Phases
 
-### Phase 1 — Chat API ✅ Complete
+### Phase 1 — Chat API 
 Single-tenant Flask app with hardcoded client config, full RAG pipeline, chat UI, JWT auth.
 
 **Deliverables completed:**
@@ -195,7 +194,7 @@ Single-tenant Flask app with hardcoded client config, full RAG pipeline, chat UI
 - Subdomain-based client routing with IP detection fix
 - Dark/light mode theming system
 
-### Phase 2 — Admin CMS 🔄 In Progress
+### Phase 2 — Admin CMS 
 Database-driven client management. Same Flask app, new `/cms` blueprint.
 
 **Deliverables completed:**
@@ -215,7 +214,7 @@ Database-driven client management. Same Flask app, new `/cms` blueprint.
 - Subdomain display with copy-to-clipboard
 - "Powered by" control (show/hide platform attribution in chat UI)
 
-### Phase 3 — Production Hardening & Automation 📋 Planned
+### Phase 3 — Production Hardening & Automation
 Gunicorn + systemd deployment, nginx routing, automated provisioning.
 
 **Deliverables planned:**
@@ -284,7 +283,7 @@ The ops Droplet polls the Digital Ocean API and each client's `/health` endpoint
                     ┌───────▼────────┐
                     │   DNS / nginx  │
                     │  (wildcard     │
-                    │  *.platform.com│
+                    │ *.platform.com)│
                     └──┬──────┬──┬───┘
                        │      │  │
           ┌────────────▼─┐  ┌─▼──────────┐  ┌─▼──────────────┐
@@ -419,6 +418,5 @@ The platform is production-ready when:
 | SQLite vs. PostgreSQL? | SQLite for dev only. PostgreSQL for all production deployments. | Apr 2026 |
 | Self-hosted embeddings? | OpenAI for now. Evaluate self-hosted if a client has data residency requirements. | Apr 2026 |
 | Container orchestration (K8s/Docker Swarm)? | Deferred. Direct Droplet per client is simpler to operate at current scale. Revisit at 20+ clients. | Apr 2026 |
-| Font: Noto Serif vs. Inter? | Inter. Better readability for dense charter party text. | Apr 2026 |
 | Single CMS vs. separate admin/client portals? | Single CMS codebase with route-level data scoping. Platform Admin and Client Admin share the same UI; capabilities differ by role. Simpler to maintain, no duplicated templates. | Apr 2026 |
 | How many CMS role tiers? | Three: Platform Admin (full access), Client Admin (scoped to own client), User (chat only, no CMS). Client Admins can manage branding and their team but cannot touch AI config or system prompts. | Apr 2026 |
