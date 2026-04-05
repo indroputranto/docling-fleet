@@ -37,23 +37,24 @@
       /* accent, green, red, yellow unchanged */
     }
 
-    /* Sidebar stays dark in light mode (dark chrome + light body = clean CMS look) */
+    /* Sidebar in light mode — matches the light theme */
     [data-theme="light"] #sidebar {
-      background: #1e2b3c;
-      border-right-color: rgba(0,0,0,0.12);
+      background: #f8f9fb;
+      border-right-color: rgba(0,0,0,0.08);
     }
-    [data-theme="light"] .sidebar-logo { border-bottom-color: rgba(255,255,255,0.1); }
-    [data-theme="light"] .sidebar-logo-mark { background: rgba(255,255,255,0.15); }
-    [data-theme="light"] .sidebar-section { color: rgba(255,255,255,0.35); }
-    [data-theme="light"] .nav-item { color: rgba(255,255,255,0.55); }
-    [data-theme="light"] .nav-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
-    [data-theme="light"] .nav-item.active { background: rgba(255,255,255,0.13); color: #fff; }
+    [data-theme="light"] .sidebar-logo { border-bottom-color: rgba(0,0,0,0.08); }
+    [data-theme="light"] .sidebar-logo-mark { background: var(--accent); color: #fff; }
+    [data-theme="light"] .sidebar-section { color: rgba(26,29,35,0.4); }
+    [data-theme="light"] .nav-item { color: rgba(26,29,35,0.55); }
+    [data-theme="light"] .nav-item:hover { background: rgba(0,0,0,0.05); color: #1a1d23; }
+    [data-theme="light"] .nav-item.active { background: rgba(0,0,0,0.08); color: #1a1d23; }
+    [data-theme="light"] .nav-item svg { opacity: .6; }
     [data-theme="light"] .sidebar-footer {
-      border-top-color: rgba(255,255,255,0.1);
-      color: rgba(255,255,255,0.45);
+      border-top-color: rgba(0,0,0,0.08);
+      color: rgba(26,29,35,0.45);
     }
-    [data-theme="light"] .sidebar-footer a { color: rgba(255,255,255,0.45); }
-    [data-theme="light"] .sidebar-footer a:hover { color: #fff; }
+    [data-theme="light"] .sidebar-footer a { color: rgba(26,29,35,0.45); }
+    [data-theme="light"] .sidebar-footer a:hover { color: #1a1d23; }
 
     /* Table row hover in light mode */
     [data-theme="light"] tr:hover td { background: rgba(0,0,0,0.02); }
