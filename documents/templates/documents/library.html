@@ -53,7 +53,7 @@
 
   /* Vessel selector row */
   .upload-meta {
-    display: flex; gap: 12px; align-items: flex-end;
+    display: flex; gap: 12px; align-items: center;
     margin-top: 20px; padding-top: 18px;
     border-top: 1px solid var(--border);
     text-align: left;
@@ -68,6 +68,8 @@
   }
   .vessel-hint a { color: #58a6ff; text-decoration: none; }
   .vessel-hint a:hover { text-decoration: underline; }
+
+  #upload-actions { padding-bottom: 20px; }
 
   /* Status badges */
   .badge-blue   { background: rgba(15,52,96,.3);  color: #58a6ff; }
@@ -128,7 +130,7 @@
 
 {# ── Upload form (only shown when a client is selected) ── #}
 {% if active_client_id %}
-<form id="upload-form" method="POST" action="{{ url_for('documents.upload') }}"
+<form id="upload-form" class="document-uploader" method="POST" action="{{ url_for('documents.upload') }}"
       enctype="multipart/form-data">
   <input type="hidden" name="client_id" value="{{ active_client_id }}" />
 
@@ -164,7 +166,7 @@
           {% endfor %}
         </select>
         <div class="vessel-hint">
-          Can't find your vessel?
+          Can't find a vessel?
           <a href="{{ url_for('cms.vessel_library', client=active_client_id) }}?add_vessel=1"
              target="_blank">Add it in the Vessel Library ↗</a>
           then refresh this page.
@@ -197,7 +199,7 @@
 {% endif %}
 
 {# ── Document list, grouped by group_name ── #}
-<div class="card">
+<div class="card document-list">
   <div class="card-header">
     <span>
       Documents{% if active_client %} — {{ active_client.name }}{% endif %}

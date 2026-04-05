@@ -250,6 +250,7 @@
     gap: 16px;
   }
   .modal-title { font-size: 15px; font-weight: 700; }
+  #createModal .form-group { padding-bottom: 20px; }
 </style>
 {% endblock %}
 
@@ -287,7 +288,7 @@
 </div>
 
 {# ── Vessel table ── #}
-<div class="card">
+<div class="card vessel-fleet">
   <div class="card-header">
     <span>Fleet ({{ vessel_rows | length }} vessel{{ 's' if vessel_rows | length != 1 else '' }})</span>
     {% if active_client_id %}
@@ -376,10 +377,10 @@
 </div>
 
 {# ── Backdrop ── #}
-<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<div class="drawer-backdrop vessel-drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
 
 {# ── Side drawer ── #}
-<div class="drawer" id="vesselDrawer">
+<div class="drawer vessel-detail-drawer" id="vesselDrawer">
   <div class="drawer-header">
     <div>
       <div class="drawer-title" id="drawerTitle">Vessel Details</div>
@@ -482,7 +483,7 @@
 </div>
 
 {# ── Create vessel modal ── #}
-<div class="modal-backdrop" id="createModal">
+<div class="modal-backdrop vessel-create-modal" id="createModal">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-title">Add Vessel</div>
     <form method="POST" action="{{ url_for('cms.vessel_create') }}">
