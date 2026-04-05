@@ -297,6 +297,106 @@ def preview(doc_id: int):
     )
 
 
+def _apply_chunk_edits(doc_id: int, request_form) -> list:
+    """
+    Shared helper: parse chunk edits from a form submission, apply deletions
+    and content updates, re-number positions, flush to the session, and return
+    the surviving chunk objects.
+
+    Raises ValueError (message safe to show to the user) if no chunks remain.
+    """
+    deleted_positions = set()
+    deleted_str = request_form.get("deleted_positions", "")
+    if deleted_str.strip():
+        for p in deleted_str.split(","):
+            try:
+                deleted_positions.add(int(p.strip()))
+            except ValueError:
+                pass
+
+    existing_chunks = (
+        DocumentChunk.query
+        .filter_by(document_id=doc_id)
+        .order_by(DocumentChunk.position)
+        .all()
+    )
+
+    kept_chunks = []
+    for chunk in existing_chunks:
+        if chunk.position in deleted_positions:
+            db.session.delete(chunk)
+        else:
+            new_title = request_form.get(f"chunk_{chunk.position}_title", chunk.title)
+            new_body  = request_form.get(f"chunk_{chunk.position}_body",  chunk.body)
+            chunk.title = new_title.strip()
+            chunk.body  = new_body.strip()
+            if chunk.body:
+                kept_chunks.append(chunk)
+            else:
+                db.session.delete(chunk)
+
+    for new_pos, chunk in enumerate(kept_chunks):
+        chunk.position = new_pos
+
+    db.session.flush()
+
+    if not kept_chunks:
+        raise ValueError("No chunks remaining after edits. Add content before saving.")
+
+    return kept_chunks
+
+
+@documents_bp.route("/<int:doc_id>/save_draft", methods=["POST"])
+@documents_required
+def save_draft(doc_id: int):
+    """
+    Save chunk edits to the database only — does NOT push anything to Pinecone.
+
+    The document status stays (or returns to) 'draft'.  Use this to review and
+    refine extraction quality without polluting the knowledge base.  When the
+    chunks are ready, use the Publish route to embed and index them.
+    """
+    doc = Document.query.get_or_404(doc_id)
+    _assert_doc_access(doc)
+
+    if doc.status == "active":
+        flash("This document is already live. Delete it first to re-upload.", "error")
+        return redirect(url_for("documents.preview", doc_id=doc_id))
+
+    try:
+        kept_chunks = _apply_chunk_edits(doc_id, request.form)
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for("documents.preview", doc_id=doc_id))
+
+    doc.status      = "draft"
+    doc.chunk_count = len(kept_chunks)
+    db.session.commit()
+
+    flash(
+        f"'{doc.filename}' saved as draft — {len(kept_chunks)} chunks. "
+        "Publish when you're ready to add it to the knowledge base.",
+        "success",
+    )
+
+    # Multi-file queue: if there are more files to review, advance to the next
+    queue     = request.form.get("queue", "").strip()
+    total     = request.form.get("total", "1")
+    queue_ids = [i for i in queue.split(",") if i.strip().isdigit()]
+
+    if queue_ids:
+        next_id   = queue_ids[0]
+        remaining = ",".join(queue_ids[1:])
+        return redirect(url_for(
+            "documents.preview",
+            doc_id=next_id,
+            queue=remaining or None,
+            total=total,
+        ))
+
+    return redirect(url_for("documents.preview", doc_id=doc_id))
+
+
 @documents_bp.route("/<int:doc_id>/save", methods=["POST"])
 @documents_required
 def save(doc_id: int):
@@ -320,49 +420,11 @@ def save(doc_id: int):
         flash("Client config not found.", "error")
         return redirect(url_for("documents.library"))
 
-    # ── Parse edited chunk fields ─────────────────────────────────────────────
-    # Form fields: chunk_<position>_title, chunk_<position>_body
-    # Also parse "deleted" positions from hidden field (comma-separated)
-    deleted_positions = set()
-    deleted_str = request.form.get("deleted_positions", "")
-    if deleted_str.strip():
-        for p in deleted_str.split(","):
-            try:
-                deleted_positions.add(int(p.strip()))
-            except ValueError:
-                pass
-
-    existing_chunks = (
-        DocumentChunk.query
-        .filter_by(document_id=doc_id)
-        .order_by(DocumentChunk.position)
-        .all()
-    )
-
-    # Delete removed chunks
-    kept_chunks = []
-    for chunk in existing_chunks:
-        if chunk.position in deleted_positions:
-            db.session.delete(chunk)
-        else:
-            # Update with edited content
-            new_title = request.form.get(f"chunk_{chunk.position}_title", chunk.title)
-            new_body  = request.form.get(f"chunk_{chunk.position}_body", chunk.body)
-            chunk.title = new_title.strip()
-            chunk.body  = new_body.strip()
-            if chunk.body:
-                kept_chunks.append(chunk)
-            else:
-                db.session.delete(chunk)
-
-    # Re-number positions sequentially after deletions
-    for new_pos, chunk in enumerate(kept_chunks):
-        chunk.position = new_pos
-
-    db.session.flush()
-
-    if not kept_chunks:
-        flash("No chunks remaining after edits. Add content before saving.", "error")
+    # ── Apply chunk edits ─────────────────────────────────────────────────────
+    try:
+        kept_chunks = _apply_chunk_edits(doc_id, request.form)
+    except ValueError as e:
+        flash(str(e), "error")
         return redirect(url_for("documents.preview", doc_id=doc_id))
 
     # ── Mark processing ───────────────────────────────────────────────────────
@@ -418,6 +480,80 @@ def save(doc_id: int):
             total=total,
         ))
 
+    return redirect(url_for("documents.library", client=doc.client_id))
+
+
+@documents_bp.route("/<int:doc_id>/publish", methods=["POST"])
+@documents_required
+def publish(doc_id: int):
+    """
+    Embed the document's current DB chunks and upsert them to Pinecone.
+
+    This is the same as the final step of `save`, but skips form parsing —
+    it uses whatever chunks are already in the database.  Intended for:
+      - One-click Publish from the library for already-reviewed draft docs.
+      - Calling after Save Draft when the user is ready to go live.
+    """
+    from documents.embedder import embed_and_upsert
+
+    doc = Document.query.get_or_404(doc_id)
+    _assert_doc_access(doc)
+
+    if doc.status == "active":
+        flash("Document is already live.", "error")
+        return redirect(url_for("documents.library", client=doc.client_id))
+
+    client = ClientConfig.query.filter_by(client_id=doc.client_id).first()
+    if not client:
+        flash("Client config not found.", "error")
+        return redirect(url_for("documents.library"))
+
+    chunks = (
+        DocumentChunk.query
+        .filter_by(document_id=doc_id)
+        .order_by(DocumentChunk.position)
+        .all()
+    )
+    if not chunks:
+        flash("No chunks to publish. Open the document and add content first.", "error")
+        return redirect(url_for("documents.preview", doc_id=doc_id))
+
+    doc.status = "processing"
+    db.session.commit()
+
+    try:
+        upserted = embed_and_upsert(
+            document=doc,
+            chunks=chunks,
+            pinecone_index=client.pinecone_index,
+            pinecone_namespace=client.pinecone_namespace,
+            embedding_model=client.embedding_model,
+        )
+    except Exception as e:
+        logger.error(f"[documents] Publish failed for doc {doc_id}: {e}", exc_info=True)
+        doc.status        = "error"
+        doc.error_message = str(e)
+        db.session.commit()
+        flash(f"Publish failed: {e}", "error")
+        return redirect(url_for("documents.library", client=doc.client_id))
+
+    for chunk in chunks:
+        chunk.pinecone_id = chunk.vector_id()
+
+    doc.status        = "active"
+    doc.chunk_count   = upserted
+    doc.activated_at  = datetime.now(timezone.utc)
+    doc.error_message = None
+    db.session.commit()
+
+    logger.info(
+        f"[documents] Doc {doc_id} '{doc.filename}' published — "
+        f"{upserted} vectors in {client.pinecone_index}/{client.pinecone_namespace}"
+    )
+    flash(
+        f"'{doc.filename}' is now live — {upserted} chunks added to the knowledge base.",
+        "success",
+    )
     return redirect(url_for("documents.library", client=doc.client_id))
 
 

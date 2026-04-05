@@ -246,6 +246,13 @@
             {% if doc.status == 'draft' %}
               <a href="{{ url_for('documents.preview', doc_id=doc.id) }}"
                  class="btn btn-secondary btn-sm">Review →</a>
+              {# One-click publish from library, bypasses the preview form #}
+              <form method="POST"
+                    action="{{ url_for('documents.publish', doc_id=doc.id) }}"
+                    style="display:inline;"
+                    onsubmit="return confirm('Publish \'{{ doc.filename }}\' to the knowledge base now?')">
+                <button class="btn btn-primary btn-sm" type="submit">Publish →</button>
+              </form>
             {% endif %}
             <form method="POST"
                   action="{{ url_for('documents.delete', doc_id=doc.id) }}"

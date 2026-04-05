@@ -182,7 +182,7 @@
   <div class="step-line"></div>
   <div class="step">
     <div class="step-num">3</div>
-    <span>{% if total > 1 and file_index < total %}Save &amp; Continue →{% else %}Save to Knowledge Base{% endif %}</span>
+    <span>Save &amp; Publish</span>
   </div>
 </div>
 
@@ -201,12 +201,15 @@
 <p style="font-size:13px; color:var(--muted); margin-bottom:20px;">
   Review each chunk below. Edit titles and content as needed — the title will be
   used as context when the AI retrieves this chunk. Delete chunks that contain
-  junk or irrelevant content. When satisfied, click <strong>Save to Knowledge Base</strong>.
+  junk or irrelevant content.
+  <strong>Save Draft</strong> stores your edits without touching Pinecone.
+  <strong>Publish</strong> embeds the chunks and adds them to the knowledge base.
 </p>
 
 {# ── Chunk editor form ── #}
+{# action is set dynamically by JS when either button is clicked #}
 <form id="preview-form" method="POST"
-      action="{{ url_for('documents.save', doc_id=doc.id) }}">
+      action="{{ url_for('documents.save_draft', doc_id=doc.id) }}">
   <input type="hidden" name="deleted_positions" id="deleted-positions" value="" />
   <input type="hidden" name="queue" value="{{ queue }}" />
   <input type="hidden" name="total" value="{{ total }}" />
@@ -261,17 +264,30 @@
   {# ── Action bar ── #}
   <div class="action-bar">
     <div class="action-bar-left">
-      <strong id="final-chunk-count">{{ chunks | length }}</strong> chunks will be saved to the knowledge base
+      <strong id="final-chunk-count">{{ chunks | length }}</strong> chunks ready
     </div>
-    <div style="display:flex; gap:10px;">
+    <div style="display:flex; gap:10px; align-items:center;">
       <a href="{{ url_for('documents.library', client=doc.client_id) }}"
          class="btn btn-secondary">Discard</a>
-      <button type="submit" class="btn btn-primary" id="save-btn"
-              onclick="return confirmSave()">
+
+      {# Save Draft — writes edits to DB, no Pinecone #}
+      <button type="button" class="btn btn-secondary" id="draft-btn"
+              onclick="return submitAs('draft')">
         {% if total > 1 and file_index < total %}
-          Save &amp; Review Next →
+          Save Draft &amp; Next →
         {% else %}
-          Save to Knowledge Base →
+          Save Draft
+        {% endif %}
+      </button>
+
+      {# Publish — embeds and upserts to Pinecone #}
+      <button type="button" class="btn btn-primary" id="publish-btn"
+              onclick="return submitAs('publish')"
+              title="Embed chunks and add to the Pinecone knowledge base">
+        {% if total > 1 and file_index < total %}
+          Publish &amp; Next →
+        {% else %}
+          Publish to Knowledge Base →
         {% endif %}
       </button>
     </div>
@@ -382,18 +398,32 @@
     updateChunkCount();
   }
 
-  // ── Confirm save ──────────────────────────────────────────────────────────
-  function confirmSave() {
+  // ── Submit as draft or publish ────────────────────────────────────────────
+  function submitAs(mode) {
     const total  = document.querySelectorAll('.chunk-card').length;
     const active = total - deletedPositions.size;
     if (active === 0) {
       alert('No chunks to save. Add content before saving.');
       return false;
     }
-    const btn = document.getElementById('save-btn');
-    btn.textContent = 'Saving…';
-    btn.disabled = true;
-    return true;
+
+    const form = document.getElementById('preview-form');
+    if (mode === 'publish') {
+      form.action = '{{ url_for("documents.save", doc_id=doc.id) }}';
+      const btn = document.getElementById('publish-btn');
+      btn.textContent = 'Publishing…';
+      btn.disabled = true;
+      document.getElementById('draft-btn').disabled = true;
+    } else {
+      form.action = '{{ url_for("documents.save_draft", doc_id=doc.id) }}';
+      const btn = document.getElementById('draft-btn');
+      btn.textContent = 'Saving…';
+      btn.disabled = true;
+      document.getElementById('publish-btn').disabled = true;
+    }
+
+    form.submit();
+    return false;  // prevent double-submit from type="button"
   }
 </script>
 {% endblock %}
