@@ -176,6 +176,14 @@ The upload route accepts `files[]` (multiple), extracts all files server-side, c
   1. **NFKC normalisation** — decomposes standard Unicode ligatures (ﬁ→fi, ﬂ→fl, ﬀ→ff, ﬃ→ffi, ﬄ→ffl) into ASCII sequences.
   2. **BIMCO substitution map** — corrects wrong-codepoint ligature mappings specific to BIMCO SmartCon and similar commercial charter-party fonts whose ToUnicode CMap incorrectly maps ti/ft/tt ligature glyphs to Latin Extended codepoints (Ɵ→ti, Ō→ft, Ʃ→tt). The map is a module-level `dict` (`_BIMCO_LIGATURE_MAP`) for easy extension if new artifacts are discovered.
 
+**Chunking strategy (DOCX):**
+Header detection uses three signals, checked in order:
+1. **Heading style** (`"heading" in style_name`) — the preferred template format (AI_EVA_MARIE.docx uses `Heading 1` for every section).
+2. **Clause regex** (`_CLAUSE_RE`) — numbered clauses in charter party contracts.
+3. **Subsection label** (`_is_docx_subsection_label`) — short (≤ 80 chars) lines that end with `:` and have no value after the colon, start uppercase, and contain no `: ` key-value separator. Catches section headers in vessel-description DOCX files that use `paragraph` style with labels like `"General Information:"`, `"Tonnage:"`, `"Dimensions:"`. Does not match content data lines like `"Call Sign: PEVT"`.
+
+> **Note on PDF vessel spec sheets**: Multi-column brochure PDFs (e.g. OCEAN7 spec sheets) use a grid layout that PyMuPDF cannot reconstruct into logical reading order — columns interleave and the output is not useful for semantic chunking. Always upload the `AI_*.docx` version of a vessel description when available. Use the raw PDF only for charter party contracts and single-column documents.
+
 **Chunking strategy (PDFs):**
 Header signals — any one of the following triggers a new chunk boundary:
 1. **Font size** ≥ body_size × 1.12 — lines visually larger than body text (section titles in vessel specs, chapter headings in contracts).
