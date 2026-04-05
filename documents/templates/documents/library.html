@@ -51,16 +51,23 @@
   .sel-file-name { flex: 1; font-weight: 500; }
   .sel-file-size { color: var(--muted); font-size: 11px; white-space: nowrap; }
 
-  /* Group name input row */
+  /* Vessel selector row */
   .upload-meta {
     display: flex; gap: 12px; align-items: flex-end;
-    margin-top: 16px; text-align: left;
+    margin-top: 20px; padding-top: 18px;
+    border-top: 1px solid var(--border);
+    text-align: left;
   }
   .upload-meta .form-group { flex: 1; margin: 0; }
   .upload-meta label { display: block; font-size: 11px; font-weight: 600;
     text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); margin-bottom: 5px; }
+    color: var(--muted); margin-bottom: 6px; }
   .upload-meta input[type=text] { margin: 0; }
+  .vessel-hint {
+    font-size: 11px; color: var(--muted); margin-top: 5px;
+  }
+  .vessel-hint a { color: #58a6ff; text-decoration: none; }
+  .vessel-hint a:hover { text-decoration: underline; }
 
   /* Status badges */
   .badge-blue   { background: rgba(15,52,96,.3);  color: #58a6ff; }
@@ -156,11 +163,20 @@
           <option value="{{ v.id }}">{{ v.name }}{% if v.imo_number %} · IMO {{ v.imo_number }}{% endif %}</option>
           {% endfor %}
         </select>
+        <div class="vessel-hint">
+          Can't find your vessel?
+          <a href="{{ url_for('cms.vessel_library', client=active_client_id) }}?add_vessel=1"
+             target="_blank">Add it in the Vessel Library ↗</a>
+          then refresh this page.
+        </div>
         {% else %}
-        <div style="font-size:12px; color:var(--muted); padding:7px 0;">
-          No vessels yet.
-          <a href="{{ url_for('cms.vessel_library', client=active_client_id) }}"
-             style="color:#58a6ff; text-decoration:none;">Create one in the Vessel Library →</a>
+        <div style="font-size:13px; color:var(--muted); padding:8px 0;">
+          No vessels yet —
+          <a href="{{ url_for('cms.vessel_library', client=active_client_id) }}?add_vessel=1"
+             target="_blank" style="color:#58a6ff; text-decoration:none; font-weight:500;">
+            create one in the Vessel Library ↗
+          </a>
+          then refresh this page.
         </div>
         <input type="hidden" name="vessel_id" value="" />
         {% endif %}

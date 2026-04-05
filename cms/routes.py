@@ -735,6 +735,7 @@ def vessel_library():
         all_clients=all_clients,
         active_client=active_client,
         active_client_id=active_client_id,
+        auto_open_create=bool(request.args.get("add_vessel")),
     )
 
 
