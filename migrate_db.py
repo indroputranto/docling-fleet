@@ -128,6 +128,16 @@ def run():
         )
         print("  [+] document_chunks table created")
 
+    # ── documents: vessel_id FK ───────────────────────────────────────────────
+    if col_exists(cur, "documents", "vessel_id"):
+        print("  [skip] documents.vessel_id already exists")
+    else:
+        cur.execute(
+            "ALTER TABLE documents ADD COLUMN vessel_id INTEGER REFERENCES vessels(id) ON DELETE SET NULL"
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_documents_vessel_id ON documents (vessel_id)")
+        print("  [+] documents.vessel_id (INTEGER FK → vessels.id)")
+
     # ── vessels table ─────────────────────────────────────────────────────────
     if table_exists(cur, "vessels"):
         print("  [skip] vessels table already exists")
@@ -153,6 +163,27 @@ def run():
         """)
         cur.execute("CREATE INDEX ix_vessels_client_id ON vessels (client_id)")
         print("  [+] vessels table created")
+
+    # ── Backfill documents.vessel_id from group_name ──────────────────────────
+    # For every document whose group_name matches a vessel.name (same client),
+    # set vessel_id if it is not already set.
+    if table_exists(cur, "vessels") and col_exists(cur, "documents", "vessel_id"):
+        cur.execute("""
+            UPDATE documents
+            SET vessel_id = (
+                SELECT vessels.id FROM vessels
+                WHERE vessels.client_id = documents.client_id
+                  AND vessels.name      = documents.group_name
+                LIMIT 1
+            )
+            WHERE vessel_id IS NULL
+              AND group_name IS NOT NULL
+        """)
+        backfilled = cur.rowcount
+        if backfilled:
+            print(f"  [+] Backfilled vessel_id on {backfilled} document(s) from group_name")
+        else:
+            print("  [skip] No documents needed vessel_id backfill")
 
     con.commit()
     con.close()

@@ -110,42 +110,42 @@ def extract_vessel_metadata(chunks: List[Dict]) -> Dict[str, Optional[str]]:
     return result
 
 
+def fill_vessel_metadata(vessel: "Vessel", chunks: List[Dict]) -> "Vessel":  # noqa: F821
+    """
+    Update an *existing* Vessel record with metadata extracted from document
+    chunks.  Only fills fields that are currently NULL — manual edits made by
+    the user in the Vessel Library are never overwritten.
+
+    Call this after uploading a vessel spec sheet to auto-populate IMO,
+    flag, port, year built, etc.  The caller is responsible for committing.
+    """
+    meta = extract_vessel_metadata(chunks)
+
+    filled = []
+    for field, value in meta.items():
+        if value and getattr(vessel, field) is None:
+            setattr(vessel, field, value)
+            filled.append(field)
+
+    if filled:
+        logger.info(
+            f"[vessel_extractor] Vessel '{vessel.name}' — auto-filled: {filled}"
+        )
+    return vessel
+
+
+# Keep the old name as an alias so any external callers don't break.
 def upsert_vessel_from_chunks(
     client_id: str,
     group_name: str,
     chunks: List[Dict],
-) -> "Vessel | None":  # noqa: F821  (Vessel imported lazily to avoid circular)
-    """
-    Find or create a Vessel record for `group_name` and fill any empty fields
-    with values extracted from the uploaded document chunks.
-
-    Only fills fields that are currently NULL — manual edits by the user are
-    never overwritten by the auto-extractor.
-
-    Returns the Vessel instance (already added to db.session but not committed).
-    """
+) -> "Vessel | None":  # noqa: F821
+    """Deprecated: use fill_vessel_metadata() with an explicit Vessel instance."""
     from models import db, Vessel
 
-    vessel = Vessel.query.filter_by(
-        client_id=client_id,
-        name=group_name,
-    ).first()
-
-    is_new = vessel is None
-    if is_new:
+    vessel = Vessel.query.filter_by(client_id=client_id, name=group_name).first()
+    if vessel is None:
         vessel = Vessel(client_id=client_id, name=group_name)
         db.session.add(vessel)
 
-    meta = extract_vessel_metadata(chunks)
-
-    # Only auto-fill fields that are still empty (don't overwrite manual edits)
-    for field, value in meta.items():
-        if value and getattr(vessel, field) is None:
-            setattr(vessel, field, value)
-
-    action = "created" if is_new else "updated"
-    logger.info(
-        f"[vessel_extractor] Vessel '{group_name}' {action} for client '{client_id}' "
-        f"— extracted: {[k for k, v in meta.items() if v]}"
-    )
-    return vessel
+    return fill_vessel_metadata(vessel, chunks)

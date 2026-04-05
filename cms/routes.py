@@ -641,7 +641,7 @@ def _vessel_summary(vessel: Vessel) -> dict:
 
     docs = (
         Document.query
-        .filter_by(client_id=vessel.client_id, group_name=vessel.name)
+        .filter_by(vessel_id=vessel.id)
         .order_by(Document.uploaded_at.desc())
         .all()
     )

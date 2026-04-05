@@ -193,7 +193,19 @@ class Document(db.Model):
     chunk_count  = db.Column(db.Integer,     nullable=False, default=0)
     error_message = db.Column(db.Text, nullable=True)
 
-    # Optional label grouping related files (e.g. "MV Industrial Ruby")
+    # Explicit FK to the Vessel this document belongs to.
+    # Set by the user at upload time via the vessel dropdown.
+    # When the vessel is deleted the column is set to NULL (document is retained).
+    vessel_id    = db.Column(
+        db.Integer,
+        db.ForeignKey("vessels.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    vessel       = db.relationship("Vessel", back_populates="documents")
+
+    # Legacy free-text group label kept for display / backward compat.
+    # New uploads populate this from vessel.name automatically.
     group_name   = db.Column(db.String(500), nullable=True, index=True)
 
     uploaded_by  = db.Column(db.String(255), nullable=True)    # user email
@@ -277,6 +289,13 @@ class Vessel(db.Model):
 
     # ── Free text ─────────────────────────────────────────────────────────────
     notes            = db.Column(db.Text, nullable=True)
+
+    documents = db.relationship(
+        "Document",
+        back_populates="vessel",
+        lazy="dynamic",
+        foreign_keys="Document.vessel_id",
+    )
 
     created_at = db.Column(db.DateTime, nullable=False,
                            default=lambda: datetime.now(timezone.utc))

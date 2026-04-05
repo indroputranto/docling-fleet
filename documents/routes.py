@@ -25,7 +25,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-from models import db, ClientConfig, Document, DocumentChunk
+from models import db, ClientConfig, Document, DocumentChunk, Vessel
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +146,23 @@ def library():
         docs = Document.query.order_by(Document.uploaded_at.desc()).all()
         active_client = None
 
+    # Vessels for the upload dropdown — scoped to the active client
+    vessels = []
+    if active_client_id:
+        vessels = (
+            Vessel.query
+            .filter_by(client_id=active_client_id)
+            .order_by(Vessel.name)
+            .all()
+        )
+
     return render_template(
         "documents/library.html",
         docs=docs,
         all_clients=all_clients,
         active_client=active_client,
         active_client_id=active_client_id,
+        vessels=vessels,
     )
 
 
@@ -179,8 +190,18 @@ def upload():
         flash("Client not found.", "error")
         return redirect(url_for("documents.library"))
 
-    group_name = request.form.get("group_name", "").strip() or None
-    files      = [f for f in request.files.getlist("files") if f and f.filename]
+    # Resolve selected vessel (optional — documents may be unassigned)
+    vessel_id  = request.form.get("vessel_id", "").strip() or None
+    vessel     = None
+    group_name = None
+    if vessel_id:
+        vessel = Vessel.query.filter_by(id=vessel_id, client_id=client_id).first()
+        if not vessel:
+            flash("Selected vessel not found.", "error")
+            return redirect(url_for("documents.library", client=client_id))
+        group_name = vessel.name   # keep for display / backward compat
+
+    files = [f for f in request.files.getlist("files") if f and f.filename]
 
     if not files:
         flash("No files selected.", "error")
@@ -215,6 +236,7 @@ def upload():
             status="draft",
             uploaded_by=g.cms_user.email,
             chunk_count=len(raw_chunks),
+            vessel_id=int(vessel_id) if vessel_id else None,
             group_name=group_name,
         )
         db.session.add(doc)
@@ -233,19 +255,20 @@ def upload():
         logger.info(
             f"[documents] Uploaded '{filename}' → doc {doc.id} "
             f"({len(raw_chunks)} chunks) for client '{client_id}'"
+            + (f" vessel='{group_name}'" if group_name else "")
         )
 
-        # ── Auto-populate Vessel record ──────────────────────────────────────
-        # If this document belongs to a named vessel group, try to extract
-        # identity metadata from its chunks and upsert a Vessel record.
-        if group_name:
+        # ── Auto-fill vessel metadata from spec sheet chunks ─────────────────
+        # Only updates the pre-existing Vessel record — never creates one.
+        # Fields already set by the user are never overwritten.
+        if vessel:
             try:
-                from documents.vessel_extractor import upsert_vessel_from_chunks
-                upsert_vessel_from_chunks(client_id, group_name, raw_chunks)
+                from documents.vessel_extractor import fill_vessel_metadata
+                fill_vessel_metadata(vessel, raw_chunks)
                 db.session.commit()
             except Exception as ve:
                 logger.warning(
-                    f"[documents] Vessel auto-extraction failed for "
+                    f"[documents] Vessel metadata extraction failed for "
                     f"'{group_name}': {ve}"
                 )
 
