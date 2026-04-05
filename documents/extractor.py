@@ -256,7 +256,7 @@ def _is_junk_body(body: str) -> bool:
     if not lines:
         return True
     total_words = sum(len(l.split()) for l in lines)
-    if total_words < 5:
+    if total_words < 3:
         return True
     short = sum(1 for l in lines if len(l) <= 2)
     return short / len(lines) > 0.60
@@ -309,6 +309,142 @@ def _chunk_lines(
     return chunks
 
 
+def _detect_column_split(elements: List[Dict], page_width: float) -> Optional[float]:
+    """
+    Detect the x-coordinate of a vertical column gap in a two-column PDF layout.
+
+    Algorithm (bin-density):
+      1. Divide the page width into 20pt bins and count elements per bin.
+      2. Restrict search to the central 15–80% of page width (skip margins).
+      3. Find the longest contiguous run of "sparse" bins (≤2% of total elements).
+      4. A run of ≥3 bins (≥60pt) qualifies as a column gap.
+      5. Return the midpoint of that gap; None if no gap found.
+
+    Robust to isolated cross-column titles (e.g. "Ship's particulars" centred
+    over the gap) because a single element is counted as sparse (≤2%).
+    """
+    if not elements:
+        return None
+
+    BIN = 20.0
+    n_bins = int(page_width / BIN) + 2
+    counts = [0] * n_bins
+    for e in elements:
+        b = int(e["x"] / BIN)
+        if 0 <= b < n_bins:
+            counts[b] += 1
+
+    lo_b = int(page_width * 0.15 / BIN)
+    hi_b = int(page_width * 0.80 / BIN)
+    sparse_threshold = max(1, len(elements) * 0.02)
+
+    best_len, best_start = 0, None
+    cur_len, cur_start = 0, None
+
+    for i in range(lo_b, hi_b + 1):
+        if counts[i] <= sparse_threshold:
+            cur_len += 1
+            if cur_start is None:
+                cur_start = i
+            if cur_len > best_len:
+                best_len, best_start = cur_len, cur_start
+        else:
+            cur_len, cur_start = 0, None
+
+    # Require at least 3 bins = 60pt gap
+    if best_len >= 3 and best_start is not None:
+        gap_left = best_start * BIN
+        gap_right = (best_start + best_len) * BIN
+        return (gap_left + gap_right) / 2.0
+
+    return None
+
+
+def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
+    """
+    Convert a list of positioned text elements into {title, body} chunks.
+
+    Works for both single-column and per-column element sets.
+
+    Steps:
+      1. Sort elements by (y, x) — top-to-bottom, left-to-right.
+      2. Group elements whose y positions are within `snap` pt into the same
+         visual row (handles sub-pixel baseline differences).
+      3. Determine body font size (modal rounded size).
+      4. For each row, decide if it is a section header:
+           - All spans bold  AND  line < 120 chars  AND  starts with uppercase
+             letter  →  header (handles OCEAN7-style spec sheets)
+           - Max font size ≥ body_size * 1.12  →  header (font-size-based)
+           - Line matches clause regex  →  header (BIMCO/contract PDFs)
+      5. Flush completed chunks, filter junk bodies.
+    """
+    from collections import Counter
+
+    if not elements:
+        return []
+
+    # Step 1 & 2: sort and group into visual rows
+    sorted_els = sorted(elements, key=lambda e: (e["y"], e["x"]))
+    rows: List[List[Dict]] = []
+    current_row: List[Dict] = []
+    row_y: Optional[float] = None
+
+    for el in sorted_els:
+        if row_y is None or abs(el["y"] - row_y) <= snap:
+            current_row.append(el)
+            if row_y is None:
+                row_y = el["y"]
+        else:
+            if current_row:
+                rows.append(current_row)
+            current_row = [el]
+            row_y = el["y"]
+    if current_row:
+        rows.append(current_row)
+
+    # Step 3: modal body font size
+    size_counts: Counter = Counter(
+        round(e["size"] * 2) / 2 for e in elements
+    )
+    body_size = size_counts.most_common(1)[0][0] if size_counts else 10.0
+    header_threshold = body_size * 1.12
+
+    # Step 4 & 5: build chunks
+    chunks: List[Dict] = []
+    current_title: Optional[str] = None
+    current_lines: List[str] = []
+
+    def _flush_col():
+        body = "\n".join(current_lines).strip()
+        if body and not _is_junk_body(body):
+            chunks.append({"title": current_title, "body": body})
+
+    for row in rows:
+        txt = _clean_pdf_text(" ".join(e["text"] for e in row)).strip()
+        if not txt:
+            continue
+
+        is_bold = all(e["is_bold"] for e in row)
+        max_size = max(e["size"] for e in row)
+        first_char = txt[0] if txt else ""
+
+        is_header = (
+            (is_bold and len(txt) < 120 and first_char.isalpha() and first_char.isupper())
+            or max_size >= header_threshold
+            or _is_clause_header(txt)
+        )
+
+        if is_header:
+            _flush_col()
+            current_title = txt
+            current_lines = []
+        else:
+            current_lines.append(txt)
+
+    _flush_col()
+    return chunks
+
+
 def _fallback_fixed_chunks(text_lines: List[str]) -> List[Dict]:
     """Last-resort: split plain text into fixed-size word chunks."""
     words = " ".join(text_lines).split()
@@ -328,64 +464,88 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
     """
     Extract structured chunks from a PDF using PyMuPDF font metadata.
 
-    Uses get_text("dict") to read every span's font size and bold flag.
-    This allows accurate detection of section headers in both:
-    - Vessel description / spec sheets  (bold or larger section labels)
-    - Charter party contracts           (numbered clauses, often bold)
-
-    Falls back to fixed-size chunking if no headers are detected.
+    Strategy:
+    - Read every page using get_text("dict") to capture per-span font size,
+      bold flag, and bounding-box coordinates.
+    - Filter out tiny text (< 7pt) which is typically cargo diagram labels or
+      other graphical annotation noise.
+    - For each page, use bin-density analysis to detect two-column layouts.
+      If a column gap is found, split elements into left and right columns and
+      process each independently so that row-order within each column is
+      preserved correctly.
+    - Within each column (or full-page for single-column layouts), group
+      co-baseline elements into visual rows, then apply bold/size/clause-regex
+      header detection to build {title, body} chunks.
+    - Suitable for both vessel spec sheets (bold section labels, same font
+      size) and charter party contracts (numbered clauses, larger headers).
     """
     import fitz
-    from collections import Counter
 
-    lines_meta: List[Dict] = []
+    MIN_FONT = 7.0   # pt — skip cargo diagram / slot-plan label text
+
+    all_chunks: List[Dict] = []
+    all_plain_lines: List[str] = []   # fallback accumulator
 
     with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
         for page in pdf:
+            page_width = page.rect.width
+            elements: List[Dict] = []
+
             for block in page.get_text("dict")["blocks"]:
                 if block.get("type") != 0:   # skip image blocks
                     continue
                 for line in block.get("lines", []):
                     spans = line.get("spans", [])
-                    if not spans:
+                    text_spans = [s for s in spans if s["text"].strip()]
+                    if not text_spans:
                         continue
 
-                    # Combine all spans on this line into one string
+                    # Skip sub-threshold font sizes (noise / diagram labels)
+                    max_size = max(s["size"] for s in text_spans)
+                    if max_size < MIN_FONT:
+                        continue
+
                     combined = _clean_pdf_text(
-                        "".join(s["text"] for s in spans)
+                        " ".join(s["text"] for s in text_spans)
                     ).strip()
                     if not combined:
                         continue
 
-                    # Font metrics — use spans that have actual text content
-                    text_spans = [s for s in spans if s["text"].strip()]
-                    if not text_spans:
-                        continue
-                    max_size = max(s["size"] for s in text_spans)
-                    # Bold = flag bit 4 (value 16) set on ALL text spans
+                    # Bold = flag bit 4 (value 16) set on ALL content spans
                     is_bold = all(bool(s["flags"] & 16) for s in text_spans)
+                    # x: leftmost edge of the line's bounding box
+                    x_pos = min(s["bbox"][0] for s in text_spans)
+                    # y: top edge — consistent anchor for row grouping
+                    y_pos = min(s["bbox"][1] for s in text_spans)
 
-                    lines_meta.append({
+                    elements.append({
                         "text": combined,
                         "size": max_size,
                         "is_bold": is_bold,
+                        "x": x_pos,
+                        "y": y_pos,
                     })
+                    all_plain_lines.append(combined)
 
-    if not lines_meta:
-        return []
+            if not elements:
+                continue
 
-    # Determine body font size: most common rounded size across all lines
-    size_counts = Counter(round(lm["size"] * 2) / 2 for lm in lines_meta)
-    body_size = size_counts.most_common(1)[0][0]
+            col_split = _detect_column_split(elements, page_width)
 
-    chunks = _chunk_lines(lines_meta, body_size)
+            if col_split is not None:
+                left_els  = [e for e in elements if e["x"] <  col_split]
+                right_els = [e for e in elements if e["x"] >= col_split]
+                if left_els:
+                    all_chunks.extend(_column_to_chunks(left_els))
+                if right_els:
+                    all_chunks.extend(_column_to_chunks(right_els))
+            else:
+                all_chunks.extend(_column_to_chunks(elements))
 
-    if not chunks:
-        # No detectable structure — fall back to fixed chunks
-        plain_lines = [lm["text"] for lm in lines_meta]
-        chunks = _fallback_fixed_chunks(plain_lines)
+    if not all_chunks:
+        all_chunks = _fallback_fixed_chunks(all_plain_lines)
 
-    return chunks
+    return all_chunks
 
 
 # ─────────────────────────────────────────────────────────────────────────────

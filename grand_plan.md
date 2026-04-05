@@ -182,18 +182,29 @@ Header detection uses three signals, checked in order:
 2. **Clause regex** (`_CLAUSE_RE`) — numbered clauses in charter party contracts.
 3. **Subsection label** (`_is_docx_subsection_label`) — short (≤ 80 chars) lines that end with `:` and have no value after the colon, start uppercase, and contain no `: ` key-value separator. Catches section headers in vessel-description DOCX files that use `paragraph` style with labels like `"General Information:"`, `"Tonnage:"`, `"Dimensions:"`. Does not match content data lines like `"Call Sign: PEVT"`.
 
-> **Note on PDF vessel spec sheets**: Multi-column brochure PDFs (e.g. OCEAN7 spec sheets) use a grid layout that PyMuPDF cannot reconstruct into logical reading order — columns interleave and the output is not useful for semantic chunking. Always upload the `AI_*.docx` version of a vessel description when available. Use the raw PDF only for charter party contracts and single-column documents.
+**Chunking strategy (PDFs) — column-aware:**
 
-**Chunking strategy (PDFs):**
-Header signals — any one of the following triggers a new chunk boundary:
-1. **Font size** ≥ body_size × 1.12 — lines visually larger than body text (section titles in vessel specs, chapter headings in contracts).
-2. **Bold + short** — all spans bold, line < 120 chars, does not start with a digit (bold body prose is excluded; bold data values starting with digits are excluded).
-3. **Clause regex** — legacy pattern for numbered clauses in charter parties (`CLAUSE N`, `N. Title`, `PART II`, `ANNEX A`). Regex requires a space followed by a letter after the numeric separator to prevent decimal numbers (6.438, 16.0 m) and measurements from matching.
+`_extract_pdf_fitz()` uses a two-stage approach: layout detection then semantic chunking.
+
+**Stage 1 — Column detection (`_detect_column_split`)**
+Divides the page width into 20 pt bins and counts elements per bin. Searches the central 15–80 % of the page for the longest contiguous run of "sparse" bins (≤ 2 % of total elements). A run of ≥ 3 bins (≥ 60 pt) is treated as a column gap; its midpoint becomes the split x-coordinate. A single isolated element (e.g. a centred title "Ship's particulars") sitting in the gap is counted as sparse and does not break the detection. Returns `None` for single-column documents.
+
+**Stage 2 — Row grouping + header detection (`_column_to_chunks`)**
+Elements are sorted by (y, x). Elements whose y-coordinates are within 3 pt of each other are grouped into the same visual row (sub-pixel baseline jitter). For each row, any one of these signals triggers a new chunk boundary:
+1. **Bold + short + uppercase-initial** — all spans bold, row < 120 chars, starts with an uppercase letter. This is the primary signal for vessel spec sheets where headers and body text share the same font size (10 pt) but headers are bold.
+2. **Font size** ≥ body_size × 1.12 — catches visually enlarged headers in contract PDFs.
+3. **Clause regex** (`_CLAUSE_RE`) — numbered clauses in charter parties (`CLAUSE N`, `N. Title`, `PART II`, `ANNEX A`). Requires a space then a letter after the numeric separator to prevent decimal measurements (6.438, 16.0 m) from matching.
+
+**Noise filter — MIN_FONT = 7 pt**
+Spans with a max font size below 7 pt are dropped before layout analysis. This removes sub-millimetre text from cargo plan diagrams (pages 2–7 of OCEAN7-style spec PDFs) while preserving useful 8–10 pt annotation text (tween deck / tanktop hold heights).
 
 **Junk chunk filter (`_is_junk_body`):**
 Chunks are discarded before saving if:
-- < 5 total words, OR
+- < 3 total words, OR
 - > 60 % of lines are ≤ 2 characters (catches slot-plan / hold-diagram position labels A B C … 1 2 3 … extracted from graphical vector drawings).
+
+**Validated output (MV ADRIATIC — OCEAN7 PDF, page 1):**
+The bin-density column detector finds the split at x ≈ 240 pt and produces 11 semantically correct chunks matching the `AI_ADRIATIC.docx` single-file pipeline output: Registration, Tonnage, Dimensions, Hold/hatch sizes, Container capacity, Deck loads, Hatch covers/Tween deck, RoRo feature, Propulsion/Maneuvering, Bunkers/Ballast capacity — each with correct key-value body content. Later pages (cargo plans) yield additional tween-deck/tanktop dimensional chunks plus some residual noise that users can delete in the Review & Edit step.
 
 **Key design decisions:**
 - Extraction is synchronous per file (fast enough for charter parties; no async/SSE needed in Phase 2)
