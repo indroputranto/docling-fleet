@@ -170,11 +170,22 @@ A human-in-the-loop upload interface for building and maintaining each client's 
 The upload route accepts `files[]` (multiple), extracts all files server-side, creates a `Document` record per file, then redirects to the first preview with a `?queue=id1,id2&total=N` query string. Each preview passes queue/total through hidden form fields into the save POST. After a successful save, the save route checks the queue and redirects to the next doc's preview or, when empty, to the library. This keeps the per-file review flow unchanged while enabling batch uploads.
 
 **PDF extraction & encoding:**
-- Primary extractor: PyMuPDF (`fitz`) — handles most fonts cleanly, including ligatures encoded with standard ToUnicode CMaps.
-- Fallback extractor: pdfplumber — used if PyMuPDF is not installed.
-- Post-extraction cleaning (`_clean_pdf_text()`): applied to raw page text before chunking; two-pass:
+- Primary extractor: PyMuPDF (`fitz`) using `get_text("dict")` — reads every text span with its font size and bold flag, enabling accurate section header detection for both contract and vessel-description PDFs.
+- Fallback extractor: pdfplumber — clause-regex detection only (no font metadata), used if PyMuPDF is not installed.
+- Post-extraction cleaning (`_clean_pdf_text()`): applied per line before chunking; two-pass:
   1. **NFKC normalisation** — decomposes standard Unicode ligatures (ﬁ→fi, ﬂ→fl, ﬀ→ff, ﬃ→ffi, ﬄ→ffl) into ASCII sequences.
   2. **BIMCO substitution map** — corrects wrong-codepoint ligature mappings specific to BIMCO SmartCon and similar commercial charter-party fonts whose ToUnicode CMap incorrectly maps ti/ft/tt ligature glyphs to Latin Extended codepoints (Ɵ→ti, Ō→ft, Ʃ→tt). The map is a module-level `dict` (`_BIMCO_LIGATURE_MAP`) for easy extension if new artifacts are discovered.
+
+**Chunking strategy (PDFs):**
+Header signals — any one of the following triggers a new chunk boundary:
+1. **Font size** ≥ body_size × 1.12 — lines visually larger than body text (section titles in vessel specs, chapter headings in contracts).
+2. **Bold + short** — all spans bold, line < 120 chars, does not start with a digit (bold body prose is excluded; bold data values starting with digits are excluded).
+3. **Clause regex** — legacy pattern for numbered clauses in charter parties (`CLAUSE N`, `N. Title`, `PART II`, `ANNEX A`). Regex requires a space followed by a letter after the numeric separator to prevent decimal numbers (6.438, 16.0 m) and measurements from matching.
+
+**Junk chunk filter (`_is_junk_body`):**
+Chunks are discarded before saving if:
+- < 5 total words, OR
+- > 60 % of lines are ≤ 2 characters (catches slot-plan / hold-diagram position labels A B C … 1 2 3 … extracted from graphical vector drawings).
 
 **Key design decisions:**
 - Extraction is synchronous per file (fast enough for charter parties; no async/SSE needed in Phase 2)

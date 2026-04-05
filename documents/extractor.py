@@ -4,16 +4,20 @@ Document text extraction for the upload pipeline.
 
 Supports:
   .docx — python-docx; clause/heading-aware chunking
-  .pdf  — pdfplumber; page + section-aware chunking
+  .pdf  — PyMuPDF (font-aware) + pdfplumber fallback; section-aware chunking
   .xlsx — openpyxl; one chunk per sheet
 
 Each extractor returns a list of dicts:
   [{"title": str | None, "body": str}, ...]
 
 Chunking strategy for maritime documents:
-  1. Detect numbered clause headers (CLAUSE 1, 1., Clause 14, etc.)
-  2. Each clause boundary → new chunk
-  3. Fallback: fixed-size chunks of MAX_CHUNK_WORDS words
+  PDFs:  1. Use PyMuPDF get_text("dict") to read font metadata
+             — lines visually larger or bold → section header boundary
+             — regex-based clause detection as secondary signal
+         2. Filter "junk" chunks (cargo diagrams, slot-plan labels)
+         3. Fallback: pdfplumber + regex-only chunking
+         4. Last resort: fixed-size chunks of MAX_CHUNK_WORDS words
+  DOCX:  Heading styles + clause regex
 """
 
 import re
@@ -67,18 +71,24 @@ def _clean_pdf_text(text: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Clause detection
+# Clause / section header detection  (regex fallback for contract PDFs)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Matches common maritime clause patterns:
-#   "CLAUSE 1", "Clause 14", "1.", "14 —", "PART II", "ANNEX A"
+#   "CLAUSE 1", "Clause 14", "1. DEFINITIONS", "14 — LIEN", "PART II", "ANNEX A"
+#
+# NOTE: The numbered pattern requires a SPACE then a LETTER after the separator
+# so that decimal numbers (6.438, 16.0m, 3.5 mt/m2) are NOT mistaken for
+# clause headers.  "1." alone (no following word) is intentionally excluded
+# because in vessel description PDFs single numbers ending with "." are common
+# data values, not structural headers.
 _CLAUSE_RE = re.compile(
     r"^\s*(?:"
-    r"(?:CLAUSE|Clause)\s+\d+"          # CLAUSE 1 / Clause 14
-    r"|(?:PART|Part)\s+(?:[IVX]+|\d+)"  # PART II / Part 3
-    r"|(?:ANNEX|Annex|APPENDIX|Appendix)\s+\S+"  # ANNEX A
-    r"|\d{1,3}\s*[.\-—]\s*\S"           # 1. / 14 — / 3 -
-    r")",
+    r"(?:CLAUSE|Clause)\s+\d+"              # CLAUSE 1 / Clause 14
+    r"|(?:PART|Part)\s+(?:[IVX]+|\d+)"      # PART II / Part 3
+    r"|(?:ANNEX|Annex|APPENDIX|Appendix)\s+\S+"  # ANNEX A / Appendix B
+    r"|\d{1,3}\s*[.\-—]\s+[A-Za-z]"        # "1. Definitions" / "14 — Lien"
+    r")",                                   # NOTE: space required before letter
     re.MULTILINE,
 )
 
@@ -193,62 +203,184 @@ def extract_docx(file_obj: IO[bytes]) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF extraction
+# PDF extraction — helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_pdf(file_obj: IO[bytes]) -> List[Dict]:
+def _is_junk_body(body: str) -> bool:
     """
-    Extract chunks from a .pdf file.
+    Return True when the chunk body is extraction noise rather than useful text.
 
-    Strategy:
-    - Try PyMuPDF (fitz) first — handles ligatures and custom font encodings well.
-    - Fall back to pdfplumber if PyMuPDF is not installed.
-    - Extract text page by page, detect clause headers, group into chunks.
-    - Fall back to fixed-size chunks if no clause structure is detected.
+    Catches:
+    - Cargo slot diagrams / hold plans: position labels like A B C … and
+      bay/row numbers 1 2 3 … extracted as individual lines from graphical
+      vector drawings.  Heuristic: >60 % of non-empty lines are ≤2 chars.
+    - Trivially short chunks (fewer than 5 content words total).
     """
-    import io
+    lines = [l.strip() for l in body.split("\n") if l.strip()]
+    if not lines:
+        return True
+    total_words = sum(len(l.split()) for l in lines)
+    if total_words < 5:
+        return True
+    short = sum(1 for l in lines if len(l) <= 2)
+    return short / len(lines) > 0.60
 
-    raw_bytes = file_obj.read()
 
-    # ── Attempt 1: PyMuPDF ────────────────────────────────────────────────────
-    try:
-        import fitz  # PyMuPDF
-        full_text_lines: List[str] = []
-        with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
-            for page in pdf:
-                text = page.get_text("text")
-                if text:
-                    text = _clean_pdf_text(text)
-                    full_text_lines.extend(text.splitlines())
+def _chunk_lines(
+    lines_meta: List[Dict],
+    body_size: float,
+) -> List[Dict]:
+    """
+    Walk a list of {text, size, is_bold} line dicts and group them into
+    {title, body} chunks using font metadata + clause-regex signals.
 
-    except ImportError:
-        # ── Fallback: pdfplumber ──────────────────────────────────────────────
-        try:
-            import pdfplumber
-        except ImportError:
-            raise ImportError(
-                "No PDF library found. Run: pip install PyMuPDF  "
-                "(or pip install pdfplumber as a fallback)"
-            )
-        full_text_lines = []
-        with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    text = _clean_pdf_text(text)
-                    full_text_lines.extend(text.splitlines())
+    Header signals (any one triggers a new chunk):
+      1. Font size >= body_size * 1.12  (visually larger than body text)
+      2. All spans bold + line is short (<120 chars) + doesn't start with digit
+         (short bold lines are captions/labels; long bold lines are body prose)
+      3. Line matches _CLAUSE_RE (numbered clauses in contract PDFs)
+    """
+    chunks: List[Dict] = []
+    current_title: Optional[str] = None
+    current_lines: List[str] = []
+
+    header_threshold = body_size * 1.12
+
+    def _flush():
+        body = "\n".join(current_lines).strip()
+        if body and not _is_junk_body(body):
+            chunks.append({"title": current_title, "body": body})
+
+    for lm in lines_meta:
+        text = lm["text"]
+        size = lm["size"]
+        is_bold = lm["is_bold"]
+
+        is_header = (
+            size >= header_threshold
+            or (is_bold and len(text) < 120 and not text[0].isdigit())
+            or _is_clause_header(text)
+        )
+
+        if is_header:
+            _flush()
+            current_title = text
+            current_lines = []
+        else:
+            current_lines.append(text)
+
+    _flush()
+    return chunks
+
+
+def _fallback_fixed_chunks(text_lines: List[str]) -> List[Dict]:
+    """Last-resort: split plain text into fixed-size word chunks."""
+    words = " ".join(text_lines).split()
+    chunks = []
+    for i in range(0, len(words), MAX_CHUNK_WORDS):
+        part = " ".join(words[i : i + MAX_CHUNK_WORDS])
+        chunk_num = i // MAX_CHUNK_WORDS + 1
+        chunks.append({"title": f"Section {chunk_num}", "body": part})
+    return chunks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF extraction — PyMuPDF (primary)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
+    """
+    Extract structured chunks from a PDF using PyMuPDF font metadata.
+
+    Uses get_text("dict") to read every span's font size and bold flag.
+    This allows accurate detection of section headers in both:
+    - Vessel description / spec sheets  (bold or larger section labels)
+    - Charter party contracts           (numbered clauses, often bold)
+
+    Falls back to fixed-size chunking if no headers are detected.
+    """
+    import fitz
+    from collections import Counter
+
+    lines_meta: List[Dict] = []
+
+    with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
+        for page in pdf:
+            for block in page.get_text("dict")["blocks"]:
+                if block.get("type") != 0:   # skip image blocks
+                    continue
+                for line in block.get("lines", []):
+                    spans = line.get("spans", [])
+                    if not spans:
+                        continue
+
+                    # Combine all spans on this line into one string
+                    combined = _clean_pdf_text(
+                        "".join(s["text"] for s in spans)
+                    ).strip()
+                    if not combined:
+                        continue
+
+                    # Font metrics — use spans that have actual text content
+                    text_spans = [s for s in spans if s["text"].strip()]
+                    if not text_spans:
+                        continue
+                    max_size = max(s["size"] for s in text_spans)
+                    # Bold = flag bit 4 (value 16) set on ALL text spans
+                    is_bold = all(bool(s["flags"] & 16) for s in text_spans)
+
+                    lines_meta.append({
+                        "text": combined,
+                        "size": max_size,
+                        "is_bold": is_bold,
+                    })
+
+    if not lines_meta:
+        return []
+
+    # Determine body font size: most common rounded size across all lines
+    size_counts = Counter(round(lm["size"] * 2) / 2 for lm in lines_meta)
+    body_size = size_counts.most_common(1)[0][0]
+
+    chunks = _chunk_lines(lines_meta, body_size)
+
+    if not chunks:
+        # No detectable structure — fall back to fixed chunks
+        plain_lines = [lm["text"] for lm in lines_meta]
+        chunks = _fallback_fixed_chunks(plain_lines)
+
+    return chunks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF extraction — pdfplumber (fallback, no font metadata)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_pdf_pdfplumber(raw_bytes: bytes) -> List[Dict]:
+    """
+    Extract chunks from PDF via pdfplumber (clause-regex only, no font info).
+    Used when PyMuPDF is not installed.
+    """
+    import io, pdfplumber
+
+    full_text_lines: List[str] = []
+    with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                text = _clean_pdf_text(text)
+                full_text_lines.extend(text.splitlines())
 
     if not full_text_lines:
-        return [{"title": None, "body": ""}]
+        return []
 
-    # Walk lines and chunk at clause boundaries
     chunks: List[Dict] = []
     current_title: Optional[str] = None
     current_lines: List[str] = []
 
     def _flush():
         body = "\n".join(current_lines).strip()
-        if body:
+        if body and not _is_junk_body(body):
             chunks.append({"title": current_title, "body": body})
 
     for line in full_text_lines:
@@ -264,14 +396,37 @@ def extract_pdf(file_obj: IO[bytes]) -> List[Dict]:
 
     _flush()
 
+    return chunks or _fallback_fixed_chunks(full_text_lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF extraction — public entry point
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_pdf(file_obj: IO[bytes]) -> List[Dict]:
+    """
+    Extract chunks from a .pdf file.
+
+    Dispatch order:
+      1. PyMuPDF  — font-aware header detection (bold / larger text)
+      2. pdfplumber — clause-regex only (if PyMuPDF not installed)
+      3. Fixed-size word chunks (if neither library produces structure)
+    """
+    raw_bytes = file_obj.read()
+
+    try:
+        chunks = _extract_pdf_fitz(raw_bytes)
+    except ImportError:
+        try:
+            chunks = _extract_pdf_pdfplumber(raw_bytes)
+        except ImportError:
+            raise ImportError(
+                "No PDF library found. Run: pip install PyMuPDF "
+                "(or pip install pdfplumber as fallback)"
+            )
+
     if not chunks:
-        # No clause structure — fall back to fixed chunks
-        all_text = " ".join(full_text_lines)
-        words = all_text.split()
-        for i in range(0, len(words), MAX_CHUNK_WORDS):
-            part = " ".join(words[i : i + MAX_CHUNK_WORDS])
-            chunk_num = i // MAX_CHUNK_WORDS + 1
-            chunks.append({"title": f"Section {chunk_num}", "body": part})
+        return [{"title": None, "body": ""}]
 
     return _split_into_chunks(chunks)
 
