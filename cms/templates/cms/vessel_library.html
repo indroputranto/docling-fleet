@@ -1,0 +1,630 @@
+{% extends "cms/base.html" %}
+{% block title %}Vessel Library{% endblock %}
+{% block topbar_title %}Vessel Library{% endblock %}
+
+{% block topbar_actions %}
+  {% if is_platform_admin and all_clients %}
+  <select id="clientSwitcher" onchange="switchClient(this.value)"
+          style="background:var(--surface2);border:1px solid var(--border);color:var(--text);
+                 padding:5px 10px;border-radius:7px;font-family:inherit;font-size:13px;cursor:pointer;">
+    <option value="">All clients</option>
+    {% for c in all_clients %}
+    <option value="{{ c.client_id }}" {% if active_client_id == c.client_id %}selected{% endif %}>
+      {{ c.name }}
+    </option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <button class="btn btn-primary btn-sm" onclick="openCreateModal()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Add Vessel
+  </button>
+{% endblock %}
+
+{% block head %}
+<style>
+  /* ── Metrics strip ── */
+  .metrics-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .metric-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+  }
+  .metric-value {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+  }
+  .metric-sub {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Status badges ── */
+  .badge-blue   { background: rgba(15,52,96,.35); color: #58a6ff; }
+  .badge-blue::before { background: #58a6ff; }
+  .badge-gray   { background: rgba(255,255,255,.07); color: var(--muted); }
+  .badge-gray::before { background: var(--muted); }
+
+  /* ── Progress bar ── */
+  .progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .progress-bar {
+    width: 64px;
+    height: 5px;
+    background: rgba(255,255,255,.1);
+    border-radius: 99px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .progress-fill {
+    height: 100%;
+    background: #3fb950;
+    border-radius: 99px;
+    transition: width .3s;
+  }
+  .progress-fill.incomplete { background: var(--yellow); }
+  .progress-fill.empty      { background: rgba(255,255,255,.15); }
+
+  /* ── Row action button ── */
+  .row-action {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: background .12s, color .12s;
+  }
+  .row-action:hover { background: rgba(255,255,255,.07); color: var(--text); }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-state svg { opacity: .25; margin-bottom: 14px; }
+  .empty-state p { font-size: 14px; }
+
+  /* ── Side drawer ── */
+  .drawer-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 40;
+    backdrop-filter: blur(2px);
+  }
+  .drawer-backdrop.open { display: block; }
+
+  .drawer {
+    position: fixed;
+    top: 0; right: -480px; bottom: 0;
+    width: 480px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    transition: right .22s cubic-bezier(.4,0,.2,1);
+    overflow: hidden;
+  }
+  .drawer.open { right: 0; }
+
+  .drawer-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .drawer-title { font-size: 15px; font-weight: 700; }
+  .drawer-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .drawer-close {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: 4px; border-radius: 5px; flex-shrink: 0;
+    transition: color .12s;
+  }
+  .drawer-close:hover { color: var(--text); }
+
+  .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .drawer-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--muted);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .field-grid .full { grid-column: 1 / -1; }
+
+  .drawer-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 11px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    width: 100%;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .drawer-input:focus { border-color: var(--accent); }
+
+  .drawer-docs-list { display: flex; flex-direction: column; gap: 8px; }
+  .drawer-doc-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    font-size: 12px;
+    gap: 10px;
+  }
+  .drawer-doc-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drawer-doc-meta { color: var(--muted); flex-shrink: 0; }
+
+  .drawer-footer {
+    padding: 16px 22px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .save-status {
+    font-size: 12px;
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  .save-status.show { opacity: 1; }
+
+  /* ── Create modal ── */
+  .modal-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.6);
+    z-index: 60;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 400px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .modal-title { font-size: 15px; font-weight: 700; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Metrics strip ── #}
+<div class="metrics-strip">
+  <div class="metric-card">
+    <div class="metric-label">Total Vessels</div>
+    <div class="metric-value">{{ metrics.total_vessels }}</div>
+    <div class="metric-sub">in fleet</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Live Vessels</div>
+    <div class="metric-value" style="color:#3fb950">{{ metrics.live_vessels }}</div>
+    <div class="metric-sub">fully indexed</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Documents</div>
+    <div class="metric-value">{{ metrics.total_docs }}</div>
+    <div class="metric-sub">uploaded total</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Knowledge Chunks</div>
+    <div class="metric-value">{{ metrics.total_chunks }}</div>
+    <div class="metric-sub">indexed sections</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Pending Review</div>
+    <div class="metric-value" style="color:{% if metrics.pending_review > 0 %}var(--yellow){% else %}var(--text){% endif %}">
+      {{ metrics.pending_review }}
+    </div>
+    <div class="metric-sub">draft documents</div>
+  </div>
+</div>
+
+{# ── Vessel table ── #}
+<div class="card">
+  <div class="card-header">
+    <span>Fleet ({{ vessel_rows | length }} vessel{{ 's' if vessel_rows | length != 1 else '' }})</span>
+    {% if active_client_id %}
+    <a href="{{ url_for('documents.library', client=active_client_id) }}" class="btn btn-secondary btn-sm">
+      View Documents →
+    </a>
+    {% endif %}
+  </div>
+
+  {% if vessel_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Vessel</th>
+        <th>IMO</th>
+        <th>Flag</th>
+        <th>Type</th>
+        <th>Docs</th>
+        <th>Knowledge</th>
+        <th>Status</th>
+        <th>Last Updated</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in vessel_rows %}
+      {% set v = row.vessel %}
+      {% set pct = (row.active_chunks / row.total_chunks * 100) | int if row.total_chunks > 0 else 0 %}
+      <tr>
+        <td>
+          <div style="font-weight:600;font-size:13px;">{{ v.name }}</div>
+          {% if v.call_sign %}<div style="font-size:11px;color:var(--muted);font-family:monospace;">{{ v.call_sign }}</div>{% endif %}
+        </td>
+        <td class="font-mono">{{ v.imo_number or '—' }}</td>
+        <td>{{ v.flag_state or '—' }}</td>
+        <td>
+          {% if v.vessel_type %}
+          <span style="font-size:12px;background:rgba(255,255,255,.07);padding:2px 8px;border-radius:5px;">{{ v.vessel_type }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ row.doc_count }}</td>
+        <td>
+          <div class="progress-wrap">
+            <div class="progress-bar">
+              <div class="progress-fill {% if pct == 0 %}empty{% elif pct < 100 %}incomplete{% endif %}"
+                   style="width:{{ pct }}%"></div>
+            </div>
+            <span style="font-size:11px;color:var(--muted);">{{ row.active_chunks }}/{{ row.total_chunks }}</span>
+          </div>
+        </td>
+        <td>
+          {% if row.status_label == 'Live' %}
+            <span class="badge badge-green">Live</span>
+          {% elif row.status_label == 'Incomplete' %}
+            <span class="badge badge-yellow">Incomplete</span>
+          {% elif row.status_label == 'Draft' %}
+            <span class="badge badge-blue">Draft</span>
+          {% else %}
+            <span class="badge badge-gray">Empty</span>
+          {% endif %}
+        </td>
+        <td style="font-size:12px;color:var(--muted);">
+          {{ row.last_updated.strftime('%d %b %Y') if row.last_updated else '—' }}
+        </td>
+        <td>
+          <button class="row-action" onclick="openDrawer({{ v.id }})">
+            Details
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+      <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+    <p>No vessels yet. Upload documents with a vessel group name, or add one manually.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Backdrop ── #}
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+
+{# ── Side drawer ── #}
+<div class="drawer" id="vesselDrawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-title" id="drawerTitle">Vessel Details</div>
+      <div class="drawer-subtitle" id="drawerSubtitle"></div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="drawer-body">
+    {# Identity section #}
+    <div>
+      <div class="drawer-section-label">Identity</div>
+      <div class="field-grid" style="margin-top:12px;">
+        <div class="form-group full">
+          <label>Vessel Name</label>
+          <input class="drawer-input" id="f_name" type="text" placeholder="e.g. MV ADRIATIC" />
+        </div>
+        <div class="form-group">
+          <label>IMO Number</label>
+          <input class="drawer-input" id="f_imo_number" type="text" placeholder="9944871" />
+        </div>
+        <div class="form-group">
+          <label>Call Sign</label>
+          <input class="drawer-input" id="f_call_sign" type="text" placeholder="PEVT" />
+        </div>
+        <div class="form-group">
+          <label>Flag State</label>
+          <input class="drawer-input" id="f_flag_state" type="text" placeholder="Netherlands" />
+        </div>
+        <div class="form-group">
+          <label>Port of Registry</label>
+          <input class="drawer-input" id="f_port_of_registry" type="text" placeholder="Urk" />
+        </div>
+        <div class="form-group full">
+          <label>Vessel Type</label>
+          <select class="drawer-input" id="f_vessel_type">
+            <option value="">— select —</option>
+            <option value="MPP">MPP (Multi-Purpose)</option>
+            <option value="Bulk Carrier">Bulk Carrier</option>
+            <option value="General Cargo">General Cargo</option>
+            <option value="Container">Container</option>
+            <option value="Tanker">Tanker</option>
+            <option value="RoRo">RoRo</option>
+            <option value="Feeder">Feeder</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    {# Specs section #}
+    <div>
+      <div class="drawer-section-label">Key Specs</div>
+      <div class="field-grid" style="margin-top:12px;">
+        <div class="form-group">
+          <label>Year Built</label>
+          <input class="drawer-input" id="f_year_built" type="text" placeholder="2022" />
+        </div>
+        <div class="form-group">
+          <label>LOA</label>
+          <input class="drawer-input" id="f_loa" type="text" placeholder="107.88 m" />
+        </div>
+        <div class="form-group">
+          <label>Gross Tonnage</label>
+          <input class="drawer-input" id="f_gross_tonnage" type="text" placeholder="3636" />
+        </div>
+        <div class="form-group">
+          <label>DWAT</label>
+          <input class="drawer-input" id="f_dwat" type="text" placeholder="4540 mt" />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea class="drawer-input" id="f_notes" rows="3" placeholder="Additional notes…" style="min-height:72px;resize:vertical;"></textarea>
+        </div>
+      </div>
+    </div>
+
+    {# Linked documents #}
+    <div>
+      <div class="drawer-section-label">Linked Documents (<span id="drawerDocCount">0</span>)</div>
+      <div class="drawer-docs-list" id="drawerDocsList" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <div class="drawer-footer">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span class="save-status" id="saveStatus">✓ Saved</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <form id="deleteForm" method="POST" onsubmit="return confirmDelete()">
+        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+      </form>
+      <button class="btn btn-primary btn-sm" onclick="saveVessel()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+{# ── Create vessel modal ── #}
+<div class="modal-backdrop" id="createModal">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title">Add Vessel</div>
+    <form method="POST" action="{{ url_for('cms.vessel_create') }}">
+      {% if active_client_id %}
+      <input type="hidden" name="client_id" value="{{ active_client_id }}" />
+      {% elif is_platform_admin %}
+      <div class="form-group">
+        <label>Client</label>
+        <select name="client_id" class="drawer-input">
+          <option value="">— select client —</option>
+          {% for c in all_clients %}
+          <option value="{{ c.client_id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="form-group">
+        <label>Vessel Name</label>
+        <input name="name" type="text" class="drawer-input" placeholder="e.g. MV ADRIATIC" required />
+        <div class="form-hint">Must match the Group Name used when uploading documents.</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeCreateModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+let currentVesselId = null;
+
+function switchClient(val) {
+  const url = new URL(window.location.href);
+  if (val) url.searchParams.set('client', val);
+  else url.searchParams.delete('client');
+  window.location.href = url.toString();
+}
+
+async function openDrawer(vesselId) {
+  currentVesselId = vesselId;
+  const res  = await fetch(`/cms/vessels/${vesselId}`);
+  const data = await res.json();
+
+  // Header
+  document.getElementById('drawerTitle').textContent    = data.name;
+  document.getElementById('drawerSubtitle').textContent =
+    [data.imo_number ? `IMO ${data.imo_number}` : null, data.flag_state].filter(Boolean).join(' · ');
+
+  // Identity fields
+  const fields = ['name','imo_number','call_sign','flag_state','port_of_registry',
+                   'vessel_type','year_built','gross_tonnage','dwat','loa','notes'];
+  fields.forEach(f => {
+    const el = document.getElementById('f_' + f);
+    if (!el) return;
+    el.value = data[f] || '';
+  });
+
+  // Documents list
+  document.getElementById('drawerDocCount').textContent = data.doc_count;
+  const list = document.getElementById('drawerDocsList');
+  list.innerHTML = '';
+  if (data.docs && data.docs.length) {
+    data.docs.forEach(d => {
+      const statusClass = d.status === 'active' ? 'badge-green' : d.status === 'draft' ? 'badge-blue' : 'badge-gray';
+      list.innerHTML += `
+        <div class="drawer-doc-item">
+          <span class="drawer-doc-name">${escHtml(d.filename)}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--muted);">${d.chunk_count} chunks</span>
+            <span class="badge ${statusClass}">${d.status}</span>
+            <a href="/documents/${d.id}/preview" class="row-action" style="font-size:11px;">Preview</a>
+          </div>
+        </div>`;
+    });
+  } else {
+    list.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No documents uploaded yet for this vessel.</div>';
+  }
+
+  // Delete form action
+  document.getElementById('deleteForm').action = `/cms/vessels/${vesselId}/delete`;
+
+  // Open drawer
+  document.getElementById('drawerBackdrop').classList.add('open');
+  document.getElementById('vesselDrawer').classList.add('open');
+  document.getElementById('saveStatus').classList.remove('show');
+}
+
+function closeDrawer() {
+  document.getElementById('drawerBackdrop').classList.remove('open');
+  document.getElementById('vesselDrawer').classList.remove('open');
+  currentVesselId = null;
+}
+
+async function saveVessel() {
+  if (!currentVesselId) return;
+  const fields = ['name','imo_number','call_sign','flag_state','port_of_registry',
+                   'vessel_type','year_built','gross_tonnage','dwat','loa','notes'];
+  const body = {};
+  fields.forEach(f => {
+    const el = document.getElementById('f_' + f);
+    if (el) body[f] = el.value;
+  });
+
+  const res = await fetch(`/cms/vessels/${currentVesselId}/edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    // Update header
+    document.getElementById('drawerTitle').textContent = data.vessel.name;
+    // Flash save confirmation
+    const s = document.getElementById('saveStatus');
+    s.classList.add('show');
+    setTimeout(() => s.classList.remove('show'), 2500);
+    // Reload table row in background
+    setTimeout(() => window.location.reload(), 1200);
+  }
+}
+
+function confirmDelete() {
+  return confirm('Remove this vessel from the library? Associated documents will not be deleted.');
+}
+
+function openCreateModal() {
+  document.getElementById('createModal').classList.add('open');
+}
+function closeCreateModal() {
+  document.getElementById('createModal').classList.remove('open');
+}
+document.getElementById('createModal').addEventListener('click', closeCreateModal);
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Close drawer on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeDrawer(); closeCreateModal(); }
+});
+</script>
+
+{% endblock %}

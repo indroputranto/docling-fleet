@@ -235,6 +235,20 @@ def upload():
             f"({len(raw_chunks)} chunks) for client '{client_id}'"
         )
 
+        # ── Auto-populate Vessel record ──────────────────────────────────────
+        # If this document belongs to a named vessel group, try to extract
+        # identity metadata from its chunks and upsert a Vessel record.
+        if group_name:
+            try:
+                from documents.vessel_extractor import upsert_vessel_from_chunks
+                upsert_vessel_from_chunks(client_id, group_name, raw_chunks)
+                db.session.commit()
+            except Exception as ve:
+                logger.warning(
+                    f"[documents] Vessel auto-extraction failed for "
+                    f"'{group_name}': {ve}"
+                )
+
     if not doc_ids:
         return redirect(url_for("documents.library", client=client_id))
 

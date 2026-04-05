@@ -128,6 +128,32 @@ def run():
         )
         print("  [+] document_chunks table created")
 
+    # ── vessels table ─────────────────────────────────────────────────────────
+    if table_exists(cur, "vessels"):
+        print("  [skip] vessels table already exists")
+    else:
+        cur.execute("""
+            CREATE TABLE vessels (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id        VARCHAR(100) NOT NULL,
+                name             VARCHAR(500) NOT NULL,
+                imo_number       VARCHAR(50),
+                call_sign        VARCHAR(50),
+                flag_state       VARCHAR(100),
+                port_of_registry VARCHAR(100),
+                vessel_type      VARCHAR(50),
+                year_built       VARCHAR(10),
+                gross_tonnage    VARCHAR(50),
+                dwat             VARCHAR(50),
+                loa              VARCHAR(50),
+                notes            TEXT,
+                created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("CREATE INDEX ix_vessels_client_id ON vessels (client_id)")
+        print("  [+] vessels table created")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

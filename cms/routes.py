@@ -36,7 +36,7 @@ from flask import (
     Blueprint, render_template, redirect, url_for,
     request, flash, g, make_response, abort
 )
-from models import db, ClientConfig, User
+from models import db, ClientConfig, User, Vessel, Document, DocumentChunk
 
 logger = logging.getLogger(__name__)
 
@@ -605,3 +605,227 @@ def user_toggle(user_id: int):
     status = "activated" if user.active else "deactivated"
     flash(f"User '{user.email}' {status}.", "success")
     return redirect(url_for("cms.dashboard"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vessel Library
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _resolve_vessel_client_id() -> str | None:
+    """Same pattern as documents: scoped for client_admin, ?client= for admin."""
+    if not g.is_platform_admin:
+        return g.scoped_client_id
+    return request.args.get("client") or None
+
+
+def _assert_vessel_access(vessel: Vessel) -> None:
+    if not g.is_platform_admin and vessel.client_id != g.scoped_client_id:
+        abort(403)
+
+
+def _vessel_summary(vessel: Vessel) -> dict:
+    """
+    Compute per-vessel metrics for the library table.
+
+    Returns a dict with:
+      docs          — all Document rows linked by group_name
+      doc_count     — total number of documents
+      active_count  — documents with status='active'
+      draft_count   — documents with status='draft'
+      total_chunks  — sum of chunk_count across all docs
+      active_chunks — chunk_count of active docs only
+      status_label  — "Live" | "Incomplete" | "Draft" | "Empty"
+      last_updated  — most recent uploaded_at or activated_at across docs
+    """
+    from sqlalchemy import func
+
+    docs = (
+        Document.query
+        .filter_by(client_id=vessel.client_id, group_name=vessel.name)
+        .order_by(Document.uploaded_at.desc())
+        .all()
+    )
+
+    doc_count    = len(docs)
+    active_count = sum(1 for d in docs if d.status == "active")
+    draft_count  = sum(1 for d in docs if d.status == "draft")
+    total_chunks  = sum(d.chunk_count for d in docs)
+    active_chunks = sum(d.chunk_count for d in docs if d.status == "active")
+
+    if doc_count == 0:
+        status_label = "Empty"
+    elif active_count == doc_count:
+        status_label = "Live"
+    elif active_count > 0:
+        status_label = "Incomplete"
+    else:
+        status_label = "Draft"
+
+    timestamps = []
+    for d in docs:
+        if d.activated_at:
+            timestamps.append(d.activated_at)
+        elif d.uploaded_at:
+            timestamps.append(d.uploaded_at)
+    last_updated = max(timestamps) if timestamps else vessel.created_at
+
+    return {
+        "docs":          docs,
+        "doc_count":     doc_count,
+        "active_count":  active_count,
+        "draft_count":   draft_count,
+        "total_chunks":  total_chunks,
+        "active_chunks": active_chunks,
+        "status_label":  status_label,
+        "last_updated":  last_updated,
+    }
+
+
+@cms_bp.route("/vessels")
+@cms_required
+def vessel_library():
+    """Vessel Library — overview of all vessels for the active client."""
+    active_client_id = _resolve_vessel_client_id()
+
+    all_clients = []
+    if g.is_platform_admin:
+        all_clients = ClientConfig.query.order_by(ClientConfig.name).all()
+
+    if active_client_id:
+        vessels = (
+            Vessel.query
+            .filter_by(client_id=active_client_id)
+            .order_by(Vessel.name)
+            .all()
+        )
+        active_client = ClientConfig.query.filter_by(client_id=active_client_id).first()
+    else:
+        vessels = Vessel.query.order_by(Vessel.name).all()
+        active_client = None
+
+    # Build summary rows
+    vessel_rows = []
+    total_docs   = 0
+    total_chunks = 0
+    live_count   = 0
+    pending_count = 0
+
+    for v in vessels:
+        summary = _vessel_summary(v)
+        vessel_rows.append({"vessel": v, **summary})
+        total_docs   += summary["doc_count"]
+        total_chunks += summary["total_chunks"]
+        if summary["status_label"] == "Live":
+            live_count += 1
+        if summary["draft_count"] > 0:
+            pending_count += summary["draft_count"]
+
+    metrics = {
+        "total_vessels":  len(vessels),
+        "live_vessels":   live_count,
+        "total_docs":     total_docs,
+        "total_chunks":   total_chunks,
+        "pending_review": pending_count,
+    }
+
+    return render_template(
+        "cms/vessel_library.html",
+        vessel_rows=vessel_rows,
+        metrics=metrics,
+        all_clients=all_clients,
+        active_client=active_client,
+        active_client_id=active_client_id,
+    )
+
+
+@cms_bp.route("/vessels/<int:vessel_id>", methods=["GET"])
+@cms_required
+def vessel_detail(vessel_id: int):
+    """Return vessel JSON (used by the side drawer)."""
+    from flask import jsonify
+    vessel = Vessel.query.get_or_404(vessel_id)
+    _assert_vessel_access(vessel)
+    summary = _vessel_summary(vessel)
+    data = vessel.to_dict()
+    data["doc_count"]     = summary["doc_count"]
+    data["active_count"]  = summary["active_count"]
+    data["total_chunks"]  = summary["total_chunks"]
+    data["status_label"]  = summary["status_label"]
+    data["docs"] = [
+        {
+            "id":          d.id,
+            "filename":    d.filename,
+            "file_type":   d.file_type,
+            "status":      d.status,
+            "chunk_count": d.chunk_count,
+            "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
+        }
+        for d in summary["docs"]
+    ]
+    return jsonify(data)
+
+
+@cms_bp.route("/vessels/<int:vessel_id>/edit", methods=["POST"])
+@cms_required
+def vessel_edit(vessel_id: int):
+    """Save edits to a vessel record (from the side drawer form)."""
+    from flask import jsonify
+    vessel = Vessel.query.get_or_404(vessel_id)
+    _assert_vessel_access(vessel)
+
+    f = request.get_json(silent=True) or request.form
+    editable_fields = [
+        "name", "imo_number", "call_sign", "flag_state",
+        "port_of_registry", "vessel_type",
+        "year_built", "gross_tonnage", "dwat", "loa", "notes",
+    ]
+    for field in editable_fields:
+        if field in f:
+            val = f[field]
+            setattr(vessel, field, val.strip() if isinstance(val, str) and val.strip() else None)
+
+    db.session.commit()
+    return jsonify({"ok": True, "vessel": vessel.to_dict()})
+
+
+@cms_bp.route("/vessels/create", methods=["POST"])
+@cms_required
+def vessel_create():
+    """Manually create a new vessel record."""
+    client_id = request.form.get("client_id") or _resolve_vessel_client_id()
+    if not client_id:
+        flash("Select a client first.", "error")
+        return redirect(url_for("cms.vessel_library"))
+
+    if not g.is_platform_admin and client_id != g.scoped_client_id:
+        abort(403)
+
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Vessel name is required.", "error")
+        return redirect(url_for("cms.vessel_library", client=client_id))
+
+    existing = Vessel.query.filter_by(client_id=client_id, name=name).first()
+    if existing:
+        flash(f"A vessel named '{name}' already exists.", "error")
+        return redirect(url_for("cms.vessel_library", client=client_id))
+
+    vessel = Vessel(client_id=client_id, name=name)
+    db.session.add(vessel)
+    db.session.commit()
+    flash(f"Vessel '{name}' created.", "success")
+    return redirect(url_for("cms.vessel_library", client=client_id))
+
+
+@cms_bp.route("/vessels/<int:vessel_id>/delete", methods=["POST"])
+@cms_required
+def vessel_delete(vessel_id: int):
+    """Delete a vessel record (does NOT delete associated documents)."""
+    vessel = Vessel.query.get_or_404(vessel_id)
+    _assert_vessel_access(vessel)
+    client_id = vessel.client_id
+    name = vessel.name
+    db.session.delete(vessel)
+    db.session.commit()
+    flash(f"Vessel '{name}' removed from the library.", "success")
+    return redirect(url_for("cms.vessel_library", client=client_id))

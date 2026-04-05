@@ -240,6 +240,73 @@ class DocumentChunk(db.Model):
         return f"<DocumentChunk doc={self.document_id} pos={self.position}>"
 
 
+class Vessel(db.Model):
+    """
+    A named vessel entry in a client's fleet.
+
+    Vessel records are created automatically when documents are uploaded with
+    a group name, with metadata auto-extracted from the vessel spec chunks.
+    They can also be created or edited manually through the Vessel Library CMS.
+
+    The `name` field corresponds to Document.group_name — this is the join key
+    that associates uploaded documents with their vessel record.
+
+    Vessel type vocabulary (open-ended; common values used in the UI picker):
+      MPP, Bulk Carrier, General Cargo, Container, Tanker, RoRo, Feeder
+    """
+    __tablename__ = "vessels"
+
+    id               = db.Column(db.Integer, primary_key=True)
+    client_id        = db.Column(db.String(100), nullable=False, index=True)
+    name             = db.Column(db.String(500), nullable=False)
+    # Matches Document.group_name — the vessel grouping label used on upload
+
+    # ── Identity ─────────────────────────────────────────────────────────────
+    imo_number       = db.Column(db.String(50),  nullable=True)
+    call_sign        = db.Column(db.String(50),  nullable=True)
+    flag_state       = db.Column(db.String(100), nullable=True)
+    port_of_registry = db.Column(db.String(100), nullable=True)
+    vessel_type      = db.Column(db.String(50),  nullable=True)
+    # "MPP" | "Bulk Carrier" | "General Cargo" | "Container" | "Tanker" | "RoRo" | "Feeder" | …
+
+    # ── Key specs (stored as strings to preserve original formatting) ─────────
+    year_built       = db.Column(db.String(10),  nullable=True)
+    gross_tonnage    = db.Column(db.String(50),  nullable=True)
+    dwat             = db.Column(db.String(50),  nullable=True)
+    loa              = db.Column(db.String(50),  nullable=True)
+
+    # ── Free text ─────────────────────────────────────────────────────────────
+    notes            = db.Column(db.Text, nullable=True)
+
+    created_at = db.Column(db.DateTime, nullable=False,
+                           default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, nullable=False,
+                           default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "id":               self.id,
+            "client_id":        self.client_id,
+            "name":             self.name,
+            "imo_number":       self.imo_number,
+            "call_sign":        self.call_sign,
+            "flag_state":       self.flag_state,
+            "port_of_registry": self.port_of_registry,
+            "vessel_type":      self.vessel_type,
+            "year_built":       self.year_built,
+            "gross_tonnage":    self.gross_tonnage,
+            "dwat":             self.dwat,
+            "loa":              self.loa,
+            "notes":            self.notes,
+            "created_at":       self.created_at.isoformat() if self.created_at else None,
+            "updated_at":       self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<Vessel {self.name} imo={self.imo_number} client={self.client_id}>"
+
+
 class UsageLog(db.Model):
     """
     One row per successful chat API request.
