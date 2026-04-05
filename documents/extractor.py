@@ -97,6 +97,38 @@ def _is_clause_header(text: str) -> bool:
     return bool(_CLAUSE_RE.match(text.strip()))
 
 
+def _is_docx_subsection_label(text: str) -> bool:
+    """
+    Detect paragraph-style subsection labels used in vessel-description DOCX
+    files where section headers carry no heading style but are identifiable
+    because they end with ':' and have no value after the colon.
+
+    Examples that match:
+        "General Information:"  "Tonnage:"  "Propulsion & Maneuvering:"
+        "Hold and Hatch Sizes:"  "RoRo Features:"  "Container Capacity:"
+
+    Examples that do NOT match:
+        "Call Sign: PEVT"          (has value after ':')
+        "DWAT (closed/open): 4540" (has value after ':')
+        "Grain fitted"             (does not end with ':')
+        "conditions:"              (starts lowercase → likely a sentence fragment)
+        "This is a very long sentence that ends with a colon:"  (>80 chars)
+    """
+    stripped = text.strip()
+    if not stripped or not stripped.endswith(':'):
+        return False
+    # Must be short — real labels are terse
+    if len(stripped) > 80:
+        return False
+    # Must start with an uppercase letter (section titles, not sentence fragments)
+    if stripped[0].islower():
+        return False
+    # Must not contain ': ' followed by content (that would be a key-value pair)
+    if ': ' in stripped[:-1]:   # ignore the final ':'
+        return False
+    return True
+
+
 def _split_into_chunks(segments: List[Dict]) -> List[Dict]:
     """
     Given a list of {title, body} where body may be very long,
@@ -167,7 +199,11 @@ def extract_docx(file_obj: IO[bytes]) -> List[Dict]:
                 continue
 
             style_name = (para.style.name or "").lower()
-            is_heading = "heading" in style_name or _is_clause_header(text)
+            is_heading = (
+                "heading" in style_name
+                or _is_clause_header(text)
+                or _is_docx_subsection_label(text)
+            )
 
             if is_heading:
                 _flush()
