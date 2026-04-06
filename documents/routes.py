@@ -229,6 +229,23 @@ def upload():
             flash(f"'{filename}' skipped — no text found (scanned image PDF?).", "error")
             continue
 
+        # ── AI enrichment pass ───────────────────────────────────────────────
+        # Sends baseline chunks to gpt-4o-mini for title assignment and
+        # clause-level splitting. Falls back to raw_chunks on any failure.
+        try:
+            from documents.ai_enrichment import enrich_chunks
+            raw_chunks = enrich_chunks(
+                raw_chunks,
+                filename,
+                vessel_name=vessel.name if vessel else None,
+            )
+        except Exception as ae:
+            logger.warning(
+                f"[documents] AI enrichment failed for '{filename}', "
+                f"using raw extraction: {ae}"
+            )
+        # ────────────────────────────────────────────────────────────────────
+
         doc = Document(
             client_id=client_id,
             filename=filename,
