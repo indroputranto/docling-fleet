@@ -1,0 +1,384 @@
+{% extends "cms/base.html" %}
+
+{% block title %}{{ vessel.name }} · Dossier{% endblock %}
+{% block topbar_title %}Vessel Dossier{% endblock %}
+
+{% block topbar_actions %}
+  <a href="{{ url_for('cms.vessel_library') }}" class="btn btn-secondary btn-sm">
+    ← Fleet Library
+  </a>
+{% endblock %}
+
+{% block head %}
+<style>
+  /* ── Page layout ── */
+  .dossier-wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── Vessel header card ── */
+  .vessel-header-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px;
+    display: flex; align-items: center; gap: 20px;
+  }
+  .vessel-avatar {
+    width: 48px; height: 48px; border-radius: 10px;
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0;
+  }
+  .vessel-meta { flex: 1; }
+  .vessel-meta h2 { font-size: 18px; font-weight: 700; margin-bottom: 3px; }
+  .vessel-meta p  { font-size: 13px; color: var(--muted); }
+  .vessel-meta-chips { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .vessel-chip {
+    padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500;
+    background: rgba(255,255,255,.07); color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  [data-theme="light"] .vessel-chip { background: rgba(0,0,0,.04); }
+
+  /* ── Progress header ── */
+  .dossier-progress-bar {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .progress-label {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+  }
+  .progress-count { font-size: 14px; font-weight: 600; }
+  .progress-count span { color: var(--muted); font-weight: 400; }
+  .progress-ring-wrap { display: flex; align-items: center; gap: 12px; }
+  .progress-ring { transform: rotate(-90deg); }
+  .ring-bg   { fill: none; stroke: var(--border); stroke-width: 3; }
+  .ring-fill {
+    fill: none; stroke: #3fb950; stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke-dashoffset .4s ease;
+  }
+  .ring-fill-empty { stroke: var(--border); }
+
+  /* ── Section list ── */
+  .section-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .section-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    transition: border-color .15s;
+  }
+  .section-item.is-open { border-color: var(--accent); }
+
+  /* Section header row */
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; cursor: pointer; user-select: none;
+    transition: background .12s;
+  }
+  .section-header:hover { background: rgba(255,255,255,.03); }
+  [data-theme="light"] .section-header:hover { background: rgba(0,0,0,.02); }
+
+  .section-drag { color: var(--muted); opacity: .4; font-size: 14px; cursor: grab; flex-shrink: 0; }
+
+  /* Status circle */
+  .status-circle {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--border); background: transparent;
+    transition: border-color .2s, background .2s;
+  }
+  .status-circle.verified  { background: #238636; border-color: #238636; }
+  .status-circle.in_progress { border-color: #e3b341; }
+  .status-circle.not_started  { border-color: rgba(255,255,255,.2); }
+  [data-theme="light"] .status-circle.not_started { border-color: rgba(0,0,0,.18); }
+
+  .status-check { display: none; }
+  .status-circle.verified .status-check { display: block; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #e3b341; display: none;
+  }
+  .status-circle.in_progress .status-dot { display: block; }
+
+  /* Section title */
+  .section-num  { font-size: 13px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+  .section-name { font-size: 14px; font-weight: 600; flex: 1; }
+
+  /* File count chips */
+  .section-chips { display: flex; gap: 5px; }
+  .section-chip-badge {
+    padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600;
+    background: rgba(255,255,255,.08); color: var(--muted);
+    border: 1px solid var(--border);
+    font-family: monospace;
+  }
+  [data-theme="light"] .section-chip-badge { background: rgba(0,0,0,.05); }
+
+  /* Status label */
+  .section-status-label {
+    font-size: 12px; font-weight: 500; white-space: nowrap; flex-shrink: 0;
+  }
+  .status-label-verified    { color: #3fb950; }
+  .status-label-in_progress { color: #e3b341; }
+  .status-label-not_started { color: var(--muted); }
+
+  /* Chevron */
+  .section-chevron { flex-shrink: 0; color: var(--muted); transition: transform .2s; }
+  .section-item.is-open .section-chevron { transform: rotate(180deg); }
+
+  /* ── Section body (expanded) ── */
+  .section-body { display: none; border-top: 1px solid var(--border); }
+  .section-item.is-open .section-body { display: block; }
+
+  /* Existing docs list */
+  .existing-docs { padding: 0; }
+  .existing-doc-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .existing-doc-row:last-child { border-bottom: 1px solid var(--border); }
+  .doc-icon { color: var(--muted); flex-shrink: 0; }
+  .doc-filename { flex: 1; font-weight: 500; word-break: break-all; }
+  .doc-chunks { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  /* Drop zone */
+  .section-dropzone-wrap { padding: 16px 20px; }
+  .section-dropzone {
+    border: 2px dashed var(--border); border-radius: 8px;
+    padding: 24px 20px; text-align: center; cursor: pointer;
+    transition: border-color .2s, background .2s;
+    background: transparent;
+  }
+  .section-dropzone:hover,
+  .section-dropzone.drag-over {
+    border-color: var(--accent);
+    background: rgba(15,52,96,.1);
+  }
+  .section-dropzone svg { color: var(--muted); margin-bottom: 8px; }
+  .section-dropzone p { font-size: 13px; color: var(--muted); margin: 0; }
+  .section-dropzone a { color: #58a6ff; text-decoration: none; }
+  .section-dropzone a:hover { text-decoration: underline; }
+  .upload-spinner { display: none; }
+  .uploading .section-dropzone { pointer-events: none; opacity: .6; }
+  .uploading .upload-spinner   { display: inline-block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dossier-wrap">
+
+  {# ── Vessel header ── #}
+  <div class="vessel-header-card">
+    <div class="vessel-avatar">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    </div>
+    <div class="vessel-meta">
+      <h2>{{ vessel.name }}</h2>
+      <p>{{ vessel.vessel_type or 'Vessel type not set' }}{% if vessel.imo_number %} · IMO {{ vessel.imo_number }}{% endif %}{% if vessel.flag_state %} · {{ vessel.flag_state }}{% endif %}</p>
+      <div class="vessel-meta-chips">
+        {% if vessel.year_built %}<span class="vessel-chip">Built {{ vessel.year_built }}</span>{% endif %}
+        {% if vessel.gross_tonnage %}<span class="vessel-chip">GT {{ vessel.gross_tonnage }}</span>{% endif %}
+        {% if vessel.dwat %}<span class="vessel-chip">DWT {{ vessel.dwat }}</span>{% endif %}
+        {% if vessel.loa %}<span class="vessel-chip">LOA {{ vessel.loa }} m</span>{% endif %}
+      </div>
+    </div>
+    <a href="{{ url_for('cms.vessel_library') }}" class="btn btn-secondary btn-sm">Edit Vessel</a>
+  </div>
+
+  {# ── Progress bar ── #}
+  <div class="dossier-progress-bar">
+    <div>
+      <div class="progress-label">Document Upload Sections</div>
+      <div class="progress-count">
+        <strong style="color:{% if verified_count == total_sections %}#3fb950{% else %}var(--text){% endif %}">{{ verified_count }}</strong>
+        <span>/ {{ total_sections }} sections verified</span>
+      </div>
+    </div>
+    <div class="progress-ring-wrap">
+      <svg class="progress-ring" width="44" height="44" viewBox="0 0 44 44">
+        <circle class="ring-bg" cx="22" cy="22" r="18"/>
+        <circle class="ring-fill {% if verified_count == 0 %}ring-fill-empty{% endif %}"
+                cx="22" cy="22" r="18"
+                stroke-dasharray="113.1"
+                stroke-dashoffset="{{ 113.1 - (113.1 * progress_pct / 100) | round(1) }}"/>
+      </svg>
+      <span style="font-size:13px; font-weight:600; color:{% if verified_count == total_sections %}#3fb950{% else %}var(--text){% endif %}">
+        {{ progress_pct }}%
+      </span>
+    </div>
+  </div>
+
+  {# ── Flashes ── #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul class="flashes">
+        {% for category, message in messages %}
+          <li class="flash flash-{{ category }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  {# ── Section accordion ── #}
+  <div class="section-list">
+    {% for section in sections %}
+    <div class="section-item {% if section.status == 'in_progress' %}is-open{% endif %}"
+         id="section-{{ section.key }}">
+
+      {# Header row #}
+      <div class="section-header" onclick="toggleSection('{{ section.key }}')">
+        <span class="section-drag">⠿</span>
+
+        <div class="status-circle {{ section.status }}">
+          {# Verified: checkmark #}
+          <svg class="status-check" width="11" height="11" viewBox="0 0 24 24" fill="none"
+               stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          {# In progress: orange dot #}
+          <div class="status-dot"></div>
+        </div>
+
+        <span class="section-num">{{ loop.index }}.</span>
+        <span class="section-name">{{ section.label }}</span>
+
+        {# File count chips #}
+        {% if section.documents %}
+        <div class="section-chips">
+          {% for doc in section.documents %}
+          <span class="section-chip-badge">{{ loop.index }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {# Status label #}
+        <span class="section-status-label status-label-{{ section.status }}">
+          {% if section.status == 'verified' %}Verified ✓
+          {% elif section.status == 'in_progress' %}In progress
+          {% else %}Not started{% endif %}
+        </span>
+
+        {# Chevron #}
+        <svg class="section-chevron" width="14" height="14" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+
+      {# Body (expanded) #}
+      <div class="section-body" id="body-{{ section.key }}">
+
+        {# Existing documents for this section #}
+        {% if section.documents %}
+        <div class="existing-docs">
+          {% for doc in section.documents %}
+          <div class="existing-doc-row">
+            <svg class="doc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span class="doc-filename">{{ doc.filename }}</span>
+            <span class="doc-chunks">{{ doc.chunk_count }} chunk{{ 's' if doc.chunk_count != 1 }}</span>
+            {% if doc.status == 'active' %}
+              <span class="badge badge-green">Live</span>
+            {% elif doc.status == 'draft' %}
+              <span class="badge badge-yellow">Draft</span>
+              <a href="{{ url_for('documents.preview', doc_id=doc.id, from_vessel=vessel.id) }}"
+                 class="btn btn-sm btn-secondary">Review →</a>
+            {% elif doc.status == 'error' %}
+              <span class="badge badge-red">Error</span>
+            {% else %}
+              <span class="badge badge-yellow">{{ doc.status | title }}</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {# Upload drop zone for new file #}
+        <div class="section-dropzone-wrap">
+          <form method="POST" action="{{ url_for('documents.upload') }}"
+                enctype="multipart/form-data"
+                id="form-{{ section.key }}"
+                onsubmit="showUploading('{{ section.key }}')">
+            <input type="hidden" name="vessel_id"         value="{{ vessel.id }}">
+            <input type="hidden" name="client_id"         value="{{ vessel.client_id }}">
+            <input type="hidden" name="document_category" value="{{ section.key }}">
+            <input type="hidden" name="from_vessel"       value="{{ vessel.id }}">
+            <input type="file"   name="files"
+                   id="file-{{ section.key }}"
+                   accept=".pdf,.docx,.xlsx"
+                   style="display:none;"
+                   onchange="document.getElementById('form-{{ section.key }}').submit()">
+
+            <div class="section-dropzone"
+                 id="dz-{{ section.key }}"
+                 onclick="document.getElementById('file-{{ section.key }}').click()"
+                 ondragover="dzOver(event,'{{ section.key }}')"
+                 ondragleave="dzLeave(event,'{{ section.key }}')"
+                 ondrop="dzDrop(event,'{{ section.key }}')">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.5"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 16 12 12 8 16"/>
+                <line x1="12" y1="12" x2="12" y2="21"/>
+                <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+              </svg>
+              <p>
+                Drop PDF or Word file here<br>
+                <a onclick="event.stopPropagation();"
+                   href="javascript:void(0)"
+                   onclick="document.getElementById('file-{{ section.key }}').click()">or click to browse</a>
+              </p>
+              <p class="upload-spinner" style="margin-top:8px; color:var(--accent);">Uploading…</p>
+            </div>
+          </form>
+        </div>
+
+      </div>{# /section-body #}
+    </div>{# /section-item #}
+    {% endfor %}
+  </div>{# /section-list #}
+
+</div>{# /dossier-wrap #}
+
+<script>
+function toggleSection(key) {
+  const item = document.getElementById('section-' + key);
+  item.classList.toggle('is-open');
+}
+
+function showUploading(key) {
+  const wrap = document.getElementById('form-' + key).closest('.section-dropzone-wrap');
+  wrap.classList.add('uploading');
+  const spinner = wrap.querySelector('.upload-spinner');
+  if (spinner) spinner.style.display = 'block';
+}
+
+function dzOver(e, key) {
+  e.preventDefault();
+  document.getElementById('dz-' + key).classList.add('drag-over');
+}
+function dzLeave(e, key) {
+  document.getElementById('dz-' + key).classList.remove('drag-over');
+}
+function dzDrop(e, key) {
+  e.preventDefault();
+  document.getElementById('dz-' + key).classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if (!files.length) return;
+  const input = document.getElementById('file-' + key);
+  // Transfer dropped files to the hidden input via DataTransfer
+  const dt = new DataTransfer();
+  dt.items.add(files[0]);   // one file per section
+  input.files = dt.files;
+  showUploading(key);
+  document.getElementById('form-' + key).submit();
+}
+</script>
+{% endblock %}

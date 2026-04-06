@@ -208,6 +208,12 @@ class Document(db.Model):
     # New uploads populate this from vessel.name automatically.
     group_name   = db.Column(db.String(500), nullable=True, index=True)
 
+    # Structured document category — set explicitly by the user via the
+    # Vessel Dossier upload UI.  One of the DOCUMENT_SECTIONS keys defined
+    # in documents/routes.py  (e.g. "fixture_recap", "charter_party").
+    # NULL for documents uploaded via the legacy library upload form.
+    document_category = db.Column(db.String(100), nullable=True, index=True)
+
     uploaded_by  = db.Column(db.String(255), nullable=True)    # user email
     uploaded_at  = db.Column(db.DateTime,    nullable=False,
                              default=lambda: datetime.now(timezone.utc))

@@ -31,6 +31,23 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx"}
 
+# Ordered list of document sections for the Vessel Dossier UI.
+# Each tuple is (slug_key, display_label).  The slug is stored as
+# Document.document_category in the database and Pinecone metadata.
+DOCUMENT_SECTIONS = [
+    ("vessel_specifications",  "Vessel Specifications"),
+    ("addendum",               "Addendum"),
+    ("fixture_recap",          "Fixture Recap"),
+    ("charter_party",          "Charter Party"),
+    ("delivery_details",       "Delivery Details"),
+    ("speed_consumption",      "Speed & Consumption"),
+    ("inventory",              "Inventory"),
+    ("lifting_equipment",      "Lifting Equipment"),
+    ("hseq_documents",         "HSEQ Documents"),
+    ("vessel_owners_details",  "Vessel & Owners Details"),
+]
+VALID_CATEGORIES = {key for key, _ in DOCUMENT_SECTIONS}
+
 documents_bp = Blueprint(
     "documents",
     __name__,
@@ -201,6 +218,14 @@ def upload():
             return redirect(url_for("documents.library", client=client_id))
         group_name = vessel.name   # keep for display / backward compat
 
+    # Explicit document category from Vessel Dossier upload (optional)
+    document_category = request.form.get("document_category", "").strip() or None
+    if document_category and document_category not in VALID_CATEGORIES:
+        document_category = None  # reject unknown slugs silently
+
+    # If upload came from the Vessel Dossier, remember the vessel id for redirect
+    from_vessel = request.form.get("from_vessel", "").strip() or None
+
     files = [f for f in request.files.getlist("files") if f and f.filename]
 
     if not files:
@@ -238,6 +263,7 @@ def upload():
                 raw_chunks,
                 filename,
                 vessel_name=vessel.name if vessel else None,
+                document_category=document_category,
             )
         except Exception as ae:
             logger.warning(
@@ -255,6 +281,7 @@ def upload():
             chunk_count=len(raw_chunks),
             vessel_id=int(vessel_id) if vessel_id else None,
             group_name=group_name,
+            document_category=document_category,
         )
         db.session.add(doc)
         db.session.flush()
@@ -300,6 +327,7 @@ def upload():
         doc_id=first_id,
         queue=queue or None,
         total=total,
+        from_vessel=from_vessel or None,
     ))
 
 
@@ -322,10 +350,11 @@ def preview(doc_id: int):
     )
 
     # Multi-file queue state
-    queue      = request.args.get("queue", "")
-    total      = int(request.args.get("total", 1))
-    queue_ids  = [i for i in queue.split(",") if i.strip().isdigit()]
-    file_index = total - len(queue_ids)   # e.g. total=3, 1 remaining → index=2
+    queue       = request.args.get("queue", "")
+    total       = int(request.args.get("total", 1))
+    queue_ids   = [i for i in queue.split(",") if i.strip().isdigit()]
+    file_index  = total - len(queue_ids)   # e.g. total=3, 1 remaining → index=2
+    from_vessel = request.args.get("from_vessel", "").strip() or None
 
     return render_template(
         "documents/preview.html",
@@ -334,6 +363,7 @@ def preview(doc_id: int):
         queue=queue,
         total=total,
         file_index=file_index,
+        from_vessel=from_vessel,
     )
 
 
@@ -420,9 +450,10 @@ def save_draft(doc_id: int):
     )
 
     # Multi-file queue: if there are more files to review, advance to the next
-    queue     = request.form.get("queue", "").strip()
-    total     = request.form.get("total", "1")
-    queue_ids = [i for i in queue.split(",") if i.strip().isdigit()]
+    queue       = request.form.get("queue", "").strip()
+    total       = request.form.get("total", "1")
+    from_vessel = request.form.get("from_vessel", "").strip() or None
+    queue_ids   = [i for i in queue.split(",") if i.strip().isdigit()]
 
     if queue_ids:
         next_id   = queue_ids[0]
@@ -432,7 +463,12 @@ def save_draft(doc_id: int):
             doc_id=next_id,
             queue=remaining or None,
             total=total,
+            from_vessel=from_vessel or None,
         ))
+
+    # If this document came from the Vessel Dossier, return there after save draft
+    if from_vessel:
+        return redirect(url_for("documents.vessel_dossier", vessel_id=from_vessel))
 
     return redirect(url_for("documents.preview", doc_id=doc_id))
 
@@ -511,14 +547,20 @@ def save(doc_id: int):
     queue_ids = [i for i in queue.split(",") if i.strip().isdigit()]
 
     if queue_ids:
-        next_id   = queue_ids[0]
-        remaining = ",".join(queue_ids[1:])
+        next_id    = queue_ids[0]
+        remaining  = ",".join(queue_ids[1:])
+        from_vessel = request.form.get("from_vessel", "").strip() or None
         return redirect(url_for(
             "documents.preview",
             doc_id=next_id,
             queue=remaining or None,
             total=total,
+            from_vessel=from_vessel or None,
         ))
+
+    # If this document came from the Vessel Dossier, return there
+    if doc.document_category and doc.vessel_id:
+        return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
 
     return redirect(url_for("documents.library", client=doc.client_id))
 
@@ -594,6 +636,8 @@ def publish(doc_id: int):
         f"'{doc.filename}' is now live — {upserted} chunks added to the knowledge base.",
         "success",
     )
+    if doc.document_category and doc.vessel_id:
+        return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
     return redirect(url_for("documents.library", client=doc.client_id))
 
 
@@ -634,3 +678,58 @@ def delete(doc_id: int):
     logger.info(f"[documents] Deleted doc {doc_id} '{filename}' for client '{client_id_for_redirect}'")
     flash(f"'{filename}' has been deleted.", "success")
     return redirect(url_for("documents.library", client=client_id_for_redirect))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vessel Dossier — structured 10-section upload view per vessel
+# ─────────────────────────────────────────────────────────────────────────────
+
+@documents_bp.route("/vessel/<int:vessel_id>/dossier")
+@documents_required
+def vessel_dossier(vessel_id: int):
+    """
+    Render the per-vessel dossier page with 10 collapsible document sections.
+
+    Each section shows already-uploaded documents for that category plus a
+    fresh drop zone for new uploads.  Section status (Not started / In progress
+    / Verified) is derived live from the Document records in the DB.
+    """
+    vessel = Vessel.query.get_or_404(vessel_id)
+
+    # Enforce client scope
+    if not g.is_platform_admin and vessel.client_id != g.scoped_client_id:
+        abort(403)
+
+    sections = []
+    for cat_key, cat_label in DOCUMENT_SECTIONS:
+        docs = (
+            Document.query
+            .filter_by(vessel_id=vessel.id, document_category=cat_key)
+            .order_by(Document.uploaded_at)
+            .all()
+        )
+        if not docs:
+            status = "not_started"
+        elif all(d.status == "active" for d in docs):
+            status = "verified"
+        else:
+            status = "in_progress"
+
+        sections.append({
+            "key":       cat_key,
+            "label":     cat_label,
+            "status":    status,
+            "documents": docs,
+        })
+
+    verified_count = sum(1 for s in sections if s["status"] == "verified")
+    total_sections = len(sections)
+    progress_pct   = int(verified_count / total_sections * 100) if total_sections else 0
+
+    return render_template(
+        "documents/vessel_dossier.html",
+        vessel=vessel,
+        sections=sections,
+        verified_count=verified_count,
+        total_sections=total_sections,
+        progress_pct=progress_pct,
+    )

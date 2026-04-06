@@ -160,14 +160,18 @@ def enrich_chunks(
     raw_chunks: List[Dict],
     filename: str,
     vessel_name: Optional[str] = None,
+    document_category: Optional[str] = None,
 ) -> List[Dict]:
     """
     Send raw extractor chunks through an OpenAI enrichment pass.
 
     Args:
-        raw_chunks:  Output of extractor.extract() — list of {"title", "body"} dicts.
-        filename:    Original filename (used to infer document type).
-        vessel_name: Vessel name from the CMS vessel record, if available.
+        raw_chunks:          Output of extractor.extract() — list of {"title", "body"} dicts.
+        filename:            Original filename (fallback for doc type inference).
+        vessel_name:         Vessel name from the CMS vessel record, if available.
+        document_category:   Explicit category key from the Vessel Dossier UI
+                             (e.g. "fixture_recap", "charter_party"). When provided
+                             this is used directly instead of inferring from filename.
 
     Returns:
         Enriched list of {"title": str, "body": str} dicts.
@@ -181,7 +185,25 @@ def enrich_chunks(
     if not raw_chunks:
         return raw_chunks
 
-    doc_type    = _infer_doc_type(filename)
+    # Use explicit category label if provided; otherwise infer from filename
+    if document_category:
+        # Map the slug key to a human-readable label for the prompt
+        _CATEGORY_LABELS = {
+            "vessel_specifications": "Vessel Specification",
+            "addendum":              "Charter Party Addendum",
+            "fixture_recap":         "Fixture Recap",
+            "charter_party":         "Charter Party",
+            "delivery_details":      "Delivery Details",
+            "speed_consumption":     "Speed & Consumption",
+            "inventory":             "Inventory",
+            "lifting_equipment":     "Lifting Equipment",
+            "hseq_documents":        "HSEQ Documents",
+            "vessel_owners_details": "Vessel & Owners Details",
+        }
+        doc_type = _CATEGORY_LABELS.get(document_category, document_category.replace("_", " ").title())
+    else:
+        doc_type = _infer_doc_type(filename)
+
     vessel_str  = vessel_name or "Unknown"
 
     user_prompt = _build_user_prompt(raw_chunks, filename, doc_type, vessel_str)

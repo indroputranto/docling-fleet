@@ -185,6 +185,14 @@ def run():
         else:
             print("  [skip] No documents needed vessel_id backfill")
 
+    # ── documents.document_category ──────────────────────────────────────────
+    if col_exists(cur, "documents", "document_category"):
+        print("  [skip] documents.document_category already exists")
+    else:
+        cur.execute("ALTER TABLE documents ADD COLUMN document_category VARCHAR(100)")
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_documents_document_category ON documents (document_category)")
+        print("  [+] documents.document_category (VARCHAR(100))")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

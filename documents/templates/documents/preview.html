@@ -130,8 +130,13 @@
 {% endblock %}
 
 {% block topbar_actions %}
+  {% if from_vessel %}
+  <a href="{{ url_for('documents.vessel_dossier', vessel_id=from_vessel) }}"
+     class="btn btn-secondary btn-sm">← Back to Vessel Dossier</a>
+  {% else %}
   <a href="{{ url_for('documents.library', client=doc.client_id) }}"
      class="btn btn-secondary btn-sm">← Back to Library</a>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -213,6 +218,9 @@
   <input type="hidden" name="deleted_positions" id="deleted-positions" value="" />
   <input type="hidden" name="queue" value="{{ queue }}" />
   <input type="hidden" name="total" value="{{ total }}" />
+  {% if from_vessel %}
+  <input type="hidden" name="from_vessel" value="{{ from_vessel }}" />
+  {% endif %}
 
   <div class="chunk-list" id="chunk-list">
     {% for chunk in chunks %}

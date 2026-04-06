@@ -80,12 +80,15 @@ def embed_and_upsert(
             "id":     vector_id,
             "values": embedding,
             "metadata": {
-                "client_id":       document.client_id,
-                "document_id":     document.id,
-                "filename":        document.filename,
-                "chunk_title":     chunk.title or "",
-                "chunk_position":  chunk.position,
-                "text":            texts[chunk.position],  # stored for retrieval context
+                "client_id":         document.client_id,
+                "document_id":       document.id,
+                "filename":          document.filename,
+                "chunk_title":       chunk.title or "",
+                "chunk_position":    chunk.position,
+                "document_category": document.document_category or "",
+                "vessel_id":         document.vessel_id or 0,
+                "group_name":        document.group_name or "",
+                "text":              texts[chunk.position],
             },
         })
 
