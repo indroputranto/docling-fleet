@@ -46,7 +46,11 @@ DOCUMENT_SECTIONS = [
     ("hseq_documents",         "HSEQ Documents"),
     ("vessel_owners_details",  "Vessel & Owners Details"),
 ]
-VALID_CATEGORIES = {key for key, _ in DOCUMENT_SECTIONS}
+# full_document is a special top-level category for integrated vessel packages.
+# It lives in VALID_CATEGORIES but NOT in DOCUMENT_SECTIONS (rendered separately
+# at the top of the Dossier page, not inside the 10-section accordion).
+FULL_DOCUMENT_CATEGORY = "full_document"
+VALID_CATEGORIES = {key for key, _ in DOCUMENT_SECTIONS} | {FULL_DOCUMENT_CATEGORY}
 
 documents_bp = Blueprint(
     "documents",
@@ -226,6 +230,10 @@ def upload():
     # If upload came from the Vessel Dossier, remember the vessel id for redirect
     from_vessel = request.form.get("from_vessel", "").strip() or None
 
+    # Allow the caller to bypass AI enrichment (e.g. large structured full-document
+    # packages where the extraction is already clean and enrichment would be slow).
+    skip_enrichment = request.form.get("skip_enrichment") == "on"
+
     files = [f for f in request.files.getlist("files") if f and f.filename]
 
     if not files:
@@ -256,19 +264,25 @@ def upload():
 
         # ── AI enrichment pass ───────────────────────────────────────────────
         # Sends baseline chunks to gpt-4o-mini for title assignment and
-        # clause-level splitting. Falls back to raw_chunks on any failure.
-        try:
-            from documents.ai_enrichment import enrich_chunks
-            raw_chunks = enrich_chunks(
-                raw_chunks,
-                filename,
-                vessel_name=vessel.name if vessel else None,
-                document_category=document_category,
-            )
-        except Exception as ae:
-            logger.warning(
-                f"[documents] AI enrichment failed for '{filename}', "
-                f"using raw extraction: {ae}"
+        # clause-level splitting. Skipped when skip_enrichment=True (e.g.
+        # large full-document packages where extraction is already clean).
+        if not skip_enrichment:
+            try:
+                from documents.ai_enrichment import enrich_chunks
+                raw_chunks = enrich_chunks(
+                    raw_chunks,
+                    filename,
+                    vessel_name=vessel.name if vessel else None,
+                    document_category=document_category,
+                )
+            except Exception as ae:
+                logger.warning(
+                    f"[documents] AI enrichment failed for '{filename}', "
+                    f"using raw extraction: {ae}"
+                )
+        else:
+            logger.info(
+                f"[documents] AI enrichment skipped for '{filename}' (skip_enrichment=True)"
             )
         # ────────────────────────────────────────────────────────────────────
 
@@ -699,6 +713,14 @@ def vessel_dossier(vessel_id: int):
     if not g.is_platform_admin and vessel.client_id != g.scoped_client_id:
         abort(403)
 
+    # Full-document package uploads (top-level, not tied to any section)
+    full_docs = (
+        Document.query
+        .filter_by(vessel_id=vessel.id, document_category=FULL_DOCUMENT_CATEGORY)
+        .order_by(Document.uploaded_at)
+        .all()
+    )
+
     sections = []
     for cat_key, cat_label in DOCUMENT_SECTIONS:
         docs = (
@@ -729,7 +751,9 @@ def vessel_dossier(vessel_id: int):
         "documents/vessel_dossier.html",
         vessel=vessel,
         sections=sections,
+        full_docs=full_docs,
         verified_count=verified_count,
         total_sections=total_sections,
         progress_pct=progress_pct,
+        full_document_category=FULL_DOCUMENT_CATEGORY,
     )

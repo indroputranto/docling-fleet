@@ -161,6 +161,67 @@
   .upload-spinner { display: none; }
   .uploading .section-dropzone { pointer-events: none; opacity: .6; }
   .uploading .upload-spinner   { display: inline-block; }
+
+  /* ── Full Document Package card ── */
+  .full-doc-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .full-doc-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border);
+    background: rgba(88,166,255,.04);
+  }
+  [data-theme="light"] .full-doc-header { background: rgba(15,52,96,.03); }
+  .full-doc-title-group { display: flex; align-items: center; gap: 10px; }
+  .full-doc-icon { color: #58a6ff; flex-shrink: 0; }
+  .full-doc-title { font-size: 14px; font-weight: 700; }
+  .full-doc-subtitle { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .full-doc-badge {
+    padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
+    background: rgba(88,166,255,.12); color: #58a6ff;
+    border: 1px solid rgba(88,166,255,.2);
+  }
+
+  /* Existing full-doc list */
+  .full-doc-list { padding: 0; }
+  .full-doc-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 20px; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .full-doc-row:last-child { border-bottom: none; }
+  .full-doc-filename { flex: 1; font-weight: 500; word-break: break-all; }
+  .full-doc-chunks  { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  /* Toggle switch for skip enrichment */
+  .toggle-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 20px 14px;
+    font-size: 12px; color: var(--muted);
+  }
+  .toggle-switch {
+    position: relative; width: 34px; height: 18px; flex-shrink: 0;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0; cursor: pointer;
+    background: rgba(255,255,255,.12); border-radius: 34px;
+    transition: background .2s;
+  }
+  [data-theme="light"] .toggle-slider { background: rgba(0,0,0,.12); }
+  .toggle-slider::before {
+    content: ""; position: absolute;
+    width: 12px; height: 12px; border-radius: 50%;
+    left: 3px; bottom: 3px; background: var(--muted);
+    transition: transform .2s, background .2s;
+  }
+  .toggle-switch input:checked + .toggle-slider { background: rgba(88,166,255,.4); }
+  .toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(16px); background: #58a6ff;
+  }
+  .toggle-label strong { color: var(--text); }
 </style>
 {% endblock %}
 
@@ -221,6 +282,107 @@
       </ul>
     {% endif %}
   {% endwith %}
+
+  {# ── Full Document Package ── #}
+  <div class="full-doc-card">
+    <div class="full-doc-header">
+      <div class="full-doc-title-group">
+        <svg class="full-doc-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        <div>
+          <div class="full-doc-title">Full Document Package</div>
+          <div class="full-doc-subtitle">Integrated vessel document containing all sections</div>
+        </div>
+      </div>
+      {% if full_docs %}
+      <span class="full-doc-badge">{{ full_docs | length }} file{{ 's' if full_docs | length != 1 }}</span>
+      {% endif %}
+    </div>
+
+    {# Existing full-document uploads #}
+    {% if full_docs %}
+    <div class="full-doc-list">
+      {% for doc in full_docs %}
+      <div class="full-doc-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <span class="full-doc-filename">{{ doc.filename }}</span>
+        <span class="full-doc-chunks">{{ doc.chunk_count }} chunk{{ 's' if doc.chunk_count != 1 }}</span>
+        {% if doc.status == 'active' %}
+          <span class="badge badge-green">Live</span>
+        {% elif doc.status == 'draft' %}
+          <span class="badge badge-yellow">Draft</span>
+          <a href="{{ url_for('documents.preview', doc_id=doc.id, from_vessel=vessel.id) }}"
+             class="btn btn-sm btn-secondary">Review →</a>
+        {% elif doc.status == 'error' %}
+          <span class="badge badge-red">Error</span>
+        {% else %}
+          <span class="badge badge-yellow">{{ doc.status | title }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Upload drop zone for full-document package #}
+    <div class="section-dropzone-wrap" id="full-doc-zone">
+      <form method="POST" action="{{ url_for('documents.upload') }}"
+            enctype="multipart/form-data"
+            id="form-full_document"
+            onsubmit="showUploading('full_document')">
+        <input type="hidden" name="vessel_id"         value="{{ vessel.id }}">
+        <input type="hidden" name="client_id"         value="{{ vessel.client_id }}">
+        <input type="hidden" name="document_category" value="{{ full_document_category }}">
+        <input type="hidden" name="from_vessel"       value="{{ vessel.id }}">
+        <input type="file"   name="files"
+               id="file-full_document"
+               accept=".pdf,.docx,.xlsx"
+               multiple
+               style="display:none;"
+               onchange="submitFullDoc()">
+
+        {# Skip AI Enrichment toggle #}
+        <div class="toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" name="skip_enrichment" id="skip-enrichment-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">
+            <strong>Skip AI Enrichment</strong> — recommended for large, structured documents
+          </span>
+        </div>
+
+        <div class="section-dropzone"
+             id="dz-full_document"
+             onclick="document.getElementById('file-full_document').click()"
+             ondragover="dzOver(event,'full_document')"
+             ondragleave="dzLeave(event,'full_document')"
+             ondrop="dzDrop(event,'full_document')">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 16 12 12 8 16"/>
+            <line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+          </svg>
+          <p>
+            Drop your full document package here<br>
+            <a href="javascript:void(0)" onclick="event.stopPropagation(); document.getElementById('file-full_document').click()">or click to browse</a>
+            &nbsp;·&nbsp; PDF, Word, or Excel
+          </p>
+          <p class="upload-spinner" style="margin-top:8px; color:var(--accent);">Uploading…</p>
+        </div>
+      </form>
+    </div>
+  </div>
 
   {# ── Section accordion ── #}
   <div class="section-list">
@@ -353,6 +515,14 @@ function toggleSection(key) {
   item.classList.toggle('is-open');
 }
 
+function submitFullDoc() {
+  // For the full-document zone we submit programmatically after file selection
+  // so the form includes the current state of the skip_enrichment checkbox.
+  const form = document.getElementById('form-full_document');
+  showUploading('full_document');
+  form.submit();
+}
+
 function showUploading(key) {
   const wrap = document.getElementById('form-' + key).closest('.section-dropzone-wrap');
   wrap.classList.add('uploading');
@@ -375,10 +545,19 @@ function dzDrop(e, key) {
   const input = document.getElementById('file-' + key);
   // Transfer dropped files to the hidden input via DataTransfer
   const dt = new DataTransfer();
-  dt.items.add(files[0]);   // one file per section
+  // For the full-document zone allow multiple; for sections take only the first
+  if (key === 'full_document') {
+    Array.from(files).forEach(f => dt.items.add(f));
+  } else {
+    dt.items.add(files[0]);
+  }
   input.files = dt.files;
-  showUploading(key);
-  document.getElementById('form-' + key).submit();
+  if (key === 'full_document') {
+    submitFullDoc();   // goes through the enrichment-toggle-aware helper
+  } else {
+    showUploading(key);
+    document.getElementById('form-' + key).submit();
+  }
 }
 </script>
 {% endblock %}
