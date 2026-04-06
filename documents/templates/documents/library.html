@@ -53,7 +53,7 @@
 
   /* Vessel selector row */
   .upload-meta {
-    display: flex; gap: 12px; align-items: center;
+    display: flex; gap: 12px; align-items: flex-start;
     margin-top: 20px; padding-top: 18px;
     border-top: 1px solid var(--border);
     text-align: left;
@@ -68,6 +68,40 @@
   }
   .vessel-hint a { color: #58a6ff; text-decoration: none; }
   .vessel-hint a:hover { text-decoration: underline; }
+
+  /* Skip enrichment toggle */
+  .enrichment-toggle-group {
+    display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; padding-top: 2px;
+  }
+  .enrichment-toggle-group > span {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted);
+  }
+  .toggle-row-lib {
+    display: flex; align-items: center; gap: 8px; padding-top: 2px;
+  }
+  .toggle-switch-lib {
+    position: relative; width: 34px; height: 18px; flex-shrink: 0;
+  }
+  .toggle-switch-lib input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider-lib {
+    position: absolute; inset: 0; cursor: pointer;
+    background: rgba(255,255,255,.12); border-radius: 34px;
+    transition: background .2s;
+  }
+  [data-theme="light"] .toggle-slider-lib { background: rgba(0,0,0,.12); }
+  .toggle-slider-lib::before {
+    content: ""; position: absolute;
+    width: 12px; height: 12px; border-radius: 50%;
+    left: 3px; bottom: 3px; background: var(--muted);
+    transition: transform .2s, background .2s;
+  }
+  .toggle-switch-lib input:checked + .toggle-slider-lib { background: rgba(88,166,255,.4); }
+  .toggle-switch-lib input:checked + .toggle-slider-lib::before {
+    transform: translateX(16px); background: #58a6ff;
+  }
+  .toggle-label-lib { font-size: 12px; color: var(--muted); }
+  .toggle-label-lib strong { color: var(--text); font-weight: 600; }
 
   #upload-actions { padding-bottom: 20px; }
 
@@ -183,8 +217,18 @@
         <input type="hidden" name="vessel_id" value="" />
         {% endif %}
       </div>
+      <div class="enrichment-toggle-group">
+        <span>AI Enrichment</span>
+        <div class="toggle-row-lib">
+          <label class="toggle-switch-lib" title="When off, documents skip the AI title/clause-splitting step — faster for large structured files">
+            <input type="checkbox" name="skip_enrichment" id="lib-skip-enrichment">
+            <span class="toggle-slider-lib"></span>
+          </label>
+          <span class="toggle-label-lib" id="lib-enrichment-label"><strong>On</strong></span>
+        </div>
+      </div>
       <button type="submit" class="btn btn-primary" id="upload-btn"
-              onclick="event.stopPropagation()" style="white-space:nowrap;">
+              onclick="event.stopPropagation()" style="white-space:nowrap; align-self:flex-end; margin-bottom:1px;">
         Extract &amp; Review →
       </button>
     </div>
@@ -395,6 +439,17 @@
         uploadBtn.textContent = 'Extracting…';
         uploadBtn.classList.add('btn-uploading');
       }
+    });
+  }
+
+  // Skip-enrichment toggle label
+  const skipToggle = document.getElementById('lib-skip-enrichment');
+  const skipLabel  = document.getElementById('lib-enrichment-label');
+  if (skipToggle && skipLabel) {
+    skipToggle.addEventListener('change', () => {
+      skipLabel.innerHTML = skipToggle.checked
+        ? '<strong style="color:var(--muted);">Off</strong>'
+        : '<strong>On</strong>';
     });
   }
 })();
