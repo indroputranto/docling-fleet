@@ -9,7 +9,7 @@ import os
 import json
 import logging
 import tempfile
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, redirect, url_for, make_response, flash
 from werkzeug.utils import secure_filename
 import requests
 from dotenv import load_dotenv
@@ -832,12 +832,82 @@ def get_client_id_from_request() -> str:
     return 'default'
 
 
+def _check_chat_cookie():
+    """
+    Validate cms_token cookie for chat gate.
+    Accepts any active user role (admin, client_admin, user).
+    Returns decoded payload or None.
+    """
+    from auth import _decode_token
+    import jwt as _jwt
+    token = request.cookies.get("cms_token")
+    if not token:
+        return None
+    try:
+        payload = _decode_token(token)
+        return payload
+    except _jwt.PyJWTError:
+        return None
+
+
 @app.route("/")
 def home():
-    """Serve the chat UI, themed for the requesting client."""
-    from flask import render_template
+    """Serve the chat UI — requires a valid session cookie."""
+    if not _check_chat_cookie():
+        return redirect(url_for("chat_login", next="/"))
     client_id = get_client_id_from_request()
     return render_template('chat.html', client_id=client_id)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def chat_login():
+    """Standalone login page for chat users (all roles accepted)."""
+    from auth import _decode_token, _make_token, ACCESS_EXPIRES
+    import jwt as _jwt
+
+    # Already logged in → go straight to chat
+    if _check_chat_cookie():
+        return redirect(request.args.get("next") or "/")
+
+    if request.method == "GET":
+        return render_template("login.html")
+
+    email    = request.form.get("email", "").strip().lower()
+    password = request.form.get("password", "")
+
+    if not email or not password:
+        flash("Email and password are required.", "error")
+        return render_template("login.html")
+
+    from models import User
+    user = User.query.filter_by(email=email, active=True).first()
+    if not user or not user.check_password(password):
+        flash("Invalid email or password.", "error")
+        return render_template("login.html")
+
+    from datetime import datetime, timezone
+    user.last_login_at = datetime.now(timezone.utc)
+    from models import db as _db
+    _db.session.commit()
+
+    token = _make_token(user, ACCESS_EXPIRES)
+    next_url = request.form.get("next") or request.args.get("next") or "/"
+    resp = make_response(redirect(next_url))
+    resp.set_cookie(
+        "cms_token", token,
+        httponly=True, samesite="Lax",
+        max_age=int(ACCESS_EXPIRES.total_seconds()),
+    )
+    logging.info(f"[chat-login] Login success: {email} role={user.role}")
+    return resp
+
+
+@app.route("/logout")
+def chat_logout():
+    """Clear the session cookie and redirect to login."""
+    resp = make_response(redirect(url_for("chat_login")))
+    resp.delete_cookie("cms_token")
+    return resp
 
 @app.errorhandler(404)
 def not_found(error):

@@ -954,6 +954,8 @@ async function submitLogin() {
 async function doLogout() {
   await fetch('/auth/logout', {method:'POST'}).catch(()=>{});
   _clearAuth();
+  // Also clear the server-side cookie and redirect to login
+  window.location.href = '/logout';
 }
 
 // ============================================================
