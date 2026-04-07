@@ -66,11 +66,13 @@ The end-user facing product. Fully whitelabeled per client.
 
 - Branding: logo, company name, chatbot name, color scheme
 - Dark mode (client's configured brand colors) and Light mode (papaya orange `#F8A269` + `#F2F4F1`)
+- Dark/light mode toggle persisted in `localStorage` key `'theme'`; shared with the CMS so switching in one is reflected when opening the other
 - Empty state: welcome message + clickable suggested question chips
 - Conversation history (in-session, browser memory)
 - Copy-to-clipboard on assistant messages
-- Auth bar: Sign In / Open CMS / Sign Out (sidebar footer)
+- Auth bar: Sign In / Switch to CMS ↗ / Sign Out (sidebar footer)
 - Markdown rendering: tables, code blocks, bullet lists, bold, blockquotes
+- **Login gate:** the root `/` route checks the `cms_token` cookie and redirects unauthenticated visitors to `/login` before serving the chat UI
 
 ### 5.2 Chat API (`/api`)
 Flask Blueprint handling all chat logic.
@@ -87,6 +89,12 @@ Shared JWT auth serving both the chat login and the CMS.
 - `POST /auth/logout` — invalidates session
 - `GET /auth/me` — current user info
 - Roles: `admin` (full platform CMS), `client_admin` (scoped CMS), `user` (chat only)
+
+**Platform-level login (`app.py`):**
+- `GET/POST /login` — standalone login page (`login.html`) that accepts all roles (admin, client_admin, user); sets the `cms_token` httpOnly cookie on success; honours a `?next=` redirect param; includes its own dark/light toggle
+- `GET /logout` — clears the `cms_token` cookie and redirects to `/login`
+- `GET /` — `_check_chat_cookie()` validates the cookie for any role; unauthenticated requests are redirected to `/login?next=/`
+- `login.html` includes a footer link ("CMS Admin access →") pointing to `/cms/login` for operators who need CMS access
 
 ### 5.4 CMS & User Access Model
 
@@ -140,6 +148,8 @@ All database queries in the dashboard and user management routes are branched on
 
 ### 5.5 Admin CMS — Dashboard & Forms (`/cms`)
 
+- **Dark/light mode toggle** in the CMS topbar (moon/sun icon); reads and writes the same `localStorage` key `'theme'` as the chat UI so the theme is shared across both. `[data-theme="light"]` block applies a light sidebar (`#f8f9fb` background, dark text) with dark-overlay hover states.
+- **Cross-link** in sidebar footer: "Switch to Chat ↗" opens the chat root in a new tab; the chat sidebar shows "Switch to CMS ↗" reciprocally.
 - **Dashboard:** client list with status badges, user list with role badges, quick stats (total/active clients, total users)
 - **Client form:** Identity, Branding, Chat UX (all roles); AI & Knowledge Base, System Prompt (platform admin only)
   - Identity: client ID (slug, immutable after creation), display name, company name, chatbot name, logo URL
@@ -156,15 +166,32 @@ A human-in-the-loop upload interface for building and maintaining each client's 
 
 **Workflow:**
 
-1. **Upload** — drag-and-drop or file-browse; accepts `.docx`, `.pdf`, `.xlsx`; supports multiple files in a single session. An optional Group / Vessel Name label ties related files together in the library.
+1. **Upload** — drag-and-drop or file-browse; accepts `.docx`, `.pdf`, `.xlsx`; supports multiple files in a single session. An optional Group / Vessel Name label ties related files together in the library. A **Skip AI Enrichment** toggle (see step 2b) is available on both the library uploader and the Vessel Dossier full-document zone.
 2. **Extract** — `documents/extractor.py` parses each file into discrete chunks using clause-aware detection (matches `CLAUSE N`, `N.`, `PART II`, `ANNEX A` patterns common in charter parties). Each chunk gets a title and body.
+2b. **AI Enrichment** (`documents/ai_enrichment.py`) — after extraction, raw chunks are sent to `gpt-4o-mini` via a structured JSON prompt that instructs the model to assign concise 2–6 word titles, split dash-separated clause lists into individual chunks, and group specification parameters into logical units. The model returns `{"chunks": [...]}` and the enriched list replaces the raw extraction output. If enrichment fails for any reason, the system falls back gracefully to the raw extractor output. **Skip enrichment** flag: when the `skip_enrichment` form field is `on`, this step is bypassed entirely — recommended for large, structured integrated documents (hundreds of chunks) where enrichment would add significant latency and the extraction is already clean.
 3. **Review & Edit (sequential)** — the user reviews each file one at a time. A "File X of N" banner tracks progress through the batch. They can correct titles, fix parser errors, delete junk chunks, or add chunks manually. Nothing is sent to Pinecone until this step is approved per file.
 4. **Save & Continue** — `documents/embedder.py` embeds each chunk via OpenAI `text-embedding-3-small` and upserts to the client's Pinecone namespace. After saving, the system automatically advances to the next file in the queue. The save button reads "Save & Review Next →" until the last file, then "Save to Knowledge Base →".
 5. **Library** — shows all documents grouped by their Group / Vessel Name label. Each group shows as a folder-style header. Status per file: Draft / Live / Processing / Error. Delete removes both the DB record and all associated Pinecone vectors.
 
 **DB models:**
-- `Document` — one row per uploaded file; tracks filename, type, status, chunk_count, group_name (optional grouping label), uploaded_by, uploaded_at, activated_at
+- `Document` — one row per uploaded file; tracks filename, type, status, chunk_count, group_name (optional grouping label), vessel_id (FK to Vessel), document_category (slug key for Vessel Dossier sections, e.g. `fixture_recap`, `charter_party`, `full_document`), uploaded_by, uploaded_at, activated_at
 - `DocumentChunk` — one row per embeddable chunk; stores title, body, position, and pinecone_id after embedding
+
+**Pinecone vector metadata (per chunk):**
+```python
+{
+  "client_id":         document.client_id,
+  "document_id":       document.id,
+  "filename":          document.filename,
+  "chunk_title":       chunk.title or "",
+  "chunk_position":    chunk.position,
+  "document_category": document.document_category or "",
+  "vessel_id":         document.vessel_id or 0,
+  "group_name":        document.group_name or "",
+  "text":              chunk_text,
+}
+```
+`document_category` and `vessel_id` are stored in metadata to enable future category-scoped or vessel-scoped retrieval filtering at query time.
 
 **Multi-file queue mechanism:**
 The upload route accepts `files[]` (multiple), extracts all files server-side, creates a `Document` record per file, then redirects to the first preview with a `?queue=id1,id2&total=N` query string. Each preview passes queue/total through hidden form fields into the save POST. After a successful save, the save route checks the queue and redirects to the next doc's preview or, when empty, to the library. This keeps the per-file review flow unchanged while enabling batch uploads.
@@ -201,7 +228,7 @@ Spans with a max font size below 7 pt are dropped before layout analysis. This r
 **Junk chunk filter (`_is_junk_body`):**
 Chunks are discarded before saving if:
 - < 3 total words, OR
-- > 60 % of lines are ≤ 2 characters (catches slot-plan / hold-diagram position labels A B C … 1 2 3 … extracted from graphical vector drawings).
+- "> 60 % of lines are ≤ 2 characters (catches slot-plan / hold-diagram position labels A B C … 1 2 3 … extracted from graphical vector drawings)."
 
 **Validated output (MV ADRIATIC — OCEAN7 PDF, page 1):**
 The bin-density column detector finds the split at x ≈ 240 pt and produces 11 semantically correct chunks matching the `AI_ADRIATIC.docx` single-file pipeline output: Registration, Tonnage, Dimensions, Hold/hatch sizes, Container capacity, Deck loads, Hatch covers/Tween deck, RoRo feature, Propulsion/Maneuvering, Bunkers/Ballast capacity — each with correct key-value body content. Later pages (cargo plans) yield additional tween-deck/tanktop dimensional chunks plus some residual noise that users can delete in the Review & Edit step.
@@ -214,7 +241,46 @@ The bin-density column detector finds the split at x ≈ 240 pt and produces 11 
 - Deletion is clean: vector IDs are deterministic (`{client_id}:doc:{doc_id}:chunk:{pos}`) and stored on each chunk row, enabling targeted Pinecone deletes
 - Platform Admins see a client-switcher dropdown; Client Admins are auto-scoped to their own client
 
-### 5.7 Usage Logging & Rate Limiting
+### 5.7 Vessel Dossier (`/documents/vessel/<id>/dossier`)
+
+A structured per-vessel document management page, accessible from the Vessel Library via the "Manage Docs" button on each row. Provides a single location to manage all documents for a vessel, organized into fixed categories.
+
+**Layout:**
+- **Vessel header card** — avatar, name, type, IMO, flag, year/GT/DWT/LOA chips; "Edit Vessel" link to the Vessel Library drawer
+- **Progress ring** — SVG ring (stroke-dasharray) showing the percentage of the 10 sections with status `verified`; counter "N / 10 sections verified"
+- **Full Document Package zone** (top-level, above accordion) — for uploading an integrated vessel document containing all sections. Shows previously-uploaded full-document files with status badges and Review links. Includes the Skip AI Enrichment toggle (defaults to **on** for this zone since full packages are typically large and structured). Stored with `document_category = "full_document"`.
+- **10-section accordion** — collapsible rows for each document category; opens automatically if status is `in_progress`
+
+**The 10 fixed sections (slug → label):**
+
+| Slug | Label |
+|---|---|
+| `vessel_specifications` | Vessel Specifications |
+| `addendum` | Addendum |
+| `fixture_recap` | Fixture Recap |
+| `charter_party` | Charter Party |
+| `delivery_details` | Delivery Details |
+| `speed_consumption` | Speed & Consumption |
+| `inventory` | Inventory |
+| `lifting_equipment` | Lifting Equipment |
+| `hseq_documents` | HSEQ Documents |
+| `vessel_owners_details` | Vessel & Owners Details |
+
+**Section status** (derived live from DB, not stored separately):
+- `not_started` — no documents for this category
+- `in_progress` — at least one document exists but not all are `active`
+- `verified` — all documents for this category are `active`
+
+**Section body (expanded):**
+- Existing documents list: filename, chunk count, Live/Draft/Error badge, Review link for drafts
+- Per-section upload drop zone: drag-and-drop or click-to-browse; auto-submits on file selection; passes `document_category`, `vessel_id`, `from_vessel` as hidden fields
+
+**Back-navigation:** after Save Draft or Publish from the Review step, the user is returned to the Dossier (not the library) when `from_vessel` is set. The preview topbar shows "← Back to Vessel Dossier" in place of "← Back to Library".
+
+**`document_category` slug** is stored on the `Document` record and in Pinecone vector metadata, enabling future category-scoped retrieval queries (e.g. "search only within charter_party documents for this vessel").
+
+### 5.8 Usage Logging & Rate Limiting
+
 
 Every chat request is logged to a `usage_logs` table for billing, monitoring, and abuse prevention.
 
@@ -260,7 +326,7 @@ Ranked list of up to 10 users by request count, showing email, total requests, t
 - Missing days (zero-activity gaps) are filled in Python before the template renders, so the x-axis always shows a continuous 30-day range.
 - Token values are formatted client-side (K/M suffix) in Chart.js tick callbacks and in a reusable Jinja macro (`fmt_tokens`) in the template.
 
-### 5.9 System Prompt (`prompt.md`)
+### 5.10 System Prompt (`prompt.md`)
 The instruction set defining how Claude behaves for a given client. Whitelabeled via placeholder tokens:
 
 - `[CLIENT_NAME]` — the client's company/fleet name
@@ -286,17 +352,24 @@ Single-tenant Flask app with hardcoded client config, full RAG pipeline, chat UI
 Database-driven client management. Same Flask app, new `/cms` blueprint.
 
 **Deliverables completed:**
-- `models.py` — `ClientConfig`, `User`, `Document`, `DocumentChunk` SQLAlchemy models
+- `models.py` — `ClientConfig`, `User`, `Document`, `DocumentChunk`, `Vessel` SQLAlchemy models; `Document.document_category` column for Dossier section scoping
 - `cms/routes.py` — full CRUD for clients and users; 3-tier role scoping
 - CMS templates: dashboard, client form (with Chat UX section), user form, login
 - `client_config.py` updated to query DB first, fall back to hardcoded registry
 - `documents/` Blueprint — full document upload pipeline (see Section 5.6)
+- `documents/ai_enrichment.py` — gpt-4o-mini post-processing pass for title assignment and clause-level splitting; graceful fallback; skip-enrichment flag (see Section 5.6 step 2b)
+- `documents/embedder.py` — updated Pinecone metadata to include `document_category`, `vessel_id`, `group_name` per chunk (see Section 5.6)
+- `documents/vessel_dossier.html` — 10-section accordion Vessel Dossier UI with per-section upload zones, SVG progress ring, and Full Document Package top-level zone (see Section 5.7)
 - `migrate_db.py` — idempotent schema migration script for adding columns to existing DBs
 - `UsageLog` model — per-request logging (client, user, tokens, latency)
-- Rate limiting — per-client daily request cap with 429 enforcement (see Section 5.7)
-- Analytics dashboard — `/cms/analytics` with Chart.js charts and top-users table (see Section 5.8)
+- Rate limiting — per-client daily request cap with 429 enforcement (see Section 5.8)
+- Analytics dashboard — `/cms/analytics` with Chart.js charts and top-users table (see Section 5.9)
 - User edit / password reset — `/cms/users/<id>/edit` for admin-side credential management
 - Role-scoped sidebar — nav items hidden (not just disabled) based on user role
+- Dark/light mode toggle in CMS — synchronized with Chat via shared `localStorage` key; light-mode sidebar fully themed (see Section 5.5)
+- Login gate for root `/` route — `login.html` standalone page, `/login` and `/logout` routes, all-role cookie validation (see Section 5.3)
+- Vessel Library "Manage Docs" button — links each vessel row directly to its Dossier page
+- Skip AI Enrichment toggle — on both the library uploader and the Dossier Full Document Package zone
 
 **Remaining CMS items:**
 - Embed code generator (iframe/script snippet for client's own website)
@@ -304,6 +377,8 @@ Database-driven client management. Same Flask app, new `/cms` blueprint.
 - Duplicate client (clone config as starting point for new client)
 - Subdomain display with copy-to-clipboard
 - "Powered by" control (show/hide platform attribution in chat UI)
+- Category-scoped retrieval — use `document_category` filter in Pinecone queries (groundwork is in place; query logic not yet implemented)
+- Batch upload placement for Vessel Dossier sections (UX decision pending)
 
 ### Phase 3 — Production Hardening & Automation
 Gunicorn + systemd deployment, nginx routing, automated provisioning.
@@ -511,3 +586,8 @@ The platform is production-ready when:
 | Container orchestration (K8s/Docker Swarm)? | Deferred. Direct Droplet per client is simpler to operate at current scale. Revisit at 20+ clients. | Apr 2026 |
 | Single CMS vs. separate admin/client portals? | Single CMS codebase with route-level data scoping. Platform Admin and Client Admin share the same UI; capabilities differ by role. Simpler to maintain, no duplicated templates. | Apr 2026 |
 | How many CMS role tiers? | Three: Platform Admin (full access), Client Admin (scoped to own client), User (chat only, no CMS). Client Admins can manage branding and their team but cannot touch AI config or system prompts. | Apr 2026 |
+| AI enrichment — which documents, which model? | All documents, automatically, using gpt-4o-mini. Cost is not a concern at current scale. The enrichment step is a post-processing pass on raw extractor output, not a replacement. Fallback to raw output on any failure. | Apr 2026 |
+| AI enrichment — opt-out mechanism? | Skip AI Enrichment toggle (checkbox) on both the library uploader and the Dossier Full Document Package zone. Defaults to off (enrichment on) in the library; defaults to on (skip) in the Dossier full-document zone since those uploads are typically large and already well-structured. | Apr 2026 |
+| Vessel Dossier section count and structure? | 10 fixed sections defined as `DOCUMENT_SECTIONS` in `documents/routes.py`. Sections are not user-configurable at this stage. A `full_document` slug exists outside the 10 sections for integrated packages. | Apr 2026 |
+| document_category storage strategy? | Stored as a slug string on `Document.document_category` and in Pinecone vector metadata. Not a FK to a categories table — the 10 slugs are defined as a constant, keeping the schema simple and migration-free when sections are added. | Apr 2026 |
+| Login gate scope? | All routes — Chat root `/`, CMS `/cms`, and Documents `/documents` — require a valid `cms_token` cookie. End users (role: user) are accepted at `/login` and can reach the chat UI. Only admin/client_admin roles can access the CMS. | Apr 2026 |
