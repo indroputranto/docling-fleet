@@ -36,7 +36,8 @@ from flask import (
     Blueprint, render_template, redirect, url_for,
     request, flash, g, make_response, abort
 )
-from models import db, ClientConfig, User, Vessel, Document, DocumentChunk
+from models import db, ClientConfig, User, Vessel, Document, DocumentChunk, DossierSectionConfig
+from documents.routes import DOCUMENT_SECTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +388,8 @@ def client_new():
             client=None,
             default_prompt=default_prompt,
             suggested_questions_text="",
+            dossier_sections=DOCUMENT_SECTIONS,
+            dossier_section_configs={},
         )
     return _save_client(client=None)
 
@@ -398,11 +401,17 @@ def client_edit(client_db_id: int):
     _assert_client_access(client)   # 403 if client_admin tries another client
 
     if request.method == "GET":
+        section_configs = {
+            cfg.slug: cfg
+            for cfg in DossierSectionConfig.query.filter_by(client_id=client.client_id).all()
+        }
         return render_template(
             "cms/client_form.html",
             client=client,
             default_prompt=client.system_prompt,
             suggested_questions_text=_suggested_questions_to_text(client),
+            dossier_sections=DOCUMENT_SECTIONS,
+            dossier_section_configs=section_configs,
         )
     return _save_client(client=client)
 
@@ -458,6 +467,31 @@ def _save_client(client: ClientConfig | None):
         client.active               = "active" in f
 
     client.updated_at = datetime.now(timezone.utc)
+
+    # ── Dossier section config upsert ─────────────────────────────────────────
+    # Only process on edit (not on initial create — client_id doesn't exist yet
+    # for new clients, and the form doesn't show the section card for new clients).
+    if client.client_id:
+        existing_cfgs = {
+            cfg.slug: cfg
+            for cfg in DossierSectionConfig.query.filter_by(client_id=client.client_id).all()
+        }
+        for slug, _default_label in DOCUMENT_SECTIONS:
+            custom_label = f.get(f"section_label_{slug}", "").strip() or None
+            is_active    = f"section_active_{slug}" in f   # checkbox: present = on
+
+            cfg = existing_cfgs.get(slug)
+            # Only write a row if it differs from the defaults (label set OR hidden)
+            if custom_label or not is_active:
+                if cfg is None:
+                    cfg = DossierSectionConfig(client_id=client.client_id, slug=slug)
+                    db.session.add(cfg)
+                cfg.label  = custom_label
+                cfg.active = is_active
+            elif cfg is not None:
+                # Back to default — remove the override row to keep the table sparse
+                db.session.delete(cfg)
+
     db.session.commit()
     flash(f"Client '{client.name}' saved successfully.", "success")
     return redirect(url_for("cms.dashboard"))

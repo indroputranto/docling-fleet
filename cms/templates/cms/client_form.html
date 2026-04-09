@@ -221,6 +221,63 @@
     </div>
   </div>
 
+  <!-- Dossier Sections -->
+  {% if client %}
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      Vessel Dossier Sections
+      <span style="font-size:11px;font-weight:400;color:var(--muted);">Rename or hide sections in the per-vessel document dossier</span>
+    </div>
+    <div style="padding:22px;">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">
+        Toggle a section off to hide it from all vessel dossier pages for this client. Rename to match your preferred terminology — leave blank to use the default label.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:0;">
+        {% for slug, default_label in dossier_sections %}
+        {% set cfg = dossier_section_configs.get(slug) %}
+        {% set is_active = cfg.active if cfg else True %}
+        {% set custom_label = cfg.label if cfg and cfg.label else '' %}
+        <div class="dossier-section-row {% if not is_active %}dossier-row-hidden{% endif %}"
+             id="drow-{{ slug }}"
+             style="display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--border);">
+
+          {# Active toggle #}
+          <label class="toggle-label" style="margin:0;flex-shrink:0;" title="Show/hide this section">
+            <input type="checkbox" name="section_active_{{ slug }}"
+                   id="sa-{{ slug }}"
+                   {% if is_active %}checked{% endif %}
+                   onchange="toggleDossierRow('{{ slug }}', this.checked)">
+            <span class="toggle-track"></span>
+          </label>
+
+          {# Default label chip #}
+          <span style="font-size:12px;font-weight:600;color:var(--muted);
+                       background:rgba(255,255,255,.06);border:1px solid var(--border);
+                       padding:2px 9px;border-radius:5px;white-space:nowrap;
+                       flex-shrink:0;min-width:160px;text-align:center;"
+                id="dlabel-{{ slug }}">
+            {{ default_label }}
+          </span>
+
+          {# Custom label input #}
+          <input type="text"
+                 name="section_label_{{ slug }}"
+                 value="{{ custom_label }}"
+                 placeholder="Custom name (optional)"
+                 style="flex:1;background:var(--bg);border:1px solid var(--border);
+                        border-radius:7px;padding:6px 11px;color:var(--text);
+                        font-family:inherit;font-size:13px;outline:none;
+                        transition:border-color .15s;"
+                 onfocus="this.style.borderColor='var(--accent)'"
+                 onblur="this.style.borderColor='var(--border)'"
+                 {% if not is_active %}disabled{% endif %}>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- System Prompt — platform admin only -->
   {% if is_platform_admin %}
   <div class="card" style="margin-bottom:24px;">
@@ -243,4 +300,27 @@
   </div>
 
 </form>
+
+<style>
+.dossier-row-hidden {
+  opacity: .45;
+  transition: opacity .2s;
+}
+.dossier-row-hidden input[type="text"] {
+  pointer-events: none;
+}
+</style>
+<script>
+function toggleDossierRow(slug, active) {
+  const row   = document.getElementById('drow-' + slug);
+  const input = row.querySelector('input[type="text"]');
+  if (active) {
+    row.classList.remove('dossier-row-hidden');
+    input.disabled = false;
+  } else {
+    row.classList.add('dossier-row-hidden');
+    input.disabled = true;
+  }
+}
+</script>
 {% endblock %}

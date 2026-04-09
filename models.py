@@ -332,6 +332,41 @@ class Vessel(db.Model):
         return f"<Vessel {self.name} imo={self.imo_number} client={self.client_id}>"
 
 
+class DossierSectionConfig(db.Model):
+    """
+    Per-client customisation of the 10 fixed Vessel Dossier sections.
+
+    Only rows that differ from the default need to exist — the dossier
+    route falls back to the DOCUMENT_SECTIONS defaults for any slug that
+    has no row here.  This keeps the table sparse: a client that never
+    touches the dossier settings has zero rows.
+
+    slug    — matches one of the DOCUMENT_SECTIONS keys in documents/routes.py
+    label   — custom display name; None means use the default label
+    active  — False hides the section from the dossier entirely
+    """
+    __tablename__ = "dossier_section_configs"
+
+    id        = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(
+        db.String(100),
+        db.ForeignKey("client_configs.client_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    slug      = db.Column(db.String(50),  nullable=False)
+    label     = db.Column(db.String(100), nullable=True)   # None → use default
+    active    = db.Column(db.Boolean,     nullable=False, default=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("client_id", "slug", name="uq_dossier_section_client_slug"),
+    )
+
+    def __repr__(self):
+        return (f"<DossierSectionConfig client={self.client_id} "
+                f"slug={self.slug} active={self.active}>")
+
+
 class UsageLog(db.Model):
     """
     One row per successful chat API request.

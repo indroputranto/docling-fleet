@@ -193,6 +193,27 @@ def run():
         cur.execute("CREATE INDEX IF NOT EXISTS ix_documents_document_category ON documents (document_category)")
         print("  [+] documents.document_category (VARCHAR(100))")
 
+    # ── dossier_section_configs table ─────────────────────────────────────────
+    if table_exists(cur, "dossier_section_configs"):
+        print("  [skip] dossier_section_configs table already exists")
+    else:
+        cur.execute("""
+            CREATE TABLE dossier_section_configs (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id VARCHAR(100) NOT NULL
+                          REFERENCES client_configs(client_id) ON DELETE CASCADE,
+                slug      VARCHAR(50)  NOT NULL,
+                label     VARCHAR(100),
+                active    BOOLEAN      NOT NULL DEFAULT 1,
+                UNIQUE (client_id, slug)
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX ix_dossier_section_configs_client_id "
+            "ON dossier_section_configs (client_id)"
+        )
+        print("  [+] dossier_section_configs table created")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

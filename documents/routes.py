@@ -721,8 +721,25 @@ def vessel_dossier(vessel_id: int):
         .all()
     )
 
+    # Load per-client section customisations (rename / hide)
+    from models import DossierSectionConfig
+    section_configs = {
+        cfg.slug: cfg
+        for cfg in DossierSectionConfig.query.filter_by(client_id=vessel.client_id).all()
+    }
+
     sections = []
-    for cat_key, cat_label in DOCUMENT_SECTIONS:
+    for cat_key, default_label in DOCUMENT_SECTIONS:
+        cfg = section_configs.get(cat_key)
+
+        # Skip sections the client has hidden
+        if cfg and not cfg.active:
+            continue
+
+        # Use custom label if one has been set, otherwise fall back to default
+        label = (cfg.label.strip() if cfg and cfg.label and cfg.label.strip()
+                 else default_label)
+
         docs = (
             Document.query
             .filter_by(vessel_id=vessel.id, document_category=cat_key)
@@ -738,7 +755,7 @@ def vessel_dossier(vessel_id: int):
 
         sections.append({
             "key":       cat_key,
-            "label":     cat_label,
+            "label":     label,
             "status":    status,
             "documents": docs,
         })
