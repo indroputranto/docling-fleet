@@ -211,6 +211,95 @@
   <strong>Publish</strong> embeds the chunks and adds them to the knowledge base.
 </p>
 
+{# ── Coverage check banner — always shown when audit ran ── #}
+{% if coverage %}
+  {% set has_issues   = coverage.issues   and coverage.issues   | length > 0 %}
+  {% set has_warnings = coverage.warnings and coverage.warnings | length > 0 %}
+  {% if has_issues %}
+    {% set banner_bg     = "rgba(218,54,51,.08)" %}
+    {% set banner_border = "rgba(218,54,51,.3)" %}
+    {% set banner_color  = "var(--red)" %}
+    {% set banner_label  = "Coverage issues detected" %}
+  {% elif has_warnings %}
+    {% set banner_bg     = "rgba(227,179,65,.07)" %}
+    {% set banner_border = "rgba(227,179,65,.3)" %}
+    {% set banner_color  = "#e3b341" %}
+    {% set banner_label  = "Coverage warning" %}
+  {% else %}
+    {% set banner_bg     = "rgba(35,134,54,.06)" %}
+    {% set banner_border = "rgba(35,134,54,.25)" %}
+    {% set banner_color  = "#3fb950" %}
+    {% set banner_label  = "Coverage check passed" %}
+  {% endif %}
+  <div style="
+    background: {{ banner_bg }};
+    border: 1px solid {{ banner_border }};
+    border-radius: var(--radius); padding: 12px 16px; margin-bottom: 20px; font-size: 13px;">
+    <div style="display:flex; align-items:flex-start; gap:10px;">
+      {% if has_issues or has_warnings %}
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+           stroke="{{ banner_color }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+           style="flex-shrink:0; margin-top:1px;">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      {% else %}
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+           stroke="{{ banner_color }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+           style="flex-shrink:0; margin-top:1px;">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      {% endif %}
+      <div style="flex:1;">
+        <div style="font-weight:600; color:{{ banner_color }}; margin-bottom:{% if has_issues or has_warnings %}6px{% else %}0{% endif %};">
+          {{ banner_label }}
+          {% if coverage.coverage_pct is not none %}
+            <span style="font-weight:400; color:var(--muted); margin-left:8px;">
+              {{ coverage.coverage_pct }}% estimated coverage
+              · {{ coverage.method }}
+            </span>
+          {% endif %}
+        </div>
+        {# Issues #}
+        {% for msg in coverage.issues %}
+        <div style="color:var(--red); margin-bottom:3px;">{{ msg }}</div>
+        {% endfor %}
+        {# Warnings #}
+        {% for msg in coverage.warnings %}
+        <div style="color:#e3b341; margin-bottom:3px;">{{ msg }}</div>
+        {% endfor %}
+        {# Missed headings detail (collapsible) #}
+        {% set missed = coverage.details.missed_headings if coverage.details else [] %}
+        {% if missed %}
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer; color:var(--muted); font-size:12px;">
+            {{ missed | length }} heading(s) not found in chunks — click to expand
+          </summary>
+          <ul style="margin:6px 0 0 16px; padding:0; color:var(--muted); font-size:12px; line-height:1.8;">
+            {% for h in missed %}
+            <li>{{ h }}</li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+        {# Word count detail #}
+        {% if coverage.details %}
+        <div style="margin-top:{% if has_issues or has_warnings %}8px{% else %}4px{% endif %}; font-size:12px; color:var(--muted);">
+          {% if coverage.details.source_body_words is defined %}
+            Source: {{ coverage.details.source_body_words }} words
+            · Extracted: {{ coverage.details.raw_extracted_words }} words
+            · Final chunks: {{ coverage.details.final_chunk_words }} words
+          {% else %}
+            Extracted: {{ coverage.details.raw_extracted_words }} words
+            · Final chunks: {{ coverage.details.final_chunk_words }} words
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
 {# ── Chunk editor form ── #}
 {# action is set dynamically by JS when either button is clicked #}
 <form id="preview-form" method="POST"
@@ -275,8 +364,7 @@
       <strong id="final-chunk-count">{{ chunks | length }}</strong> chunks ready
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
-      <a href="{{ url_for('documents.library', client=doc.client_id) }}"
-         class="btn btn-secondary">Discard</a>
+      <button type="button" class="btn btn-secondary" onclick="confirmDiscard()">Discard</button>
 
       {# Save Draft — writes edits to DB, no Pinecone #}
       <button type="button" class="btn btn-secondary" id="draft-btn"
@@ -300,6 +388,15 @@
       </button>
     </div>
   </div>
+</form>
+
+{# Hidden delete form — outside the preview-form to avoid nested-form issues #}
+<form id="discard-form" method="POST"
+      action="{{ url_for('documents.delete', doc_id=doc.id) }}"
+      style="display:none;">
+  {% if from_vessel %}
+  <input type="hidden" name="from_vessel" value="{{ from_vessel }}">
+  {% endif %}
 </form>
 
 <script>
@@ -404,6 +501,13 @@
     list.appendChild(card);
     card.querySelector('textarea').focus();
     updateChunkCount();
+  }
+
+  // ── Discard (delete draft) ────────────────────────────────────────────────
+  function confirmDiscard() {
+    if (confirm('Delete this draft and all its chunks? This cannot be undone.')) {
+      document.getElementById('discard-form').submit();
+    }
   }
 
   // ── Submit as draft or publish ────────────────────────────────────────────

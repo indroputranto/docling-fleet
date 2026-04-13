@@ -219,6 +219,13 @@ class Document(db.Model):
                              default=lambda: datetime.now(timezone.utc))
     activated_at = db.Column(db.DateTime,    nullable=True)    # when sent to Pinecone
 
+    # Post-extraction coverage check results.
+    # coverage_pct:   0-100 headline score (NULL = check not run / skipped).
+    # coverage_notes: JSON string produced by documents/coverage.py with full
+    #                 details (issues, warnings, missed headings, word counts).
+    coverage_pct   = db.Column(db.Integer, nullable=True)
+    coverage_notes = db.Column(db.Text,    nullable=True)
+
     chunks = db.relationship(
         "DocumentChunk",
         backref="document",

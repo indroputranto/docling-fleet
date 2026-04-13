@@ -441,38 +441,7 @@ A single "ops" Droplet that the platform operator (you) manages. It is not clien
 
 The ops Droplet polls the Digital Ocean API and each client's `/health` endpoint. It does not have access to any client data or API keys.
 
-### 8.3 Network Diagram (3 Active Clients)
-
-```
-                        Internet
-                            │
-                    ┌───────▼────────┐
-                    │   DNS / nginx  │
-                    │  (wildcard     │
-                    │ *.platform.com)│
-                    └──┬──────┬──┬───┘
-                       │      │  │
-          ┌────────────▼─┐  ┌─▼──────────┐  ┌─▼──────────────┐
-          │  Droplet A   │  │  Droplet B  │  │   Droplet C    │
-          │  acme.p.com  │  │  bcl.p.com  │  │  delta.p.com   │
-          │  Flask app   │  │  Flask app  │  │  Flask app     │
-          │  PostgreSQL  │  │  PostgreSQL │  │  PostgreSQL    │
-          └──────┬───────┘  └──────┬──────┘  └───────┬────────┘
-                 │                 │                   │
-          ┌──────▼──────┐   ┌──────▼──────┐   ┌───────▼───────┐
-          │ Pinecone    │   │ Pinecone    │   │ Pinecone      │
-          │ Index: acme │   │ Index: bcl  │   │ Index: delta  │
-          └─────────────┘   └─────────────┘   └───────────────┘
-
-                    ┌──────────────────────┐
-                    │   Ops Droplet        │
-                    │   Monitoring dash    │
-                    │   Provisioning tools │
-                    │   Client registry    │
-                    └──────────────────────┘
-```
-
-### 8.4 Phase 3B — Automated Provisioning
+### 8.3 Phase 3B — Automated Provisioning
 
 When the CMS operator clicks "Provision" for a new client, a script runs that:
 

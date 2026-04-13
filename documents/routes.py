@@ -262,6 +262,11 @@ def upload():
             flash(f"'{filename}' skipped — no text found (scanned image PDF?).", "error")
             continue
 
+        # ── Snapshot raw chunks before enrichment (for coverage check) ─────────
+        # We capture a shallow copy of the list at this point so the coverage
+        # module can compare pre-enrichment word counts against the final output.
+        raw_chunks_snapshot = [{"body": c.get("body", "")} for c in raw_chunks]
+
         # ── AI enrichment pass ───────────────────────────────────────────────
         # Sends baseline chunks to gpt-4o-mini for title assignment and
         # clause-level splitting. Skipped when skip_enrichment=True (e.g.
@@ -286,6 +291,62 @@ def upload():
             )
         # ────────────────────────────────────────────────────────────────────
 
+        # ── Section title prefix ──────────────────────────────────────────────
+        # When a document is uploaded to a named Dossier section (anything
+        # except the top-level full_document package), prepend the section's
+        # display label to every chunk title so retrieval context is always
+        # explicit — e.g. "Addendum - Owners Information Request".
+        # We prefer the client's custom label (DossierSectionConfig) over the
+        # built-in default, so the prefix matches what the user sees in the UI.
+        if document_category and document_category != FULL_DOCUMENT_CATEGORY:
+            section_label = next(
+                (lbl for slug, lbl in DOCUMENT_SECTIONS if slug == document_category),
+                None,
+            )
+            if section_label:
+                try:
+                    from models import DossierSectionConfig
+                    cfg = DossierSectionConfig.query.filter_by(
+                        client_id=client_id, slug=document_category
+                    ).first()
+                    if cfg and cfg.label and cfg.label.strip():
+                        section_label = cfg.label.strip()
+                except Exception:
+                    pass  # fall back to the built-in default
+
+            if section_label:
+                prefix = f"{section_label} - "
+                for chunk in raw_chunks:
+                    title = (chunk.get("title") or "").strip()
+                    if title and not title.startswith(prefix):
+                        chunk["title"] = prefix + title
+                logger.info(
+                    f"[documents] Applied section prefix '{section_label}' "
+                    f"to {len(raw_chunks)} chunk(s) of '{filename}'"
+                )
+        # ─────────────────────────────────────────────────────────────────────
+
+        # ── Coverage check ────────────────────────────────────────────────────
+        # Compare the source document against the final chunks to detect
+        # silent content loss in the extraction or enrichment steps.
+        coverage_pct   = None
+        coverage_notes = None
+        try:
+            from documents.coverage import run_coverage_check
+            import json as _json
+            file.stream.seek(0)
+            cov = run_coverage_check(
+                file_stream=file.stream,
+                filename=filename,
+                raw_chunks_before_enrichment=raw_chunks_snapshot,
+                final_chunks=raw_chunks,
+            )
+            coverage_pct   = cov.get("coverage_pct")
+            coverage_notes = _json.dumps(cov)
+        except Exception as ce:
+            logger.warning(f"[documents] Coverage check failed for '{filename}': {ce}")
+        # ─────────────────────────────────────────────────────────────────────
+
         doc = Document(
             client_id=client_id,
             filename=filename,
@@ -296,6 +357,8 @@ def upload():
             vessel_id=int(vessel_id) if vessel_id else None,
             group_name=group_name,
             document_category=document_category,
+            coverage_pct=coverage_pct,
+            coverage_notes=coverage_notes,
         )
         db.session.add(doc)
         db.session.flush()
@@ -368,7 +431,23 @@ def preview(doc_id: int):
     total       = int(request.args.get("total", 1))
     queue_ids   = [i for i in queue.split(",") if i.strip().isdigit()]
     file_index  = total - len(queue_ids)   # e.g. total=3, 1 remaining → index=2
-    from_vessel = request.args.get("from_vessel", "").strip() or None
+
+    # from_vessel drives the Back button and post-save redirect.
+    # Prefer the explicit query param; fall back to the document's own vessel_id
+    # so navigation stays consistent even after a page refresh.
+    from_vessel = (
+        request.args.get("from_vessel", "").strip()
+        or (str(doc.vessel_id) if doc.vessel_id else None)
+    )
+
+    # Parse stored coverage notes for the preview banner
+    import json as _json
+    coverage = None
+    if doc.coverage_notes:
+        try:
+            coverage = _json.loads(doc.coverage_notes)
+        except Exception:
+            pass
 
     return render_template(
         "documents/preview.html",
@@ -378,6 +457,7 @@ def preview(doc_id: int):
         total=total,
         file_index=file_index,
         from_vessel=from_vessel,
+        coverage=coverage,
     )
 
 
@@ -685,12 +765,21 @@ def delete(doc_id: int):
                 "error",
             )
 
-    filename = doc.filename
+    filename    = doc.filename
+    vessel_id   = doc.vessel_id  # capture before delete
+    from_vessel = request.form.get("from_vessel", "").strip() or None
+
     db.session.delete(doc)
     db.session.commit()
 
     logger.info(f"[documents] Deleted doc {doc_id} '{filename}' for client '{client_id_for_redirect}'")
     flash(f"'{filename}' has been deleted.", "success")
+
+    # Return to the Vessel Dossier when the delete was triggered from there,
+    # falling back to the document's own vessel_id, then the library.
+    redirect_vessel = from_vessel or (str(vessel_id) if vessel_id else None)
+    if redirect_vessel:
+        return redirect(url_for("documents.vessel_dossier", vessel_id=redirect_vessel))
     return redirect(url_for("documents.library", client=client_id_for_redirect))
 
 # ─────────────────────────────────────────────────────────────────────────────

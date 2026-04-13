@@ -79,6 +79,11 @@ or sub-points that only make sense as a group.
 6. Return your answer as a JSON object with a single key "chunks" whose value is an array of objects, \
 each with "title" (string) and "content" (string) fields. \
 No explanation, no commentary, no markdown — pure JSON only.
+7. CRITICAL — STRIKETHROUGH MARKERS: Text wrapped in ~~double tildes~~ (e.g. ~~deleted clause~~) \
+represents struck-out or deleted text in a negotiated contract. These markers carry legal significance \
+and MUST be reproduced exactly as-is in your output. Never remove, summarise, or alter text inside \
+~~…~~ markers. A chunk whose entire body is struck through must still appear in full with every \
+~~…~~ wrapper intact.
 
 Example output shape:
 {"chunks": [{"title": "Vessel Name and Type", "content": "..."}, ...]}
@@ -235,6 +240,20 @@ def enrich_chunks(
             logger.warning(
                 f"[enrichment] Empty or unparseable response for '{filename}' — "
                 f"falling back to raw chunks"
+            )
+            return raw_chunks
+
+        # Safety check: if the model dropped more than 30% of the source words
+        # (common when it incorrectly strips ~~strikethrough~~ content), fall back
+        # to raw chunks so no legal text is silently lost.
+        raw_words      = sum(len(c["body"].split()) for c in raw_chunks)
+        enriched_words = sum(len(c["body"].split()) for c in enriched)
+        if raw_words > 0 and enriched_words < raw_words * 0.70:
+            logger.warning(
+                f"[enrichment] '{filename}': word count dropped "
+                f"{enriched_words / raw_words:.0%} "
+                f"({raw_words} → {enriched_words} words) — "
+                f"falling back to raw chunks to preserve content"
             )
             return raw_chunks
 

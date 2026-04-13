@@ -17,8 +17,12 @@
   /* ── Vessel header card ── */
   .vessel-header-card {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 20px 24px;
-    display: flex; align-items: center; gap: 20px;
+    border-radius: var(--radius); overflow: hidden;
+    transition: border-color .15s;
+  }
+  .vessel-header-card.edit-open { border-color: #58a6ff; }
+  .vessel-header-summary {
+    padding: 20px 24px; display: flex; align-items: center; gap: 20px;
   }
   .vessel-avatar {
     width: 48px; height: 48px; border-radius: 10px;
@@ -35,6 +39,38 @@
     border: 1px solid var(--border);
   }
   [data-theme="light"] .vessel-chip { background: rgba(0,0,0,.04); }
+
+  /* ── Inline vessel edit panel ── */
+  .vessel-edit-panel {
+    display: none; border-top: 1px solid var(--border);
+    padding: 22px 24px; display: none; flex-direction: column;
+  }
+  .vessel-edit-panel.open { display: flex; }
+  .edit-section-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--muted);
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+  }
+  .edit-field-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+  }
+  .edit-field-grid .full { grid-column: 1 / -1; }
+  .edit-input {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 11px;
+    color: var(--text); font-family: inherit; font-size: 13px;
+    width: 100%; outline: none; transition: border-color .15s;
+  }
+  .edit-input:focus { border-color: #58a6ff; }
+  .vessel-edit-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .edit-save-status {
+    font-size: 12px; color: #3fb950; opacity: 0; transition: opacity .3s;
+  }
+  .edit-save-status.show { opacity: 1; }
 
   /* ── Progress header ── */
   .dossier-progress-bar {
@@ -86,7 +122,7 @@
     border: 2px solid var(--border); background: transparent;
     transition: border-color .2s, background .2s;
   }
-  .status-circle.verified  { background: #238636; border-color: #238636; }
+  .status-circle.verified  { background: #3fb950; border-color: #3fb950; }
   .status-circle.in_progress { border-color: #e3b341; }
   .status-circle.not_started  { border-color: rgba(255,255,255,.2); }
   [data-theme="light"] .status-circle.not_started { border-color: rgba(0,0,0,.18); }
@@ -140,6 +176,7 @@
   .doc-icon { color: var(--muted); flex-shrink: 0; }
   .doc-filename { flex: 1; font-weight: 500; word-break: break-all; }
   .doc-chunks { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .doc-date   { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
   /* Drop zone */
   .section-dropzone-wrap { padding: 16px 20px; }
@@ -194,6 +231,7 @@
   .full-doc-row:last-child { border-bottom: none; }
   .full-doc-filename { flex: 1; font-weight: 500; word-break: break-all; }
   .full-doc-chunks  { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .full-doc-date    { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
   /* Toggle switch for skip enrichment */
   .toggle-row {
@@ -229,25 +267,122 @@
 <div class="dossier-wrap">
 
   {# ── Vessel header ── #}
-  <div class="vessel-header-card">
-    <div class="vessel-avatar">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-        <polyline points="9 22 9 12 15 12 15 22"/>
-      </svg>
-    </div>
-    <div class="vessel-meta">
-      <h2>{{ vessel.name }}</h2>
-      <p>{{ vessel.vessel_type or 'Vessel type not set' }}{% if vessel.imo_number %} · IMO {{ vessel.imo_number }}{% endif %}{% if vessel.flag_state %} · {{ vessel.flag_state }}{% endif %}</p>
-      <div class="vessel-meta-chips">
-        {% if vessel.year_built %}<span class="vessel-chip">Built {{ vessel.year_built }}</span>{% endif %}
-        {% if vessel.gross_tonnage %}<span class="vessel-chip">GT {{ vessel.gross_tonnage }}</span>{% endif %}
-        {% if vessel.dwat %}<span class="vessel-chip">DWT {{ vessel.dwat }}</span>{% endif %}
-        {% if vessel.loa %}<span class="vessel-chip">LOA {{ vessel.loa }} m</span>{% endif %}
+  <div class="vessel-header-card" id="vesselHeaderCard">
+
+    {# Summary row — always visible #}
+    <div class="vessel-header-summary">
+      <div class="vessel-avatar">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
       </div>
+      <div class="vessel-meta">
+        <h2 id="vh-name">{{ vessel.name }}</h2>
+        <p id="vh-subtitle">{{ vessel.vessel_type or 'Vessel type not set' }}{% if vessel.imo_number %} · IMO {{ vessel.imo_number }}{% endif %}{% if vessel.flag_state %} · {{ vessel.flag_state }}{% endif %}</p>
+        <div class="vessel-meta-chips" id="vh-chips">
+          {% if vessel.year_built %}<span class="vessel-chip">Built {{ vessel.year_built }}</span>{% endif %}
+          {% if vessel.gross_tonnage %}<span class="vessel-chip">GT {{ vessel.gross_tonnage }}</span>{% endif %}
+          {% if vessel.dwat %}<span class="vessel-chip">DWT {{ vessel.dwat }}</span>{% endif %}
+          {% if vessel.loa %}<span class="vessel-chip">LOA {{ vessel.loa }} m</span>{% endif %}
+        </div>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="editVesselBtn" onclick="toggleVesselEdit()">
+        Edit Vessel
+      </button>
     </div>
-    <a href="{{ url_for('cms.vessel_library') }}" class="btn btn-secondary btn-sm">Edit Vessel</a>
-  </div>
+
+    {# Inline edit panel — expands below the summary row #}
+    <div class="vessel-edit-panel" id="vesselEditPanel">
+
+      {# Identity #}
+      <div>
+        <div class="edit-field-grid">
+          <div class="form-group full">
+            <label>Vessel Name</label>
+            <input class="edit-input" id="ef_name" type="text"
+                   value="{{ vessel.name }}" placeholder="e.g. MV ADRIATIC" />
+          </div>
+          <div class="form-group">
+            <label>IMO Number</label>
+            <input class="edit-input" id="ef_imo_number" type="text"
+                   value="{{ vessel.imo_number or '' }}" placeholder="9944871" />
+          </div>
+          <div class="form-group">
+            <label>Call Sign</label>
+            <input class="edit-input" id="ef_call_sign" type="text"
+                   value="{{ vessel.call_sign or '' }}" placeholder="PEVT" />
+          </div>
+          <div class="form-group">
+            <label>Flag State</label>
+            <input class="edit-input" id="ef_flag_state" type="text"
+                   value="{{ vessel.flag_state or '' }}" placeholder="Netherlands" />
+          </div>
+          <div class="form-group">
+            <label>Port of Registry</label>
+            <input class="edit-input" id="ef_port_of_registry" type="text"
+                   value="{{ vessel.port_of_registry or '' }}" placeholder="Urk" />
+          </div>
+          <div class="form-group full">
+            <label>Vessel Type</label>
+            <select class="edit-input" id="ef_vessel_type">
+              <option value="">— select —</option>
+              {% for vt in ['MPP', 'Bulk Carrier', 'General Cargo', 'Container', 'Tanker', 'RoRo', 'Feeder', 'Other'] %}
+              <option value="{{ vt }}" {% if vessel.vessel_type == vt %}selected{% endif %}>{{ vt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {# Key Specs #}
+      <div>
+        <div class="edit-field-grid">
+          <div class="form-group">
+            <label>Year Built</label>
+            <input class="edit-input" id="ef_year_built" type="text"
+                   value="{{ vessel.year_built or '' }}" placeholder="2022" />
+          </div>
+          <div class="form-group">
+            <label>LOA (m)</label>
+            <input class="edit-input" id="ef_loa" type="text"
+                   value="{{ vessel.loa or '' }}" placeholder="107.88" />
+          </div>
+          <div class="form-group">
+            <label>Gross Tonnage</label>
+            <input class="edit-input" id="ef_gross_tonnage" type="text"
+                   value="{{ vessel.gross_tonnage or '' }}" placeholder="3636" />
+          </div>
+          <div class="form-group">
+            <label>DWAT</label>
+            <input class="edit-input" id="ef_dwat" type="text"
+                   value="{{ vessel.dwat or '' }}" placeholder="4540 mt" />
+          </div>
+          <div class="form-group full">
+            <label>Notes</label>
+            <textarea class="edit-input" id="ef_notes" rows="3"
+                      placeholder="Additional notes…"
+                      style="min-height:72px; resize:vertical;">{{ vessel.notes or '' }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      {# Footer actions #}
+      <div class="vessel-edit-footer">
+        <form method="POST" action="{{ url_for('cms.vessel_delete', vessel_id=vessel.id) }}"
+              onsubmit="return confirm('Remove this vessel from the library? Associated documents will not be deleted.');"
+              style="margin:0;">
+          <button type="submit" class="btn btn-danger btn-sm">Delete Vessel</button>
+        </form>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span class="edit-save-status" id="editSaveStatus">✓ Saved</span>
+          <button class="btn btn-secondary btn-sm" onclick="toggleVesselEdit()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveVesselDossier()">Save Changes</button>
+        </div>
+      </div>
+
+    </div>{# /vessel-edit-panel #}
+  </div>{# /vessel-header-card #}
 
   {# ── Progress bar ── #}
   <div class="dossier-progress-bar">
@@ -316,6 +451,7 @@
         </svg>
         <span class="full-doc-filename">{{ doc.filename }}</span>
         <span class="full-doc-chunks">{{ doc.chunk_count }} chunk{{ 's' if doc.chunk_count != 1 }}</span>
+        <span class="full-doc-date">{{ doc.uploaded_at.strftime('%d %b %Y') }}</span>
         {% if doc.status == 'active' %}
           <span class="badge badge-green">Live</span>
         {% elif doc.status == 'draft' %}
@@ -446,6 +582,7 @@
             </svg>
             <span class="doc-filename">{{ doc.filename }}</span>
             <span class="doc-chunks">{{ doc.chunk_count }} chunk{{ 's' if doc.chunk_count != 1 }}</span>
+            <span class="doc-date">{{ doc.uploaded_at.strftime('%d %b %Y') }}</span>
             {% if doc.status == 'active' %}
               <span class="badge badge-green">Live</span>
             {% elif doc.status == 'draft' %}
@@ -537,6 +674,62 @@ function dzOver(e, key) {
 function dzLeave(e, key) {
   document.getElementById('dz-' + key).classList.remove('drag-over');
 }
+// ── Inline vessel edit ────────────────────────────────────────────────────────
+function toggleVesselEdit() {
+  const panel  = document.getElementById('vesselEditPanel');
+  const card   = document.getElementById('vesselHeaderCard');
+  const btn    = document.getElementById('editVesselBtn');
+  const isOpen = panel.classList.contains('open');
+  panel.classList.toggle('open', !isOpen);
+  card.classList.toggle('edit-open', !isOpen);
+  btn.textContent = isOpen ? 'Edit Vessel' : 'Cancel';
+}
+
+async function saveVesselDossier() {
+  const fields = ['name','imo_number','call_sign','flag_state','port_of_registry',
+                   'vessel_type','year_built','gross_tonnage','dwat','loa','notes'];
+  const body = {};
+  fields.forEach(f => {
+    const el = document.getElementById('ef_' + f);
+    if (el) body[f] = el.value;
+  });
+
+  const res  = await fetch(`/cms/vessels/{{ vessel.id }}/edit`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  });
+  const data = await res.json();
+
+  if (data.ok) {
+    const v = data.vessel;
+
+    // Update summary header live
+    document.getElementById('vh-name').textContent = v.name || '';
+
+    const subtitleParts = [
+      v.vessel_type || 'Vessel type not set',
+      v.imo_number ? `IMO ${v.imo_number}` : null,
+      v.flag_state || null,
+    ].filter(Boolean);
+    document.getElementById('vh-subtitle').textContent = subtitleParts.join(' · ');
+
+    const chips = document.getElementById('vh-chips');
+    chips.innerHTML = '';
+    if (v.year_built)    chips.innerHTML += `<span class="vessel-chip">Built ${v.year_built}</span>`;
+    if (v.gross_tonnage) chips.innerHTML += `<span class="vessel-chip">GT ${v.gross_tonnage}</span>`;
+    if (v.dwat)          chips.innerHTML += `<span class="vessel-chip">DWT ${v.dwat}</span>`;
+    if (v.loa)           chips.innerHTML += `<span class="vessel-chip">LOA ${v.loa} m</span>`;
+
+    // Flash confirmation
+    const status = document.getElementById('editSaveStatus');
+    status.classList.add('show');
+    setTimeout(() => status.classList.remove('show'), 2500);
+  } else {
+    alert('Save failed — please try again.');
+  }
+}
+
 function dzDrop(e, key) {
   e.preventDefault();
   document.getElementById('dz-' + key).classList.remove('drag-over');

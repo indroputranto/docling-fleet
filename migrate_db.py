@@ -214,6 +214,14 @@ def run():
         )
         print("  [+] dossier_section_configs table created")
 
+    # ── documents: coverage columns ───────────────────────────────────────────
+    for col, typedef in [("coverage_pct", "INTEGER"), ("coverage_notes", "TEXT")]:
+        if col_exists(cur, "documents", col):
+            print(f"  [skip] documents.{col} already exists")
+        else:
+            cur.execute(f"ALTER TABLE documents ADD COLUMN {col} {typedef}")
+            print(f"  [+] documents.{col} ({typedef})")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

@@ -27,7 +27,10 @@ from typing import IO, List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-MAX_CHUNK_WORDS = 600   # soft word limit per chunk before splitting
+MAX_CHUNK_WORDS = 1500  # soft word limit per chunk before splitting
+                        # Raised from 600: charter-party clauses can be 800–1200 words
+                        # and must stay unified for quality Pinecone indexing.
+                        # 1500 words ≈ ~2000 tokens, well within ada-002's 8191-token limit.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -58,16 +61,50 @@ def _clean_pdf_text(text: str) -> str:
     """
     Repair encoding artifacts from PDFs with broken ToUnicode CMap entries.
 
-    Two-pass strategy:
+    Three-pass strategy:
       1. NFKC normalization — decomposes standard Unicode ligatures
          (ﬁ→fi, ﬂ→fl, ﬀ→ff, ﬃ→ffi, ﬄ→ffl, ﬅ/ﬆ→st) into ASCII pairs.
       2. Character substitution — corrects BIMCO SmartCon font mis-encodings
          where ligature glyphs are mapped to wrong Latin Extended codepoints.
+      3. Ligature space-join — fixes cases where PyMuPDF renders a ligature
+         glyph as two separate span fragments with a space between them.
+         Observed in BIMCO SmartCon PDFs:
+           "Dura ti on"  → "Duration"
+           "condi ti on" → "condition"
+           "par ti es"   → "parties"
+           "cer ti fy"   → "certify"
+           "no ti ce"    → "notice"
+           "addi ti onal"→ "additional"
+         Also handles "ft" and "tt" ligature splits ("draf t ing" → "drafting").
     """
     # Pass 1: standard Unicode ligatures (U+FB00–U+FB06)
     text = unicodedata.normalize('NFKC', text)
     # Pass 2: BIMCO-specific wrong-codepoint mappings
-    return text.translate(_PDF_TRANSLATE_TABLE)
+    text = text.translate(_PDF_TRANSLATE_TABLE)
+    # Pass 3a: join word fragments split by a FLOATING ligature substring
+    # Handles ligature as middle fragment:  "no ti ce" → "notice"
+    # Also handles ligature as a standalone word at token start:
+    #   "  ti me" → "time",  "fi nal" → "final"
+    text = re.sub(r'(\w) (ti|ft|tt|ffi|ffl|fi|fl) (\w)', r'\1\2\3', text)
+    # Standalone ligature fragment followed by a word (word-boundary anchor)
+    text = re.sub(r'\b(ti|tt|ffi|ffl)\s+([a-z])', r'\1\2', text)
+
+    # Pass 3b: join PREFIX + merged-suffix splits where fitz absorbed the
+    # ligature into the suffix but left a space before it.
+    # e.g. "Dura tion" → "Duration", "Instruc tions" → "Instructions",
+    #      "Communica tions" → "Communications", "obliga tion" → "obligation"
+    # The suffix list covers the most common 'ti'-ligature-affected endings.
+    _TI_SUFFIXES = (
+        r"tions?|tives?|tively|tings?|tional|tionally|"
+        r"tified|tifying|tifiable|tification|tifications|"
+        r"tities|tity|tion\b"
+    )
+    text = re.sub(
+        rf'([A-Za-z]{{2,}}) ({_TI_SUFFIXES})',
+        lambda m: m.group(1) + m.group(2),
+        text,
+    )
+    return text
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,6 +132,56 @@ _CLAUSE_RE = re.compile(
 
 def _is_clause_header(text: str) -> bool:
     return bool(_CLAUSE_RE.match(text.strip()))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DOCX run-level formatting — strikethrough preservation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _paragraph_text_with_strikethrough(para) -> str:
+    """
+    Return the text of a python-docx Paragraph with strikethrough runs
+    wrapped in ~~double-tilde~~ markdown notation.
+
+    Checks both <w:strike> (single) and <w:dstrike> (double) elements on each
+    run's rPr, matching the behaviour of process_vessel_new.py.  Plain runs
+    are returned as-is so the result is drop-in compatible with para.text.
+    """
+    W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+    result_parts: List[str] = []
+    strike_buf:   List[str] = []
+    in_strike = False
+
+    for run in para.runs:
+        text = run.text
+        if not text:
+            continue
+
+        is_struck = False
+        rPr = getattr(run._element, "rPr", None)
+        if rPr is not None:
+            is_struck = (
+                rPr.find(f"{{{W_NS}}}strike")  is not None or
+                rPr.find(f"{{{W_NS}}}dstrike") is not None
+            )
+
+        if is_struck:
+            if not in_strike:
+                in_strike = True
+            strike_buf.append(text)
+        else:
+            if in_strike:
+                result_parts.append(f"~~{''.join(strike_buf)}~~")
+                strike_buf = []
+                in_strike = False
+            result_parts.append(text)
+
+    # Flush any trailing strikethrough
+    if strike_buf:
+        result_parts.append(f"~~{''.join(strike_buf)}~~")
+
+    return "".join(result_parts)
 
 
 def _is_docx_subsection_label(text: str) -> bool:
@@ -191,36 +278,51 @@ def extract_docx(file_obj: IO[bytes]) -> List[Dict]:
         tag = block.tag.split("}")[-1]  # "p" or "tbl"
 
         if tag == "p":
-            from docx.oxml.ns import qn
             from docx.text.paragraph import Paragraph
             para = Paragraph(block, doc)
-            text = para.text.strip()
+            # Use run-level extraction to preserve ~~strikethrough~~ markers.
+            # Fall back to para.text for paragraphs without run structure.
+            rich_text = _paragraph_text_with_strikethrough(para)
+            text = rich_text.strip()
             if not text:
                 continue
 
+            # For heading detection, compare against plain text (no ~~ noise)
+            plain_text = para.text.strip()
             style_name = (para.style.name or "").lower()
             is_heading = (
                 "heading" in style_name
-                or _is_clause_header(text)
-                or _is_docx_subsection_label(text)
+                or _is_clause_header(plain_text)
+                or _is_docx_subsection_label(plain_text)
             )
 
             if is_heading:
                 _flush()
-                current_title = text
+                # Headings are stored as plain text — strike markers on a
+                # heading title would be confusing and hurt AI enrichment.
+                current_title = plain_text
                 current_lines = []
             else:
                 current_lines.append(text)
 
         elif tag == "tbl":
-            # Extract table as markdown-ish text
+            # Extract table cells preserving strikethrough formatting
             from docx.table import Table
             try:
                 tbl = Table(block, doc)
                 rows = []
                 for row in tbl.rows:
-                    cells = [c.text.strip() for c in row.cells]
-                    rows.append(" | ".join(cells))
+                    cells = []
+                    for cell in row.cells:
+                        # Join paragraphs within each cell, preserving strike
+                        cell_text = " ".join(
+                            _paragraph_text_with_strikethrough(p).strip()
+                            for p in cell.paragraphs
+                            if p.text.strip()
+                        )
+                        cells.append(cell_text)
+                    if any(cells):
+                        rows.append(" | ".join(cells))
                 if rows:
                     current_lines.append("\n".join(rows))
             except Exception:
@@ -360,6 +462,17 @@ def _detect_column_split(elements: List[Dict], page_width: float) -> Optional[fl
     return None
 
 
+def _clause_number(text: str) -> Optional[int]:
+    """
+    If `text` is a numbered clause header like "14. Hire Payment" or
+    "14 — Hire Payment", return the clause number as an int.
+    Returns None for non-numbered headers (PART II, ANNEX A, bold section
+    labels, etc.) so those can always create a new chunk.
+    """
+    m = re.match(r"^\s*(\d{1,3})\s*[.\-—]", text.strip())
+    return int(m.group(1)) if m else None
+
+
 def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
     """
     Convert a list of positioned text elements into {title, body} chunks.
@@ -376,6 +489,11 @@ def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
              letter  →  header (handles OCEAN7-style spec sheets)
            - Max font size ≥ body_size * 1.12  →  header (font-size-based)
            - Line matches clause regex  →  header (BIMCO/contract PDFs)
+           - Monotonic clause guard: if a numbered clause header has a number
+             LOWER than the highest clause number seen so far, it is a list
+             item within the current clause body, not a new top-level clause.
+             e.g. "2. the Vessel shall..." appearing inside clause 9 is a list
+             item, not the re-appearance of clause 2.
       5. Flush completed chunks, filter junk bodies.
     """
     from collections import Counter
@@ -413,6 +531,7 @@ def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
     chunks: List[Dict] = []
     current_title: Optional[str] = None
     current_lines: List[str] = []
+    max_clause_seen: int = 0   # monotonic guard for numbered clauses
 
     def _flush_col():
         body = "\n".join(current_lines).strip()
@@ -433,6 +552,18 @@ def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
             or max_size >= header_threshold
             or _is_clause_header(txt)
         )
+
+        # Monotonic clause guard: reject numbered headers whose number is
+        # lower than the highest clause number seen so far — they are list
+        # items inside the current clause, not new top-level clauses.
+        if is_header and _is_clause_header(txt):
+            num = _clause_number(txt)
+            if num is not None:
+                if num <= max_clause_seen:
+                    # Back-reference: treat as body text, not a new header
+                    is_header = False
+                else:
+                    max_clause_seen = num
 
         if is_header:
             _flush_col()
@@ -470,26 +601,90 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
     - Filter out tiny text (< 7pt) which is typically cargo diagram labels or
       other graphical annotation noise.
     - For each page, use bin-density analysis to detect two-column layouts.
-      If a column gap is found, split elements into left and right columns and
-      process each independently so that row-order within each column is
-      preserved correctly.
-    - Within each column (or full-page for single-column layouts), group
-      co-baseline elements into visual rows, then apply bold/size/clause-regex
-      header detection to build {title, body} chunks.
-    - Suitable for both vessel spec sheets (bold section labels, same font
-      size) and charter party contracts (numbered clauses, larger headers).
+    - CRITICAL — cross-page clause joining: elements are accumulated across
+      ALL pages with a global y-offset rather than being chunked per-page.
+      This ensures that clause bodies which span multiple pages are kept
+      together under their heading and not split into titleless orphan chunks.
+      (e.g. NYPE 2015 clause 1 "Duration/Trip Description" has its header on
+      page 1 and body text that continues onto page 2.)
+    - Two-column pages are handled by placing the left column's elements before
+      the right column's elements in global y-order (right column base offset =
+      y_global + page_height), so column reading order is preserved globally.
+    - A single `_column_to_chunks` call processes all pages' elements as one
+      continuous document, maintaining header context across page boundaries.
     """
     import fitz
 
     MIN_FONT = 7.0   # pt — skip cargo diagram / slot-plan label text
 
-    all_chunks: List[Dict] = []
-    all_plain_lines: List[str] = []   # fallback accumulator
+    all_elements: List[Dict] = []   # global accumulator across all pages
+    all_plain_lines: List[str] = []  # fallback accumulator
 
     with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
+        y_global: float = 0.0   # running y-offset into global coordinate space
+
         for page in pdf:
-            page_width = page.rect.width
+            page_height = page.rect.height
+            page_width  = page.rect.width
             elements: List[Dict] = []
+
+            # ── Per-page strikethrough detection ──────────────────────────────
+            # PyMuPDF does not expose strikethrough as a span flag.  Instead,
+            # struck text is marked by a thin filled rectangle that passes
+            # through the MIDDLE of a text line (25–80 % of text height).
+            # Baseline underlines (≥ 80 %) and layout separator lines are excluded.
+            #
+            # Key insight: a real strikethrough band passes THROUGH text, so its
+            # y-midpoint falls inside a text span's [y0, y1] vertical range.
+            # Layout separators fall in whitespace BETWEEN paragraphs, so their
+            # y-midpoint does not coincide with any text span.
+            #
+            # First pass: collect every text span's vertical bounds on this page.
+            _span_ybounds: List[tuple] = []
+            for _blk in page.get_text("dict")["blocks"]:
+                if _blk.get("type") != 0:
+                    continue
+                for _ln in _blk.get("lines", []):
+                    for _sp in _ln.get("spans", []):
+                        _bb = _sp.get("bbox")
+                        if _bb and _bb[3] > _bb[1]:
+                            _span_ybounds.append((_bb[1], _bb[3]))
+
+            strike_bands: List[tuple] = []   # (x0, x1, y_mid)
+            for d in page.get_drawings():
+                r = d.get("rect")
+                if r is None:
+                    continue
+                band_h = r.y1 - r.y0
+                band_w = r.x1 - r.x0
+                # Must be a thin horizontal bar of meaningful width
+                if band_h > 3.0 or band_w < 10.0:
+                    continue
+                # Reject bands that don't pass through any text span's vertical
+                # range — those are layout separator lines, not strikethroughs.
+                by_mid = (r.y0 + r.y1) / 2
+                if not any(y0 <= by_mid <= y1 for y0, y1 in _span_ybounds):
+                    continue
+                strike_bands.append((r.x0, r.x1, by_mid))
+
+            def _span_is_struck(bbox) -> bool:
+                """True if any strike band passes through the middle of this span."""
+                sx0, sy0, sx1, sy1 = bbox
+                span_h = sy1 - sy0
+                if span_h <= 0:
+                    return False
+                for bx0, bx1, by_mid in strike_bands:
+                    # Horizontal overlap: band must cover at least half the span
+                    overlap_w = min(sx1, bx1) - max(sx0, bx0)
+                    if overlap_w < (sx1 - sx0) * 0.4:
+                        continue
+                    # Vertical position: band y must be in the middle 25–80% of
+                    # the text height (strikethrough zone, not baseline underline)
+                    rel = (by_mid - sy0) / span_h
+                    if 0.25 <= rel <= 0.80:
+                        return True
+                return False
+            # ──────────────────────────────────────────────────────────────────
 
             for block in page.get_text("dict")["blocks"]:
                 if block.get("type") != 0:   # skip image blocks
@@ -505,17 +700,40 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
                     if max_size < MIN_FONT:
                         continue
 
-                    combined = _clean_pdf_text(
-                        " ".join(s["text"] for s in text_spans)
-                    ).strip()
+                    # Build text with per-span strikethrough markers.
+                    # Consecutive struck spans are GROUPED before calling
+                    # _clean_pdf_text() so that ligature fragments like
+                    # "par" + "ti" + "es" are merged into "parties" inside a
+                    # single ~~…~~ block rather than ~~par~~ ~~ti~~ ~~es~~.
+                    parts: List[str] = []
+                    struck_buf: List[str] = []
+
+                    def _flush_struck() -> None:
+                        if not struck_buf:
+                            return
+                        merged = _clean_pdf_text(" ".join(struck_buf)).strip()
+                        if merged:
+                            parts.append(f"~~{merged}~~")
+                        struck_buf.clear()
+
+                    for s in text_spans:
+                        raw = s["text"]
+                        if not raw.strip():
+                            continue
+                        if _span_is_struck(s["bbox"]):
+                            struck_buf.append(raw)
+                        else:
+                            _flush_struck()
+                            parts.append(_clean_pdf_text(raw))
+                    _flush_struck()
+
+                    combined = " ".join(parts).strip()
                     if not combined:
                         continue
 
                     # Bold = flag bit 4 (value 16) set on ALL content spans
                     is_bold = all(bool(s["flags"] & 16) for s in text_spans)
-                    # x: leftmost edge of the line's bounding box
                     x_pos = min(s["bbox"][0] for s in text_spans)
-                    # y: top edge — consistent anchor for row grouping
                     y_pos = min(s["bbox"][1] for s in text_spans)
 
                     elements.append({
@@ -523,24 +741,46 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
                         "size": max_size,
                         "is_bold": is_bold,
                         "x": x_pos,
-                        "y": y_pos,
+                        "y": y_pos,   # page-local y; globalised below
                     })
                     all_plain_lines.append(combined)
 
             if not elements:
+                y_global += page_height + 100
                 continue
 
+            # Per-page column detection (layout may differ between pages)
             col_split = _detect_column_split(elements, page_width)
 
             if col_split is not None:
-                left_els  = [e for e in elements if e["x"] <  col_split]
-                right_els = [e for e in elements if e["x"] >= col_split]
-                if left_els:
-                    all_chunks.extend(_column_to_chunks(left_els))
-                if right_els:
-                    all_chunks.extend(_column_to_chunks(right_els))
+                # Two-column page: sort each column by (y, x), then
+                # place the entire left column before the right in global order.
+                left_els  = sorted(
+                    [e for e in elements if e["x"] <  col_split],
+                    key=lambda e: (e["y"], e["x"]),
+                )
+                right_els = sorted(
+                    [e for e in elements if e["x"] >= col_split],
+                    key=lambda e: (e["y"], e["x"]),
+                )
+                # Left column: y_global + local_y (naturally before right)
+                for e in left_els:
+                    all_elements.append({**e, "y": y_global + e["y"]})
+                # Right column: y_global + page_height + local_y
+                # (ensures right-col elements sort AFTER left-col elements)
+                right_base = y_global + page_height + 10
+                for e in right_els:
+                    all_elements.append({**e, "y": right_base + e["y"]})
             else:
-                all_chunks.extend(_column_to_chunks(elements))
+                # Single-column page: simply offset local y into global space
+                for e in elements:
+                    all_elements.append({**e, "y": y_global + e["y"]})
+
+            # Advance global offset past this page (+ small inter-page gap)
+            y_global += page_height * 2 + 200
+
+    # Single global pass — header context is maintained across page boundaries
+    all_chunks = _column_to_chunks(all_elements) if all_elements else []
 
     if not all_chunks:
         all_chunks = _fallback_fixed_chunks(all_plain_lines)
