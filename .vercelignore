@@ -33,19 +33,18 @@ setup_ssl.sh
 start_server.sh
 ngrok.yml
 
-# Legacy scripts (not imported by app.py)
-process_vessel*.py
-process_agency.py
+# Legacy scripts (embedding uploaders not needed at runtime)
 embedding_uploader*.py
 [BAK]process_vessel_new.py
 
-# Reports & analysis files
-*.md
-*.pdf
-*.docx
-*.xlsx
-*.yaml
-*.json
-vessel_*.json
+# Reports & analysis files (specific files only, not wildcards)
+CLAUSE_AUDIT_REPORT*.md
+strikethrough_analysis_report.md
+grand_plan.md
+README*.md
+CI_CD_SETUP.md
+LOGGING_README.md
+POWER_AUTOMATE_SETUP.md
+README_*.md
+vessel_analysis_results.json
 *_report*.txt
-*_results*.json
