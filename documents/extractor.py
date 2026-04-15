@@ -836,19 +836,128 @@ def _extract_pdf_pdfplumber(raw_bytes: bytes) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PDF extraction — raw mode (full-text, AI-first)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Document categories where heuristic font-based chunking causes more harm
+# than good.  For these, we extract the entire document as a single blob (or
+# one chunk per page for very long docs) and let the AI enrichment pass do all
+# the semantic splitting.  This is the right call when:
+#   - The PDF uses bold/larger text for data labels (e.g. "Flag", "GT/NT")
+#     rather than section headers, confusing the header detector.
+#   - The document is a fixture recap where numbered items like "1. Vessel /
+#     Owners" have dozens of sub-items that belong in the same chunk.
+#   - The document is a narrative addendum where every paragraph is connected.
+_RAW_EXTRACTION_CATEGORIES = {
+    "fixture_recap",
+    "addendum",
+    "delivery_details",
+    "vessel_specifications",
+    "vessel_owners_details",
+    "speed_consumption",
+}
+
+# Word count threshold below which the whole document is returned as ONE chunk
+# rather than split by page.  7-page fixture recaps are ~3 000 words — well
+# within gpt-4o-mini's 128k-token context.
+_RAW_SINGLE_CHUNK_THRESHOLD = 6_000  # words
+
+
+def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
+    """
+    Extract the full text of a PDF as one (or a few) large chunks using
+    pdfplumber, with minimal pre-processing.
+
+    Strategy:
+    - Extract text page-by-page using pdfplumber (handles both text-layer and
+      layout-preserved PDFs correctly).
+    - If the entire document is ≤ _RAW_SINGLE_CHUNK_THRESHOLD words, return it
+      as a single chunk so AI enrichment sees the whole document at once.
+    - Otherwise, group pages into ~_RAW_SINGLE_CHUNK_THRESHOLD-word batches.
+
+    This is intentionally dumb — no header detection, no font analysis.
+    All semantic splitting is delegated to the AI enrichment pass.
+    """
+    import io
+    import pdfplumber
+
+    page_texts: List[str] = []
+    with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                text = _clean_pdf_text(text).strip()
+                if text:
+                    page_texts.append(text)
+
+    if not page_texts:
+        return []
+
+    full_text = "\n\n".join(page_texts)
+    total_words = len(full_text.split())
+
+    if total_words <= _RAW_SINGLE_CHUNK_THRESHOLD:
+        # Small enough: one chunk, AI sees everything
+        return [{"title": None, "body": full_text}]
+
+    # Large doc: batch pages into word-budget groups
+    chunks: List[Dict] = []
+    batch_lines: List[str] = []
+    batch_words = 0
+
+    for page_text in page_texts:
+        page_words = len(page_text.split())
+        if batch_words + page_words > _RAW_SINGLE_CHUNK_THRESHOLD and batch_lines:
+            chunks.append({"title": None, "body": "\n\n".join(batch_lines)})
+            batch_lines = []
+            batch_words = 0
+        batch_lines.append(page_text)
+        batch_words += page_words
+
+    if batch_lines:
+        chunks.append({"title": None, "body": "\n\n".join(batch_lines)})
+
+    return chunks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF extraction — public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_pdf(file_obj: IO[bytes]) -> List[Dict]:
+def extract_pdf(file_obj: IO[bytes], document_category: Optional[str] = None) -> List[Dict]:
     """
     Extract chunks from a .pdf file.
 
-    Dispatch order:
+    When document_category is one of _RAW_EXTRACTION_CATEGORIES, uses
+    _extract_pdf_raw (full-text, minimal pre-chunking) so that AI enrichment
+    receives the complete document context and can split it correctly.
+
+    Otherwise dispatch order:
       1. PyMuPDF  — font-aware header detection (bold / larger text)
       2. pdfplumber — clause-regex only (if PyMuPDF not installed)
       3. Fixed-size word chunks (if neither library produces structure)
     """
     raw_bytes = file_obj.read()
+
+    # Use raw extraction for document types where font-heuristics misfire
+    if document_category in _RAW_EXTRACTION_CATEGORIES:
+        logger.info(
+            f"[extractor] Using raw (AI-first) PDF extraction "
+            f"for category '{document_category}'"
+        )
+        try:
+            chunks = _extract_pdf_raw(raw_bytes)
+            if chunks:
+                return chunks
+            logger.warning(
+                "[extractor] Raw extraction returned no content — "
+                "falling back to font-based extraction"
+            )
+        except ImportError:
+            logger.warning(
+                "[extractor] pdfplumber not available for raw extraction — "
+                "falling back to font-based extraction"
+            )
 
     try:
         chunks = _extract_pdf_fitz(raw_bytes)
@@ -932,9 +1041,22 @@ def extract_xlsx(file_obj: IO[bytes]) -> List[Dict]:
 # Public interface
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract(file_obj: IO[bytes], filename: str) -> List[Dict]:
+def extract(
+    file_obj: IO[bytes],
+    filename: str,
+    document_category: Optional[str] = None,
+) -> List[Dict]:
     """
     Route to the correct extractor based on file extension.
+
+    Args:
+        file_obj:           Readable binary stream of the uploaded file.
+        filename:           Original filename (used for extension detection).
+        document_category:  Dossier section slug (e.g. "fixture_recap").
+                            When provided, PDF extraction uses the appropriate
+                            strategy for that document type — raw full-text
+                            extraction for narrative/spec docs so that AI
+                            enrichment receives complete context.
 
     Returns:
         List of {"title": str|None, "body": str} dicts, ready for DB insertion.
@@ -943,12 +1065,14 @@ def extract(file_obj: IO[bytes], filename: str) -> List[Dict]:
         ImportError: missing optional dependency (pdfplumber)
     """
     ext = filename.rsplit(".", 1)[-1].lower()
-    logger.info(f"[extractor] Extracting {filename} (type={ext})")
+    logger.info(
+        f"[extractor] Extracting {filename} (type={ext}, category={document_category})"
+    )
 
     if ext == "docx":
         return extract_docx(file_obj)
     elif ext == "pdf":
-        return extract_pdf(file_obj)
+        return extract_pdf(file_obj, document_category=document_category)
     elif ext in ("xlsx", "xls"):
         return extract_xlsx(file_obj)
     else:

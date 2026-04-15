@@ -236,7 +236,7 @@ def replace(doc_id: int):
     # ── 3. Extract new file ───────────────────────────────────────────────────
     ext = filename.rsplit(".", 1)[1].lower()
     try:
-        raw_chunks = extract(file.stream, filename)
+        raw_chunks = extract(file.stream, filename, document_category=doc.document_category)
     except Exception as e:
         flash(f"Could not extract text from '{filename}': {e}", "error")
         db.session.rollback()
@@ -398,7 +398,7 @@ def upload():
         ext = filename.rsplit(".", 1)[1].lower()
 
         try:
-            raw_chunks = extract(file.stream, filename)
+            raw_chunks = extract(file.stream, filename, document_category=document_category)
         except Exception as e:
             flash(f"'{filename}' skipped — could not extract text: {e}", "error")
             logger.error(f"[documents] Extraction error for {filename}: {e}", exc_info=True)
