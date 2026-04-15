@@ -22,14 +22,17 @@ import time
 from contextlib import contextmanager
 
 # Set up root logger as early as possible
+# On Vercel the filesystem is read-only, so fall back to stdout-only logging
 log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flask.log")
+_log_handlers = [logging.StreamHandler(sys.stdout)]
+try:
+    _log_handlers.insert(0, logging.FileHandler(log_path))
+except OSError:
+    pass  # read-only filesystem (e.g. Vercel) — stdout only
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_path),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=_log_handlers,
 )
 
 def log_uncaught_exceptions(exctype, value, tb):
@@ -56,13 +59,15 @@ def setup_logging():
     if log_dir and not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
     
+    _handlers = [logging.StreamHandler()]
+    try:
+        _handlers.insert(0, logging.FileHandler("flask.log"))
+    except OSError:
+        pass  # read-only filesystem
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler("flask.log"),
-            logging.StreamHandler()
-        ]
+        handlers=_handlers,
     )
 
 setup_logging()
@@ -118,10 +123,14 @@ langdock_logger.propagate = False  # Prevent double logging
 # Remove all handlers if reloading
 if langdock_logger.hasHandlers():
     langdock_logger.handlers.clear()
-file_handler = logging.FileHandler(langdock_log_path)
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-langdock_logger.addHandler(file_handler)
+try:
+    _ld_file_handler = logging.FileHandler(langdock_log_path)
+    _ld_file_handler.setLevel(logging.INFO)
+    _ld_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    langdock_logger.addHandler(_ld_file_handler)
+except OSError:
+    # Read-only filesystem (e.g. Vercel) — fall back to root logger
+    langdock_logger.propagate = True
 langdock_logger.info("Langdock upload logger initialized.")
 
 def require_api_key(f):

@@ -1,0 +1,51 @@
+# Python environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local database — use DATABASE_URL env var (PostgreSQL) in production
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+
+# Secrets
+.env
+
+# Large binary/source folders not needed at runtime
+Backup/
+output/
+source/
+skills/
+skills-lock.json
+
+# Dev/test scripts
+test_*.py
+audit_*.py
+clear_embeddings.py
+migrate_db.py
+deploy.sh
+setup_ssl.sh
+start_server.sh
+ngrok.yml
+
+# Legacy scripts (not imported by app.py)
+process_vessel*.py
+process_agency.py
+embedding_uploader*.py
+[BAK]process_vessel_new.py
+
+# Reports & analysis files
+*.md
+*.pdf
+*.docx
+*.xlsx
+*.yaml
+*.json
+vessel_*.json
+*_report*.txt
+*_results*.json
