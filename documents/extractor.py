@@ -863,20 +863,75 @@ _RAW_EXTRACTION_CATEGORIES = {
 _RAW_SINGLE_CHUNK_THRESHOLD = 6_000  # words
 
 
+def _presplit_on_clauses(full_text: str) -> List[Dict]:
+    """
+    Split a large text blob on numbered top-level clause headers.
+
+    Matches lines like:
+        "1. Vessel / Owners"
+        "14. C/P Details"
+        "1.1 Owners confirm ..."   ← sub-clause: kept inside parent chunk
+
+    Only TOP-level integers (no dot after the digit group) trigger a new
+    chunk boundary, so sub-clauses like "1.1", "1.2" stay within their
+    parent section.
+
+    Returns a list of {"title": str | None, "body": str} dicts where each
+    dict corresponds to one numbered clause (or a preamble if text precedes
+    clause 1).  Chunks are further split at MAX_CHUNK_WORDS if a single
+    clause is very long.
+    """
+    # Matches "  1. " or "1. " at the start of a line — top-level only,
+    # NOT "1.1" (has a second digit group after the dot).
+    TOP_CLAUSE_RE = re.compile(
+        r"^(\d{1,2})\.\s+(.+)$",
+        re.MULTILINE,
+    )
+
+    lines = full_text.splitlines()
+    chunks: List[Dict] = []
+    current_title: Optional[str] = None
+    current_lines: List[str] = []
+
+    def _flush():
+        body = "\n".join(current_lines).strip()
+        if body:
+            chunks.append({"title": current_title, "body": body})
+
+    for line in lines:
+        stripped = line.strip()
+        m = TOP_CLAUSE_RE.match(stripped)
+        if m:
+            _flush()
+            current_title = stripped
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    _flush()
+
+    # If no clause markers were found, return None so caller falls back
+    if not any(c["title"] for c in chunks):
+        return []
+
+    return _split_into_chunks(chunks)
+
+
 def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
     """
-    Extract the full text of a PDF as one (or a few) large chunks using
-    pdfplumber, with minimal pre-processing.
+    Extract the full text of a PDF using pdfplumber, then split it into
+    per-clause chunks without relying on font metadata.
 
     Strategy:
-    - Extract text page-by-page using pdfplumber (handles both text-layer and
-      layout-preserved PDFs correctly).
-    - If the entire document is ≤ _RAW_SINGLE_CHUNK_THRESHOLD words, return it
-      as a single chunk so AI enrichment sees the whole document at once.
-    - Otherwise, group pages into ~_RAW_SINGLE_CHUNK_THRESHOLD-word batches.
+    1. Extract text page-by-page (pdfplumber handles text-layer PDFs well).
+    2. Try to split on numbered top-level clauses ("1. Vessel / Owners",
+       "14. C/P Details" …).  This produces correctly-sized chunks and
+       preserves clause context that font-based detection misses.
+    3. If no numbered structure is found, return the whole document as one
+       or a few page-batched chunks for AI enrichment to handle.
 
-    This is intentionally dumb — no header detection, no font analysis.
-    All semantic splitting is delegated to the AI enrichment pass.
+    All extracted content is passed intact — no lines are discarded.
+    The AI enrichment pass then assigns titles and may further refine splits.
     """
     import io
     import pdfplumber
@@ -894,13 +949,26 @@ def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
         return []
 
     full_text = "\n\n".join(page_texts)
+
+    # Try numbered-clause splitting first
+    clause_chunks = _presplit_on_clauses(full_text)
+    if clause_chunks:
+        logger.info(
+            f"[extractor] Raw PDF: presplit into {len(clause_chunks)} clause chunks"
+        )
+        return clause_chunks
+
+    # No numbered structure — return as one or a few word-budget batches
+    # so AI enrichment still sees the full context
     total_words = len(full_text.split())
+    logger.info(
+        f"[extractor] Raw PDF: no clause markers found, "
+        f"returning {total_words} words as page batches"
+    )
 
     if total_words <= _RAW_SINGLE_CHUNK_THRESHOLD:
-        # Small enough: one chunk, AI sees everything
         return [{"title": None, "body": full_text}]
 
-    # Large doc: batch pages into word-budget groups
     chunks: List[Dict] = []
     batch_lines: List[str] = []
     batch_words = 0
