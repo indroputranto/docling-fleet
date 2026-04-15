@@ -114,7 +114,31 @@
             {{ c.name }}
           </div>
         </td>
-        <td class="text-muted font-mono">{{ c.llm_model }}</td>
+        <td>
+          {# Show inline picker to platform admins (all clients) and client admins (own client only) #}
+          {% if is_platform_admin or (not is_platform_admin and c.client_id == cms_user.client_id) %}
+          <div class="model-picker-cell" data-client-id="{{ c.id }}">
+            <select class="model-select" onchange="setClientModel({{ c.id }}, this)">
+              {% for value, label, tier, desc in llm_models %}
+              <option value="{{ value }}"
+                      data-tier="{{ tier }}"
+                      data-desc="{{ desc }}"
+                      {{ 'selected' if c.llm_model == value else '' }}>
+                {{ label }}
+              </option>
+              {% endfor %}
+            </select>
+            <span class="model-tier-badge">
+              {% for value, label, tier, desc in llm_models %}
+                {% if c.llm_model == value %}{{ tier }}{% endif %}
+              {% endfor %}
+            </span>
+            <span class="model-save-status" style="display:none;">✓</span>
+          </div>
+          {% else %}
+          <span class="text-muted font-mono" style="font-size:12px;">{{ c.llm_model }}</span>
+          {% endif %}
+        </td>
         <td class="text-muted font-mono">{{ c.pinecone_namespace or '(default)' }}</td>
         <td>
           {% if c.active %}
@@ -237,4 +261,80 @@
   {% endif %}
 </div>
 
+{% endblock %}
+
+{% block extra_styles %}
+<style>
+/* ── Inline model picker ─────────────────────────────────────────────────── */
+.model-picker-cell {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+}
+.model-select {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 170px;
+  transition: border-color .15s;
+}
+.model-select:hover  { border-color: var(--accent); }
+.model-select:focus  { outline: none; border-color: var(--accent); }
+.model-tier-badge {
+  font-size: 10px; font-weight: 600; white-space: nowrap;
+  color: var(--muted); letter-spacing: .02em;
+}
+.model-save-status {
+  font-size: 12px; font-weight: 700; color: #3fb950;
+}
+@keyframes fadeOut { 0%,60%{opacity:1} 100%{opacity:0} }
+.model-save-status.saved { animation: fadeOut 1.8s forwards; }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function setClientModel(clientDbId, selectEl) {
+  const value   = selectEl.value;
+  const cell    = selectEl.closest('.model-picker-cell');
+  const badge   = cell.querySelector('.model-tier-badge');
+  const status  = cell.querySelector('.model-save-status');
+  const chosen  = selectEl.options[selectEl.selectedIndex];
+
+  selectEl.disabled = true;
+  status.style.display = 'none';
+  status.classList.remove('saved');
+  try {
+    const res  = await fetch(`/cms/clients/${clientDbId}/set-model`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ llm_model: value }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      badge.textContent = chosen.dataset.tier || '';
+      selectEl.dataset.original = value;
+      // Trigger animation
+      void status.offsetWidth;
+      status.style.display = 'inline';
+      status.classList.add('saved');
+    } else {
+      alert('Could not save model: ' + (data.error || 'unknown error'));
+      selectEl.value = selectEl.dataset.original;
+    }
+  } catch (e) {
+    alert('Network error — model not saved.');
+    selectEl.value = selectEl.dataset.original;
+  } finally {
+    selectEl.disabled = false;
+  }
+}
+// Store original values so we can revert on error
+document.querySelectorAll('.model-select').forEach(s => {
+  s.dataset.original = s.value;
+});
+</script>
 {% endblock %}

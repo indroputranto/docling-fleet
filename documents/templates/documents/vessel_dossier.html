@@ -178,6 +178,14 @@
   .doc-chunks { font-size: 11px; color: var(--muted); white-space: nowrap; }
   .doc-date   { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
+  /* Document action buttons (Update / Delete) */
+  .doc-action-btn { flex-shrink: 0; }
+  .btn-doc-delete {
+    background: rgba(218,54,51,.12); color: #f85149;
+    border: 1px solid rgba(218,54,51,.25);
+  }
+  .btn-doc-delete:hover { background: rgba(218,54,51,.22); opacity: 1; }
+
   /* Drop zone */
   .section-dropzone-wrap { padding: 16px 20px; }
   .section-dropzone {
@@ -463,6 +471,28 @@
         {% else %}
           <span class="badge badge-yellow">{{ doc.status | title }}</span>
         {% endif %}
+        {# ── Update / Delete actions ── #}
+        <form method="POST"
+              action="{{ url_for('documents.replace', doc_id=doc.id) }}"
+              enctype="multipart/form-data"
+              id="replace-form-{{ doc.id }}"
+              style="display:inline">
+          <input type="hidden" name="from_vessel" value="{{ vessel.id }}">
+          <input type="file" name="file" id="replace-file-{{ doc.id }}"
+                 accept=".pdf,.docx,.xlsx" style="display:none"
+                 onchange="document.getElementById('replace-form-{{ doc.id }}').submit()">
+        </form>
+        <button class="btn btn-sm btn-secondary doc-action-btn"
+                onclick="document.getElementById('replace-file-{{ doc.id }}').click()"
+                title="Replace with a new file">Update</button>
+        <form method="POST"
+              action="{{ url_for('documents.delete', doc_id=doc.id) }}"
+              style="display:inline"
+              onsubmit="return confirm('Delete \'{{ doc.filename }}\'?\nThis will also remove it from the knowledge base.')">
+          <input type="hidden" name="from_vessel" value="{{ vessel.id }}">
+          <button type="submit" class="btn btn-sm btn-doc-delete doc-action-btn"
+                  title="Delete this document">Delete</button>
+        </form>
       </div>
       {% endfor %}
     </div>
@@ -594,6 +624,28 @@
             {% else %}
               <span class="badge badge-yellow">{{ doc.status | title }}</span>
             {% endif %}
+            {# ── Update / Delete actions ── #}
+            <form method="POST"
+                  action="{{ url_for('documents.replace', doc_id=doc.id) }}"
+                  enctype="multipart/form-data"
+                  id="replace-form-{{ doc.id }}"
+                  style="display:inline">
+              <input type="hidden" name="from_vessel" value="{{ vessel.id }}">
+              <input type="file" name="file" id="replace-file-{{ doc.id }}"
+                     accept=".pdf,.docx,.xlsx" style="display:none"
+                     onchange="document.getElementById('replace-form-{{ doc.id }}').submit()">
+            </form>
+            <button class="btn btn-sm btn-secondary doc-action-btn"
+                    onclick="document.getElementById('replace-file-{{ doc.id }}').click()"
+                    title="Replace with a new file">Update</button>
+            <form method="POST"
+                  action="{{ url_for('documents.delete', doc_id=doc.id) }}"
+                  style="display:inline"
+                  onsubmit="return confirm('Delete \'{{ doc.filename }}\'?\nThis will also remove it from the knowledge base.')">
+              <input type="hidden" name="from_vessel" value="{{ vessel.id }}">
+              <button type="submit" class="btn btn-sm btn-doc-delete doc-action-btn"
+                      title="Delete this document">Delete</button>
+            </form>
           </div>
           {% endfor %}
         </div>

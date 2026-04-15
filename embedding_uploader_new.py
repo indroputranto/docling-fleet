@@ -7,7 +7,10 @@ Handles strikethrough formatting with double tildes and organized clause structu
 
 import os
 import json
+from dotenv import load_dotenv
 from pinecone import Pinecone
+
+load_dotenv()
 from openai import OpenAI
 import tiktoken
 import re
@@ -17,15 +20,22 @@ import hashlib
 from collections import defaultdict
 from pathlib import Path
 
-# Pinecone configuration
+# Pinecone configuration (PINECONE_HOST optional; omit or set empty to use index name only)
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "")
-PINECONE_HOST = "https://vessel-embeddings-u2t79ad.svc.aped-4627-b74a.pinecone.io"
-INDEX_NAME = "vessel-embeddings"
+PINECONE_HOST = os.environ.get(
+    "PINECONE_HOST",
+    "https://vessel-embeddings-u2t79ad.svc.aped-4627-b74a.pinecone.io",
+).strip()
+INDEX_NAME = os.environ.get("PINECONE_INDEX", "vessel-embeddings").strip()
 DIMENSION = 1536
 METRIC = "cosine"
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
-index = pc.Index(INDEX_NAME)
+index = (
+    pc.Index(INDEX_NAME, host=PINECONE_HOST)
+    if PINECONE_HOST
+    else pc.Index(INDEX_NAME)
+)
 
 # Embedding API configuration - OpenAI (direct)
 # Uses OPENAI_API_KEY environment variable

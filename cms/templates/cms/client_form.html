@@ -49,7 +49,7 @@
 
         <div class="form-group full">
           <label>Logo URL</label>
-          <input type="url" name="logo_url"
+          <input type="text" name="logo_url"
                  value="{{ client.logo_url if client else '' }}"
                  placeholder="https://cdn.example.com/logo.png" />
           <div class="form-hint">Leave blank to use initials fallback.</div>
@@ -111,10 +111,49 @@
     </div>
   </div>
 
-  <!-- AI & Pinecone — platform admin only -->
+  <!-- LLM Model — visible to all CMS users for their own client -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">AI Model</div>
+    <div style="padding:22px;">
+      <div class="form-grid">
+
+        <div class="form-group full">
+          <label>LLM Model</label>
+          <select name="llm_model" id="llm_model_select" onchange="updateModelHint(this)">
+            {% for value, label, tier, desc in llm_models %}
+            <option value="{{ value }}"
+                    data-tier="{{ tier }}"
+                    data-desc="{{ desc }}"
+                    {{ 'selected' if client and client.llm_model == value else '' }}>
+              {{ label }} — {{ tier }}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="form-hint" id="llm_model_hint" style="margin-top:5px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Max Context Chunks</label>
+          <input type="number" name="max_context_chunks" min="1" max="20"
+                 value="{{ client.max_context_chunks if client else 8 }}" />
+          <div class="form-hint">How many knowledge-base results to retrieve per query (1–20).</div>
+        </div>
+
+        <div class="form-group">
+          <label>Max Conversation History</label>
+          <input type="number" name="max_history" min="1" max="50"
+                 value="{{ client.max_history if client else 10 }}" />
+          <div class="form-hint">Number of past turns sent to the LLM (1–50).</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Pinecone / infrastructure — platform admin only -->
   {% if is_platform_admin %}
   <div class="card" style="margin-bottom:20px;">
-    <div class="card-header">AI & Knowledge Base</div>
+    <div class="card-header">Knowledge Base (Infrastructure)</div>
     <div style="padding:22px;">
       <div class="form-grid">
 
@@ -134,15 +173,6 @@
         </div>
 
         <div class="form-group">
-          <label>LLM Model</label>
-          <select name="llm_model">
-            {% for m in ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'] %}
-            <option value="{{ m }}" {{ 'selected' if client and client.llm_model == m else '' }}>{{ m }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <div class="form-group">
           <label>Embedding Model</label>
           <select name="embedding_model">
             {% for m in ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'] %}
@@ -153,30 +183,16 @@
         </div>
 
         <div class="form-group">
-          <label>Max Context Chunks</label>
-          <input type="number" name="max_context_chunks" min="1" max="20"
-                 value="{{ client.max_context_chunks if client else 8 }}" />
-          <div class="form-hint">How many Pinecone results to retrieve per query (1–20).</div>
-        </div>
-
-        <div class="form-group">
-          <label>Max Conversation History</label>
-          <input type="number" name="max_history" min="1" max="50"
-                 value="{{ client.max_history if client else 10 }}" />
-          <div class="form-hint">Number of past turns sent to the LLM (1–50).</div>
-        </div>
-
-        <div class="form-group">
           <label>Daily Request Limit</label>
           <input type="number" name="daily_request_limit" min="0"
                  value="{{ client.daily_request_limit if client else 0 }}" />
-          <div class="form-hint">Max chat requests per day (UTC). Set to 0 for unlimited. Requests over the limit receive a 429 error.</div>
+          <div class="form-hint">Max chat requests per day (UTC). Set to 0 for unlimited.</div>
         </div>
 
       </div>
     </div>
   </div>
-  {% endif %}{# end platform_admin AI section #}
+  {% endif %}{# end platform_admin infrastructure section #}
 
   <!-- Chat UX -->
   <div class="card" style="margin-bottom:20px;">
@@ -302,6 +318,7 @@
 </form>
 
 <style>
+#llm_model_hint { font-size: 12px; color: var(--muted); }
 .dossier-row-hidden {
   opacity: .45;
   transition: opacity .2s;
@@ -311,6 +328,17 @@
 }
 </style>
 <script>
+function updateModelHint(sel) {
+  const opt  = sel.options[sel.selectedIndex];
+  const hint = document.getElementById('llm_model_hint');
+  if (hint) hint.textContent = opt.dataset.desc || '';
+}
+// Populate hint on initial page load
+(function() {
+  const sel = document.getElementById('llm_model_select');
+  if (sel) updateModelHint(sel);
+})();
+
 function toggleDossierRow(slug, active) {
   const row   = document.getElementById('drow-' + slug);
   const input = row.querySelector('input[type="text"]');

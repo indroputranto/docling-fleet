@@ -248,6 +248,7 @@
     .font-mono { font-family: monospace; font-size: 12px; }
   </style>
   {% block head %}{% endblock %}
+  {% block extra_styles %}{% endblock %}
 </head>
 <body>
 
@@ -363,6 +364,8 @@
     {% block content %}{% endblock %}
   </div>
 </main>
+
+{% block extra_scripts %}{% endblock %}
 
 <script>
 // ── Theme (shares localStorage key 'theme' with Chat so both stay in sync) ──

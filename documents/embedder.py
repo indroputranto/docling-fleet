@@ -15,8 +15,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-OPENAI_API_KEY   = os.environ.get("OPENAI_API_KEY", "")
-PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "")
+OPENAI_API_KEY     = os.environ.get("OPENAI_API_KEY", "")
+PINECONE_API_KEY   = os.environ.get("PINECONE_API_KEY", "")
+PINECONE_HOST      = os.environ.get("PINECONE_HOST", "")
+
+# Optional: truncate embeddings to match a Pinecone index created with fewer
+# dimensions (e.g. 1024).  text-embedding-3-* models support this natively.
+# Leave unset to use the model's default (1536 for text-embedding-3-small).
+_raw_dims          = os.environ.get("PINECONE_DIMENSIONS", "").strip()
+PINECONE_DIMENSIONS: int | None = int(_raw_dims) if _raw_dims.isdigit() else None
 
 EMBED_BATCH_SIZE = 20   # OpenAI allows up to 2048; keep batches small
 
@@ -29,6 +36,13 @@ def _get_openai_client():
 def _get_pinecone_index(index_name: str):
     from pinecone import Pinecone
     pc = Pinecone(api_key=PINECONE_API_KEY)
+    if PINECONE_HOST:
+        # Direct host connection — bypasses controller-plane lookup and is
+        # required when the index URL is pinned via PINECONE_HOST in .env.
+        logger.info(f"[embedder] Connecting to Pinecone via host: {PINECONE_HOST}")
+        return pc.Index(host=PINECONE_HOST)
+    # Fallback: look up index by name through the controller plane
+    logger.info(f"[embedder] Connecting to Pinecone index by name: {index_name}")
     return pc.Index(index_name)
 
 
@@ -67,28 +81,51 @@ def embed_and_upsert(
         batch = texts[i : i + EMBED_BATCH_SIZE]
         logger.info(f"[embedder] Embedding batch {i // EMBED_BATCH_SIZE + 1} "
                     f"({len(batch)} chunks) for doc {document.id}")
-        response = openai_client.embeddings.create(
-            model=embedding_model,
-            input=batch,
-        )
+        embed_kwargs = dict(model=embedding_model, input=batch)
+        if PINECONE_DIMENSIONS:
+            # Truncate to match the Pinecone index dimension.
+            # Supported by text-embedding-3-* models only.
+            embed_kwargs["dimensions"] = PINECONE_DIMENSIONS
+        response = openai_client.embeddings.create(**embed_kwargs)
         all_embeddings.extend([item.embedding for item in response.data])
+
+    # ── Derive boolean document-type flags from document_category ────────────
+    # Stored as metadata so Pinecone can filter by type at query time without
+    # callers needing to know the internal category slug names.
+    cat = (document.document_category or "").lower()
+    type_flags = {
+        "is_charter_party":        cat == "charter_party",
+        "is_fixture_recap":        cat == "fixture_recap",
+        "is_vessel_specifications": cat == "vessel_specifications",
+        "is_addendum":             cat == "addendum",
+        "is_delivery_details":     cat == "delivery_details",
+        "is_speed_consumption":    cat == "speed_consumption",
+    }
 
     # ── Build Pinecone vectors ────────────────────────────────────────────────
     vectors = []
     for chunk, vector_id, embedding in zip(chunks, vector_ids, all_embeddings):
+        body_text = texts[chunk.position]
         vectors.append({
             "id":     vector_id,
             "values": embedding,
             "metadata": {
+                # ── Identity / filtering ──────────────────────────────────
                 "client_id":         document.client_id,
                 "document_id":       document.id,
+                "vessel_id":         document.vessel_id or 0,
+                "vessel":            document.group_name or "",   # human-readable name
                 "filename":          document.filename,
+                "document_category": document.document_category or "",
+                # ── Chunk location ────────────────────────────────────────
                 "chunk_title":       chunk.title or "",
                 "chunk_position":    chunk.position,
-                "document_category": document.document_category or "",
-                "vessel_id":         document.vessel_id or 0,
-                "group_name":        document.group_name or "",
-                "text":              texts[chunk.position],
+                # ── Full text (for retrieval display) ─────────────────────
+                "content":           body_text,
+                # ── Document-type flags (for metadata filtering) ──────────
+                **type_flags,
+                # ── Content flags ─────────────────────────────────────────
+                "contains_strikethrough": "~~" in body_text,
             },
         })
 

@@ -34,12 +34,35 @@ from datetime import datetime, timezone, date as date_type
 from functools import wraps
 from flask import (
     Blueprint, render_template, redirect, url_for,
-    request, flash, g, make_response, abort
+    request, flash, g, make_response, abort, jsonify
 )
 from models import db, ClientConfig, User, Vessel, Document, DocumentChunk, DossierSectionConfig
 from documents.routes import DOCUMENT_SECTIONS
 
 logger = logging.getLogger(__name__)
+
+# ── Available LLM models with display metadata ────────────────────────────────
+# Each entry: (value, label, tier_badge, description)
+LLM_MODELS = [
+    (
+        "claude-haiku-4-5-20251001",
+        "Claude Haiku 4.5",
+        "Fast · Low cost",
+        "Fastest responses, lowest cost. Great for straightforward Q&A and high-volume queries.",
+    ),
+    (
+        "claude-sonnet-4-6",
+        "Claude Sonnet 4.6",
+        "Balanced · Mid cost",
+        "Best balance of speed, quality, and cost. Recommended for most deployments.",
+    ),
+    (
+        "claude-opus-4-6",
+        "Claude Opus 4.6",
+        "Powerful · High cost",
+        "Most capable model. Best for complex reasoning, multi-step analysis, and nuanced answers.",
+    ),
+]
 
 cms_bp = Blueprint(
     "cms",
@@ -248,6 +271,7 @@ def dashboard():
         total_today=total_today,
         total_month=total_month,
         total_tokens=total_tokens,
+        llm_models=LLM_MODELS,
     )
 
 
@@ -394,6 +418,35 @@ def client_new():
     return _save_client(client=None)
 
 
+@cms_bp.route("/clients/<int:client_db_id>/set-model", methods=["POST"])
+@cms_required
+def client_set_model(client_db_id: int):
+    """Quick-save the LLM model for a client.
+
+    Platform admins can set the model for any client.
+    Client admins can set the model for their own client only.
+    """
+    client = ClientConfig.query.get_or_404(client_db_id)
+
+    # Access check: platform admin can touch any client; client_admin only their own
+    if not g.is_platform_admin:
+        if g.scoped_client_id != client.client_id:
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    data   = request.get_json(force=True, silent=True) or {}
+    model  = (data.get("llm_model") or "").strip()
+
+    VALID_MODELS = {m for m, *_ in LLM_MODELS}
+    if model not in VALID_MODELS:
+        return jsonify({"ok": False, "error": f"Unknown model: {model}"}), 400
+
+    client.llm_model  = model
+    client.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    logger.info(f"[cms] client '{client.client_id}' llm_model set to '{model}' by {g.cms_user.email}")
+    return jsonify({"ok": True, "llm_model": model})
+
+
 @cms_bp.route("/clients/<int:client_db_id>/edit", methods=["GET", "POST"])
 @cms_required
 def client_edit(client_db_id: int):
@@ -412,6 +465,7 @@ def client_edit(client_db_id: int):
             suggested_questions_text=_suggested_questions_to_text(client),
             dossier_sections=DOCUMENT_SECTIONS,
             dossier_section_configs=section_configs,
+            llm_models=LLM_MODELS,
         )
     return _save_client(client=client)
 
@@ -454,17 +508,22 @@ def _save_client(client: ClientConfig | None):
     else:
         client.suggested_questions = None
 
+    # ── AI model fields — editable by all CMS users for their own client ──────
+    submitted_model = f.get("llm_model", "").strip()
+    VALID_MODELS = {m for m, *_ in LLM_MODELS}
+    if submitted_model in VALID_MODELS:
+        client.llm_model = submitted_model
+    client.max_context_chunks = int(f.get("max_context_chunks", 8) or 8)
+    client.max_history        = int(f.get("max_history", 10) or 10)
+
     # ── Fields editable by platform admin only ────────────────────────────────
     if g.is_platform_admin:
         client.pinecone_index     = f.get("pinecone_index", "vessel-embeddings").strip()
         client.pinecone_namespace = f.get("pinecone_namespace", "").strip()
         client.embedding_model    = f.get("embedding_model", "text-embedding-3-small").strip()
-        client.llm_model            = f.get("llm_model", "claude-opus-4-6").strip()
-        client.system_prompt        = f.get("system_prompt", "").strip()
-        client.max_context_chunks   = int(f.get("max_context_chunks", 8))
-        client.max_history          = int(f.get("max_history", 10))
-        client.daily_request_limit  = max(0, int(f.get("daily_request_limit", 0) or 0))
-        client.active               = "active" in f
+        client.system_prompt      = f.get("system_prompt", "").strip()
+        client.daily_request_limit = max(0, int(f.get("daily_request_limit", 0) or 0))
+        client.active              = "active" in f
 
     client.updated_at = datetime.now(timezone.utc)
 

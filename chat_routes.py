@@ -70,14 +70,24 @@ _pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 # Helpers
 # ---------------------------------------------------------------------------
 
+_PINECONE_HOST       = os.getenv("PINECONE_HOST", "").strip()
+_raw_dims            = os.getenv("PINECONE_DIMENSIONS", "").strip()
+_PINECONE_DIMENSIONS = int(_raw_dims) if _raw_dims.isdigit() else None
+
+
 def _get_pinecone_index(index_name: str):
-    """Return a Pinecone Index object for the given index name."""
+    """Return a Pinecone Index object, preferring a direct host connection."""
+    if _PINECONE_HOST:
+        return _pinecone_client.Index(host=_PINECONE_HOST)
     return _pinecone_client.Index(index_name)
 
 
 def _embed_query(text: str, model: str = "text-embedding-3-small") -> list[float]:
     """Embed a single string with OpenAI and return the vector."""
-    response = _openai_client.embeddings.create(input=text, model=model)
+    kwargs: dict = {"input": text, "model": model}
+    if _PINECONE_DIMENSIONS:
+        kwargs["dimensions"] = _PINECONE_DIMENSIONS
+    response = _openai_client.embeddings.create(**kwargs)
     return response.data[0].embedding
 
 

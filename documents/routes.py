@@ -187,6 +187,152 @@ def library():
     )
 
 
+@documents_bp.route("/<int:doc_id>/replace", methods=["POST"])
+@documents_required
+def replace(doc_id: int):
+    """
+    Replace an existing document with a new file upload.
+
+    Deletes old Pinecone vectors and DB chunks, runs the full extract →
+    enrich → coverage pipeline on the new file, and redirects to the
+    preview page so the user can review before re-publishing.
+    """
+    from documents.embedder import delete_document_vectors
+    from documents.extractor import extract
+    import json as _json
+
+    doc = Document.query.get_or_404(doc_id)
+    _assert_doc_access(doc)
+
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("No file selected.", "error")
+        return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
+
+    filename = secure_filename(file.filename)
+    if not _allowed_file(filename):
+        flash("Unsupported file type — use .docx, .pdf, or .xlsx.", "error")
+        return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
+
+    from_vessel     = request.form.get("from_vessel", "").strip() or str(doc.vessel_id or "")
+    skip_enrichment = request.form.get("skip_enrichment") == "on"
+    client          = ClientConfig.query.filter_by(client_id=doc.client_id).first()
+
+    # ── 1. Remove old Pinecone vectors ────────────────────────────────────────
+    if doc.status == "active" and client:
+        try:
+            delete_document_vectors(
+                document=doc,
+                pinecone_index=client.pinecone_index,
+                pinecone_namespace=client.pinecone_namespace,
+            )
+        except Exception as e:
+            logger.warning(f"[documents] Pinecone delete failed during replace (doc {doc_id}): {e}")
+
+    # ── 2. Purge old chunks ───────────────────────────────────────────────────
+    DocumentChunk.query.filter_by(document_id=doc.id).delete()
+    db.session.flush()
+
+    # ── 3. Extract new file ───────────────────────────────────────────────────
+    ext = filename.rsplit(".", 1)[1].lower()
+    try:
+        raw_chunks = extract(file.stream, filename)
+    except Exception as e:
+        flash(f"Could not extract text from '{filename}': {e}", "error")
+        db.session.rollback()
+        return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
+
+    if not raw_chunks or not any(c["body"].strip() for c in raw_chunks):
+        flash(f"No text found in '{filename}' (scanned image PDF?).", "error")
+        db.session.rollback()
+        return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
+
+    raw_chunks_snapshot = [{"body": c.get("body", "")} for c in raw_chunks]
+
+    # ── 4. AI enrichment ──────────────────────────────────────────────────────
+    if not skip_enrichment:
+        try:
+            from documents.ai_enrichment import enrich_chunks
+            vessel_obj = Vessel.query.get(doc.vessel_id) if doc.vessel_id else None
+            raw_chunks = enrich_chunks(
+                raw_chunks,
+                filename,
+                vessel_name=vessel_obj.name if vessel_obj else None,
+                document_category=doc.document_category,
+            )
+        except Exception as ae:
+            logger.warning(f"[documents] AI enrichment failed during replace (doc {doc_id}): {ae}")
+    else:
+        logger.info(f"[documents] AI enrichment skipped for replace of doc {doc_id}")
+
+    # ── 5. Section title prefix ───────────────────────────────────────────────
+    if doc.document_category and doc.document_category != FULL_DOCUMENT_CATEGORY:
+        section_label = next(
+            (lbl for slug, lbl in DOCUMENT_SECTIONS if slug == doc.document_category),
+            None,
+        )
+        if section_label:
+            try:
+                from models import DossierSectionConfig
+                cfg = DossierSectionConfig.query.filter_by(
+                    client_id=doc.client_id, slug=doc.document_category
+                ).first()
+                if cfg and cfg.label and cfg.label.strip():
+                    section_label = cfg.label.strip()
+            except Exception:
+                pass
+            prefix = f"{section_label} - "
+            for chunk in raw_chunks:
+                title = (chunk.get("title") or "").strip()
+                if title and not title.startswith(prefix):
+                    chunk["title"] = prefix + title
+
+    # ── 6. Coverage check ─────────────────────────────────────────────────────
+    coverage_pct = coverage_notes = None
+    try:
+        from documents.coverage import run_coverage_check
+        file.stream.seek(0)
+        cov = run_coverage_check(
+            file_stream=file.stream,
+            filename=filename,
+            raw_chunks_before_enrichment=raw_chunks_snapshot,
+            final_chunks=raw_chunks,
+        )
+        coverage_pct   = cov.get("coverage_pct")
+        coverage_notes = _json.dumps(cov)
+    except Exception as ce:
+        logger.warning(f"[documents] Coverage check failed during replace (doc {doc_id}): {ce}")
+
+    # ── 7. Update Document record + persist new chunks ────────────────────────
+    doc.filename       = filename
+    doc.file_type      = ext
+    doc.status         = "draft"
+    doc.chunk_count    = len(raw_chunks)
+    doc.coverage_pct   = coverage_pct
+    doc.coverage_notes = coverage_notes
+
+    for pos, chunk in enumerate(raw_chunks):
+        db.session.add(DocumentChunk(
+            document_id=doc.id,
+            position=pos,
+            title=chunk.get("title") or "",
+            body=chunk["body"],
+        ))
+
+    db.session.commit()
+    logger.info(
+        f"[documents] Replaced doc {doc_id} with '{filename}' "
+        f"({len(raw_chunks)} chunks) for client '{doc.client_id}'"
+    )
+
+    return redirect(url_for(
+        "documents.preview",
+        doc_id=doc.id,
+        total=1,
+        from_vessel=from_vessel or None,
+    ))
+
+
 @documents_bp.route("/upload", methods=["POST"])
 @documents_required
 def upload():
