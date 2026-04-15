@@ -13,8 +13,17 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, m
 from werkzeug.utils import secure_filename
 import requests
 from dotenv import load_dotenv
-from process_vessel_new import DynamicTextExtractor
-from process_agency import AgencyDataExtractor
+# Legacy pipeline modules — only available in local/server environments.
+# Imported lazily so the app still boots on Vercel where these files are excluded.
+try:
+    from process_vessel_new import DynamicTextExtractor
+except ImportError:
+    DynamicTextExtractor = None
+
+try:
+    from process_agency import AgencyDataExtractor
+except ImportError:
+    AgencyDataExtractor = None
 from functools import wraps
 from production_config import get_config
 import sys

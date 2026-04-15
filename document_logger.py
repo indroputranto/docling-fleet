@@ -17,80 +17,58 @@ class DocumentLogger:
     """Comprehensive logger for document processing pipeline."""
     
     def __init__(self, log_dir: str = "logs"):
-        self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(exist_ok=True)
-        
+        # On read-only filesystems (e.g. Vercel) fall back to /tmp
+        for candidate in [log_dir, "/tmp/docling-logs"]:
+            try:
+                p = Path(candidate)
+                p.mkdir(parents=True, exist_ok=True)
+                self.log_dir = p
+                break
+            except OSError:
+                continue
+        else:
+            self.log_dir = None  # totally read-only — file logging disabled
+
         # Create separate loggers for different components
         self.setup_loggers()
         
+    def _file_handler(self, filename: str, level=logging.INFO) -> logging.Handler | None:
+        """Create a FileHandler if a writable log_dir is available, else None."""
+        if self.log_dir is None:
+            return None
+        try:
+            fmt = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
+            h = logging.FileHandler(self.log_dir / filename)
+            h.setLevel(level)
+            h.setFormatter(fmt)
+            return h
+        except OSError:
+            return None
+
     def setup_loggers(self):
         """Setup different loggers for different components."""
-        
-        # Main document processing logger
-        self.doc_logger = logging.getLogger('document_processing')
-        self.doc_logger.setLevel(logging.INFO)
-        self.doc_logger.propagate = False
-        
-        # Clear existing handlers
-        if self.doc_logger.hasHandlers():
-            self.doc_logger.handlers.clear()
-        
-        # File handler for document processing
-        doc_handler = logging.FileHandler(self.log_dir / "document_processing.log")
-        doc_handler.setLevel(logging.INFO)
-        doc_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
-        )
-        doc_handler.setFormatter(doc_formatter)
-        self.doc_logger.addHandler(doc_handler)
-        
-        # Langdock upload logger (keeping for backward compatibility)
-        self.langdock_logger = logging.getLogger('langdock_upload')
-        self.langdock_logger.setLevel(logging.INFO)
-        self.langdock_logger.propagate = False
-        
-        if self.langdock_logger.hasHandlers():
-            self.langdock_logger.handlers.clear()
-        
-        langdock_handler = logging.FileHandler(self.log_dir / "langdock_uploads.log")
-        langdock_handler.setLevel(logging.INFO)
-        langdock_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
-        )
-        langdock_handler.setFormatter(langdock_formatter)
-        self.langdock_logger.addHandler(langdock_handler)
-        
-        # Pinecone upload logger
-        self.pinecone_logger = logging.getLogger('pinecone_upload')
-        self.pinecone_logger.setLevel(logging.INFO)
-        self.pinecone_logger.propagate = False
-        
-        if self.pinecone_logger.hasHandlers():
-            self.pinecone_logger.handlers.clear()
-        
-        pinecone_handler = logging.FileHandler(self.log_dir / "pinecone_uploads.log")
-        pinecone_handler.setLevel(logging.INFO)
-        pinecone_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
-        )
-        pinecone_handler.setFormatter(pinecone_formatter)
-        self.pinecone_logger.addHandler(pinecone_handler)
-        
-        # Error logger
-        self.error_logger = logging.getLogger('processing_errors')
-        self.error_logger.setLevel(logging.ERROR)
-        self.error_logger.propagate = False
-        
-        if self.error_logger.hasHandlers():
-            self.error_logger.handlers.clear()
-        
-        error_handler = logging.FileHandler(self.log_dir / "processing_errors.log")
-        error_handler.setLevel(logging.ERROR)
-        error_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
-        )
-        error_handler.setFormatter(error_formatter)
-        self.error_logger.addHandler(error_handler)
+        fmt = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(fmt)
+
+        def _make(name: str, level=logging.INFO, file: str = None):
+            lg = logging.getLogger(name)
+            lg.setLevel(level)
+            lg.propagate = False
+            if lg.hasHandlers():
+                lg.handlers.clear()
+            lg.addHandler(console_handler)
+            if file:
+                fh = self._file_handler(file, level)
+                if fh:
+                    lg.addHandler(fh)
+            return lg
+
+        self.doc_logger     = _make('document_processing', logging.INFO,  'document_processing.log')
+        self.langdock_logger = _make('langdock_upload',    logging.INFO,  'langdock_uploads.log')
+        self.pinecone_logger = _make('pinecone_upload',    logging.INFO,  'pinecone_uploads.log')
+        self.error_logger   = _make('processing_errors',   logging.ERROR, 'processing_errors.log')
         
         # Console handler for all loggers
         console_handler = logging.StreamHandler()
