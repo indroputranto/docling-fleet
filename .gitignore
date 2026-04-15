@@ -7,7 +7,7 @@ env_example.txt
 env_*.txt
 *_production.txt
 *_config.py
-production_config.py
+!production_config.py
 ngrok.yml
 vessel_analysis_results.json
 *.secret
