@@ -254,12 +254,74 @@ class DocumentChunk(db.Model):
     title       = db.Column(db.String(500), nullable=True)
     body        = db.Column(db.Text, nullable=False)
     pinecone_id = db.Column(db.String(300), nullable=True)
-    # Format: "{client_id}:doc:{document_id}:chunk:{position}"
+    # Format (new): {client}_{vessel}_{section_num}_{section}_{chunk_title}_{position}
+    # Example:      test_client_mv_rot_3_fixture_recap_vessel_owners_2
     # Populated after successful embedding; used for deletion.
 
+    # Section ordering mirrors DOCUMENT_SECTIONS in documents/routes.py.
+    # Stored here so vector_id() is self-contained without circular imports.
+    _SECTION_ORDER: dict = {
+        "vessel_specifications":  1,
+        "addendum":               2,
+        "fixture_recap":          3,
+        "charter_party":          4,
+        "delivery_details":       5,
+        "speed_consumption":      6,
+        "inventory":              7,
+        "lifting_equipment":      8,
+        "hseq_documents":         9,
+        "vessel_owners_details": 10,
+    }
+
+    @staticmethod
+    def _slug(text: str, max_len: int = 40) -> str:
+        """
+        Convert arbitrary text to a clean snake_case slug suitable for use
+        in a Pinecone vector ID.
+
+        Steps:
+          1. Strip a leading clause number ("1. " / "14 — ") so that chunk
+             titles like "1. Vessel / Owners" become "vessel_owners" rather
+             than "1_vessel_owners".
+          2. Lowercase.
+          3. Replace any run of non-alphanumeric characters with a single
+             underscore.
+          4. Strip leading/trailing underscores and truncate to max_len.
+        """
+        import re
+        text = str(text or "")
+        # Strip leading "1. " / "14 — " / "1.1 " clause prefixes
+        text = re.sub(r'^\d+[\.\-—\s]+', '', text.strip())
+        text = text.lower()
+        text = re.sub(r'[^a-z0-9]+', '_', text)
+        text = re.sub(r'_+', '_', text)
+        return text.strip('_')[:max_len]
+
     def vector_id(self) -> str:
-        """Deterministic Pinecone vector ID for this chunk."""
-        return f"{self.document.client_id}:doc:{self.document_id}:chunk:{self.position}"
+        """
+        Deterministic, human-readable Pinecone vector ID.
+
+        Format:
+            {client}_{vessel}_{section_num}_{section}_{chunk_title}_{pos}
+
+        Examples:
+            test_client_mv_rot_3_fixture_recap_vessel_owners_2
+            acme_mv_aurora_4_charter_party_hire_payment_1
+        """
+        doc          = self.document
+        client_slug  = self._slug(doc.client_id or "unknown", max_len=30)
+        vessel_name  = (doc.vessel.name if doc.vessel else None) or doc.group_name or "unknown"
+        vessel_slug  = self._slug(vessel_name, max_len=30)
+        category     = doc.document_category or "document"
+        section_num  = self._SECTION_ORDER.get(category, 0)
+        section_slug = self._slug(category, max_len=25)
+        chunk_slug   = self._slug(self.title or f"chunk_{self.position}", max_len=40)
+        position     = self.position + 1   # 1-indexed for human readability
+
+        return (
+            f"{client_slug}_{vessel_slug}_{section_num}_"
+            f"{section_slug}_{chunk_slug}_{position}"
+        )
 
     def __repr__(self):
         return f"<DocumentChunk doc={self.document_id} pos={self.position}>"

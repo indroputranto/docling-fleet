@@ -615,12 +615,16 @@
             <span class="doc-date">{{ doc.uploaded_at.strftime('%d %b %Y') }}</span>
             {% if doc.status == 'active' %}
               <span class="badge badge-green">Live</span>
+              <a href="{{ url_for('documents.preview', doc_id=doc.id, from_vessel=vessel.id) }}"
+                 class="btn btn-sm btn-secondary">Review →</a>
             {% elif doc.status == 'draft' %}
               <span class="badge badge-yellow">Draft</span>
               <a href="{{ url_for('documents.preview', doc_id=doc.id, from_vessel=vessel.id) }}"
                  class="btn btn-sm btn-secondary">Review →</a>
             {% elif doc.status == 'error' %}
               <span class="badge badge-red">Error</span>
+              <a href="{{ url_for('documents.preview', doc_id=doc.id, from_vessel=vessel.id) }}"
+                 class="btn btn-sm btn-secondary">Review →</a>
             {% else %}
               <span class="badge badge-yellow">{{ doc.status | title }}</span>
             {% endif %}

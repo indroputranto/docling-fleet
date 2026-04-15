@@ -325,6 +325,10 @@
             {{ doc.uploaded_at.strftime('%d %b %Y') if doc.uploaded_at else '—' }}
           </td>
           <td style="text-align:right; white-space:nowrap;">
+            {% if doc.status == 'active' %}
+              <a href="{{ url_for('documents.preview', doc_id=doc.id) }}"
+                 class="btn btn-secondary btn-sm">Review →</a>
+            {% endif %}
             {% if doc.status == 'draft' %}
               <a href="{{ url_for('documents.preview', doc_id=doc.id) }}"
                  class="btn btn-secondary btn-sm">Review →</a>
