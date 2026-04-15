@@ -88,24 +88,39 @@ app.config['SECRET_KEY'] = os.getenv('JWT_SECRET', 'change-me-in-production')
 # Database
 import os as _os
 _db_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'platform.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', f'sqlite:///{_db_path}')
+_db_url = os.getenv('DATABASE_URL', f'sqlite:///{_db_path}')
+# SQLAlchemy 2.x requires 'postgresql://' — Neon and Heroku often give 'postgres://'
+if _db_url.startswith('postgres://'):
+    _db_url = 'postgresql://' + _db_url[len('postgres://'):]
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Serverless-friendly pool settings: pre-ping detects stale connections,
+# NullPool avoids holding connections between requests (recommended for Neon)
+if _db_url.startswith('postgresql'):
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+        'connect_args': {'sslmode': 'require', 'connect_timeout': 10},
+    }
 
 from models import db
 db.init_app(app)
 
 # Create tables and seed first admin if needed
 with app.app_context():
-    db.create_all()
-    from models import User
-    if not User.query.filter_by(role='admin').first():
-        admin_email    = os.getenv('ADMIN_EMAIL', 'admin@platform.com')
-        admin_password = os.getenv('ADMIN_PASSWORD', 'changeme123')
-        admin = User(email=admin_email, role='admin')
-        admin.set_password(admin_password)
-        db.session.add(admin)
-        db.session.commit()
-        logging.info(f"[boot] Seeded admin user: {admin_email}")
+    try:
+        db.create_all()
+        from models import User
+        if not User.query.filter_by(role='admin').first():
+            admin_email    = os.getenv('ADMIN_EMAIL', 'admin@platform.com')
+            admin_password = os.getenv('ADMIN_PASSWORD', 'changeme123')
+            admin = User(email=admin_email, role='admin')
+            admin.set_password(admin_password)
+            db.session.add(admin)
+            db.session.commit()
+            logging.info(f"[boot] Seeded admin user: {admin_email}")
+    except Exception as _e:
+        logging.error(f"[boot] DB init error (non-fatal): {_e}")
 
 # Register blueprints
 from chat_routes import chat_bp
