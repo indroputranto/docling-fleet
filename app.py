@@ -133,6 +133,48 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(cms_bp)
 app.register_blueprint(documents_bp)
 
+# ── Site-wide security headers ────────────────────────────────────────────────
+
+@app.after_request
+def add_security_headers(response):
+    """Add X-Robots-Tag so crawlers see noindex even on non-HTML responses."""
+    response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+    return response
+
+
+# ── HTTP Basic Auth gate ──────────────────────────────────────────────────────
+# Set BASIC_AUTH_USER and BASIC_AUTH_PASS in Vercel env vars to enable.
+# When either is absent (e.g. local dev) the gate is disabled automatically.
+
+_BASIC_AUTH_USER = os.getenv('BASIC_AUTH_USER', '')
+_BASIC_AUTH_PASS = os.getenv('BASIC_AUTH_PASS', '')
+_BASIC_AUTH_ENABLED = bool(_BASIC_AUTH_USER and _BASIC_AUTH_PASS)
+
+if _BASIC_AUTH_ENABLED:
+    import base64
+
+    @app.before_request
+    def require_basic_auth():
+        """Enforce HTTP Basic Auth on every request when credentials are configured."""
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Basic '):
+            try:
+                decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+                username, _, password = decoded.partition(':')
+                if username == _BASIC_AUTH_USER and password == _BASIC_AUTH_PASS:
+                    return  # authenticated — let the request through
+            except Exception:
+                pass  # malformed header — fall through to 401
+        # Not authenticated — prompt the browser
+        return (
+            'Unauthorized',
+            401,
+            {
+                'WWW-Authenticate': 'Basic realm="Fleet Manager"',
+                'Content-Type': 'text/plain',
+            },
+        )
+
 # Configuration 
 ALLOWED_EXTENSIONS = config.ALLOWED_EXTENSIONS
 LANGDOCK_API_KEY = config.LANGDOCK_API_KEY
