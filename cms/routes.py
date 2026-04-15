@@ -479,6 +479,8 @@ def _save_client(client: ClientConfig | None):
         flash("Client ID is required.", "error")
         return redirect(request.url)
 
+    is_new_client = (client is None)  # track before we potentially create one
+
     if client is None:
         existing = ClientConfig.query.filter_by(client_id=client_id).first()
         if existing:
@@ -528,9 +530,10 @@ def _save_client(client: ClientConfig | None):
     client.updated_at = datetime.now(timezone.utc)
 
     # ── Dossier section config upsert ─────────────────────────────────────────
-    # Only process on edit (not on initial create — client_id doesn't exist yet
-    # for new clients, and the form doesn't show the section card for new clients).
-    if client.client_id:
+    # Only process on edit — the new-client form doesn't render the section
+    # toggles, so all checkboxes would be absent and every section would be
+    # incorrectly written to the DB with active=False.
+    if not is_new_client and client.client_id:
         existing_cfgs = {
             cfg.slug: cfg
             for cfg in DossierSectionConfig.query.filter_by(client_id=client.client_id).all()
