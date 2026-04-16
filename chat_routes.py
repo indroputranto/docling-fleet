@@ -39,8 +39,11 @@ def _resolve_client_id(url_client_id: str | None) -> str:
     Priority:
       1. client_id from URL path (explicit, always wins)
       2. ?client=xxx query param  (dev/testing)
-      3. Subdomain of Host header (production)
-      4. "default"
+      3. DEFAULT_CLIENT_ID env var — set this in Vercel when the deployment
+         hostname doesn't match any client_id (e.g. "docling-fleet.vercel.app"
+         serving client "test-client").
+      4. Subdomain of Host header (production multi-tenant, e.g. acme.yourapp.com)
+      5. "default"
     """
     if url_client_id:
         return url_client_id.strip().lower()
@@ -48,6 +51,10 @@ def _resolve_client_id(url_client_id: str | None) -> str:
     param = request.args.get('client')
     if param:
         return param.strip().lower()
+
+    default_client = os.getenv('DEFAULT_CLIENT_ID', '').strip().lower()
+    if default_client:
+        return default_client
 
     host = request.host.split(':')[0]
     parts = host.split('.')
