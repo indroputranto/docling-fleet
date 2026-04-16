@@ -971,6 +971,11 @@ let chatSessions = [];
 let activeSessionIdx = 0;
 
 function detectClientId() {
+  // Prefer the server-injected client ID (resolved via DEFAULT_CLIENT_ID env
+  // var or subdomain detection on the server).  Falls back to browser-side
+  // hostname parsing only when the template variable is absent.
+  const serverClientId = {{ client_id | tojson }};
+  if (serverClientId && serverClientId !== 'default') return serverClientId;
   const p = new URLSearchParams(window.location.search);
   if (p.get('client')) return p.get('client');
   const parts  = window.location.hostname.split('.');

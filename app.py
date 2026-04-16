@@ -882,25 +882,26 @@ def get_client_id_from_request() -> str:
     Determine the client_id from the incoming request.
 
     Priority:
-      1. Subdomain of the Host header  (production: acme.platform.com → "acme")
-      2. ?client=xxx query param       (dev/testing: localhost:5000?client=acme)
-      3. "default"
-
-    In Phase 2 the CMS will manage the subdomain → client_id mapping in a DB,
-    but the detection logic here stays the same.
+      1. ?client=xxx query param       (dev/testing: localhost:5000?client=acme)
+      2. DEFAULT_CLIENT_ID env var     (Vercel / single-tenant deployments where
+                                        the hostname doesn't match a client_id)
+      3. Subdomain of the Host header  (multi-tenant: acme.platform.com → "acme")
+      4. "default"
     """
     # Query param override (dev/testing)
     client_param = request.args.get('client')
     if client_param:
         return client_param.strip().lower()
 
-    # Subdomain detection
+    # Explicit default (Vercel env var)
+    default_client = os.getenv('DEFAULT_CLIENT_ID', '').strip().lower()
+    if default_client:
+        return default_client
+
+    # Subdomain detection (multi-tenant production)
     host = request.host.split(':')[0]  # strip port if present
     parts = host.split('.')
-    # Skip IPs (all-numeric parts) and plain localhost
     is_ip = all(p.isdigit() for p in parts)
-    # e.g. acme.platform.com → ['acme', 'platform', 'com'] → subdomain = 'acme'
-    # 127.0.0.1 or localhost → skip
     if not is_ip and len(parts) >= 3 and parts[0] not in ('www', ''):
         return parts[0].lower()
 
