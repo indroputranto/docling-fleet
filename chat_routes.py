@@ -33,16 +33,13 @@ chat_bp = Blueprint("chat", __name__, url_prefix="/api")
 
 def _resolve_client_id(url_client_id: str | None) -> str:
     """
-    Resolve the client_id with the same priority as app.py's helper,
-    so API calls from the same subdomain work without repeating the ID in the URL.
+    Resolve the client_id — mirrors get_client_id_from_request() in app.py.
 
     Priority:
-      1. client_id from URL path (explicit, always wins)
-      2. ?client=xxx query param  (dev/testing)
-      3. DEFAULT_CLIENT_ID env var — set this in Vercel when the deployment
-         hostname doesn't match any client_id (e.g. "docling-fleet.vercel.app"
-         serving client "test-client").
-      4. Subdomain of Host header (production multi-tenant, e.g. acme.yourapp.com)
+      1. client_id from URL path      — /api/config/<client_id>
+      2. ?client=xxx query param      — explicit override / share links
+      3. Subdomain of Host header     — multi-tenant custom domains
+      4. DEFAULT_CLIENT_ID env var    — last-resort fallback (Vercel single URL)
       5. "default"
     """
     if url_client_id:
@@ -52,15 +49,15 @@ def _resolve_client_id(url_client_id: str | None) -> str:
     if param:
         return param.strip().lower()
 
-    default_client = os.getenv('DEFAULT_CLIENT_ID', '').strip().lower()
-    if default_client:
-        return default_client
-
     host = request.host.split(':')[0]
     parts = host.split('.')
     is_ip = all(p.isdigit() for p in parts)
     if not is_ip and len(parts) >= 3 and parts[0] not in ('www', ''):
         return parts[0].lower()
+
+    default_client = os.getenv('DEFAULT_CLIENT_ID', '').strip().lower()
+    if default_client:
+        return default_client
 
     return 'default'
 

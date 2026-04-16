@@ -882,28 +882,36 @@ def get_client_id_from_request() -> str:
     Determine the client_id from the incoming request.
 
     Priority:
-      1. ?client=xxx query param       (dev/testing: localhost:5000?client=acme)
-      2. DEFAULT_CLIENT_ID env var     (Vercel / single-tenant deployments where
-                                        the hostname doesn't match a client_id)
-      3. Subdomain of the Host header  (multi-tenant: acme.platform.com → "acme")
+      1. ?client=xxx query param       — explicit override, always wins
+                                         (dev: localhost:5000?client=acme)
+                                         (share link: docling-fleet.vercel.app?client=ocean7)
+      2. Subdomain of the Host header  — multi-tenant custom domains
+                                         (acme.yourplatform.com → "acme")
+      3. DEFAULT_CLIENT_ID env var     — last-resort fallback for deployments
+                                         where the hostname carries no client info
+                                         (docling-fleet.vercel.app → env var value)
       4. "default"
+
+    This order means custom-domain subdomain routing (step 2) always takes
+    precedence over the env var fallback (step 3), so multiple clients can
+    each have their own domain pointing at the same Vercel deployment.
     """
-    # Query param override (dev/testing)
+    # 1. Explicit query param (dev / share links)
     client_param = request.args.get('client')
     if client_param:
         return client_param.strip().lower()
 
-    # Explicit default (Vercel env var)
-    default_client = os.getenv('DEFAULT_CLIENT_ID', '').strip().lower()
-    if default_client:
-        return default_client
-
-    # Subdomain detection (multi-tenant production)
-    host = request.host.split(':')[0]  # strip port if present
+    # 2. Subdomain detection (multi-tenant: acme.platform.com → "acme")
+    host = request.host.split(':')[0]
     parts = host.split('.')
     is_ip = all(p.isdigit() for p in parts)
     if not is_ip and len(parts) >= 3 and parts[0] not in ('www', ''):
         return parts[0].lower()
+
+    # 3. Env var fallback (single Vercel URL serving one client)
+    default_client = os.getenv('DEFAULT_CLIENT_ID', '').strip().lower()
+    if default_client:
+        return default_client
 
     return 'default'
 
