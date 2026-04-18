@@ -885,27 +885,47 @@ def get_client_id_from_request() -> str:
       1. ?client=xxx query param       — explicit override, always wins
                                          (dev: localhost:5000?client=acme)
                                          (share link: docling-fleet.vercel.app?client=ocean7)
-      2. Subdomain of the Host header  — multi-tenant custom domains
+      2. Subdomain of the Host header  — multi-tenant custom domains only
                                          (acme.yourplatform.com → "acme")
-      3. DEFAULT_CLIENT_ID env var     — last-resort fallback for deployments
-                                         where the hostname carries no client info
-                                         (docling-fleet.vercel.app → env var value)
+                                         Skipped for hosting-platform base domains
+                                         (vercel.app, netlify.app, etc.) so that
+                                         deployment URLs like docling-fleet.vercel.app
+                                         don't accidentally become client IDs.
+      3. DEFAULT_CLIENT_ID env var     — fallback for single-client Vercel deployments
+                                         (set this in Vercel → Settings → Env Vars)
       4. "default"
 
     This order means custom-domain subdomain routing (step 2) always takes
     precedence over the env var fallback (step 3), so multiple clients can
     each have their own domain pointing at the same Vercel deployment.
     """
+    # Hosting-platform base domains that should never be used for subdomain routing.
+    # Subdomains of these are deployment identifiers, not client IDs.
+    _HOSTING_DOMAINS = {
+        "vercel.app",
+        "netlify.app",
+        "herokuapp.com",
+        "ngrok.io",
+        "ngrok-free.app",
+        "loca.lt",
+    }
+
     # 1. Explicit query param (dev / share links)
     client_param = request.args.get('client')
     if client_param:
         return client_param.strip().lower()
 
-    # 2. Subdomain detection (multi-tenant: acme.platform.com → "acme")
+    # 2. Subdomain detection — custom domains only (e.g. acme.yourplatform.com)
     host = request.host.split(':')[0]
     parts = host.split('.')
     is_ip = all(p.isdigit() for p in parts)
-    if not is_ip and len(parts) >= 3 and parts[0] not in ('www', ''):
+    base_domain = '.'.join(parts[-2:]) if len(parts) >= 2 else host
+    if (
+        not is_ip
+        and len(parts) >= 3
+        and parts[0] not in ('www', '')
+        and base_domain not in _HOSTING_DOMAINS
+    ):
         return parts[0].lower()
 
     # 3. Env var fallback (single Vercel URL serving one client)
