@@ -106,10 +106,74 @@ if _db_url.startswith('postgresql'):
 from models import db
 db.init_app(app)
 
+def _run_startup_migrations():
+    """
+    Idempotent column migrations that run on every cold start.
+
+    db.create_all() only creates missing *tables*, not missing *columns*.
+    This function adds any columns that were introduced after the initial
+    deployment, so the Neon (PostgreSQL) schema stays in sync with the
+    SQLAlchemy models without a manual migration step.
+
+    Uses SQLAlchemy inspect() so it works with both SQLite and PostgreSQL.
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(db.engine)
+
+    def _col_exists(table, column):
+        try:
+            return any(c['name'] == column for c in insp.get_columns(table))
+        except Exception:
+            return False  # table doesn't exist yet — create_all will handle it
+
+    # Each entry: (table, column, DDL type)
+    migrations = [
+        # client_configs — Chat UX columns
+        ("client_configs", "welcome_message",      "TEXT"),
+        ("client_configs", "suggested_questions",   "TEXT"),
+        ("client_configs", "default_theme",         "VARCHAR(10) NOT NULL DEFAULT 'dark'"),
+        ("client_configs", "show_mode_toggle",      "BOOLEAN NOT NULL DEFAULT TRUE"),
+        ("client_configs", "daily_request_limit",   "INTEGER NOT NULL DEFAULT 0"),
+        # users — preferences
+        ("users",          "theme_preference",      "VARCHAR(10) NOT NULL DEFAULT 'dark'"),
+        # documents — incremental columns
+        ("documents",      "group_name",            "VARCHAR(500)"),
+        ("documents",      "vessel_id",             "INTEGER"),
+        ("documents",      "document_category",     "VARCHAR(100)"),
+        ("documents",      "uploaded_by",           "VARCHAR(255)"),
+        ("documents",      "uploaded_at",           "TIMESTAMP WITH TIME ZONE"),
+        ("documents",      "activated_at",          "TIMESTAMP WITH TIME ZONE"),
+        ("documents",      "coverage_pct",          "INTEGER"),
+        ("documents",      "coverage_notes",        "TEXT"),
+        ("documents",      "storage_key",           "VARCHAR(1000)"),
+    ]
+
+    added = []
+    for table, column, col_type in migrations:
+        if not _col_exists(table, column):
+            try:
+                db.session.execute(
+                    text(f'ALTER TABLE {table} ADD COLUMN {column} {col_type}')
+                )
+                db.session.commit()
+                added.append(f"{table}.{column}")
+                logging.info(f"[migration] Added column {table}.{column}")
+            except Exception as e:
+                db.session.rollback()
+                logging.warning(f"[migration] Could not add {table}.{column}: {e}")
+
+    if added:
+        logging.info(f"[migration] Applied {len(added)} column(s): {', '.join(added)}")
+    else:
+        logging.info("[migration] Schema up to date — no columns added")
+
+
 # Create tables and seed first admin if needed
 with app.app_context():
     try:
         db.create_all()
+        _run_startup_migrations()
         from models import User
         if not User.query.filter_by(role='admin').first():
             admin_email    = os.getenv('ADMIN_EMAIL', 'admin@platform.com')
