@@ -929,6 +929,12 @@ function _applyAuthUI() {
   document.getElementById('cms-btn').style.display    = hasCmsAccess ? 'flex' : 'none';
 }
 
+function _authHeaders(extra) {
+  const h = { 'Content-Type': 'application/json', ...(extra || {}) };
+  if (authToken) h['Authorization'] = `Bearer ${authToken}`;
+  return h;
+}
+
 function openLoginModal()  {
   document.getElementById('login-modal').classList.add('open');
   document.getElementById('login-email').focus();
@@ -950,6 +956,7 @@ async function submitLogin() {
     _saveAuth(data.access_token, data.user);
     document.getElementById('login-password').value = '';
     closeLoginModal();
+    await fetchSessions();
   } catch (err) { errEl.textContent = err.message; errEl.style.display = 'block'; }
 }
 async function doLogout() {
@@ -1083,6 +1090,7 @@ let activeSessionId = null; // DB id of the currently open session
 async function fetchSessions() {
   try {
     const res = await fetch(`/api/sessions?client_id=${clientId}`, {
+      headers: _authHeaders(),
       credentials: 'include',
     });
     if (!res.ok) return;
@@ -1094,7 +1102,10 @@ async function fetchSessions() {
 
 async function loadSession(sessionId) {
   try {
-    const res = await fetch(`/api/sessions/${sessionId}`, { credentials: 'include' });
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      headers: _authHeaders(),
+      credentials: 'include',
+    });
     if (!res.ok) return;
     const data = await res.json();
     activeSessionId = sessionId;
@@ -1113,6 +1124,7 @@ async function deleteSession(sessionId, e) {
   try {
     await fetch(`/api/sessions/${sessionId}`, {
       method: 'DELETE',
+      headers: _authHeaders(),
       credentials: 'include',
     });
     if (activeSessionId === sessionId) newChat();
