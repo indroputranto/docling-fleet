@@ -229,6 +229,44 @@ def run():
         cur.execute("ALTER TABLE documents ADD COLUMN storage_key VARCHAR(1000)")
         print("  [+] documents.storage_key (VARCHAR(1000))")
 
+    # ── chat_sessions table ───────────────────────────────────────────────────
+    if table_exists(cur, "chat_sessions"):
+        print("  [skip] chat_sessions table already exists")
+    else:
+        cur.execute("""
+            CREATE TABLE chat_sessions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email      VARCHAR(255) NOT NULL,
+                client_id       VARCHAR(100) NOT NULL,
+                label           VARCHAR(500) NOT NULL DEFAULT 'New chat',
+                conversation_id VARCHAR(100),
+                created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("CREATE INDEX ix_chat_sessions_user_email ON chat_sessions (user_email)")
+        cur.execute("CREATE INDEX ix_chat_sessions_client_id  ON chat_sessions (client_id)")
+        print("  [+] chat_sessions table created")
+
+    # ── chat_messages table ───────────────────────────────────────────────────
+    if table_exists(cur, "chat_messages"):
+        print("  [skip] chat_messages table already exists")
+    else:
+        cur.execute("""
+            CREATE TABLE chat_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                role       VARCHAR(20)  NOT NULL,
+                content    TEXT         NOT NULL,
+                position   INTEGER      NOT NULL,
+                created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX ix_chat_messages_session_id ON chat_messages (session_id)"
+        )
+        print("  [+] chat_messages table created")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

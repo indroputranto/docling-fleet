@@ -201,6 +201,45 @@ def _validate_history(raw_history) -> list[dict]:
     return validated
 
 
+def _resolve_user_email() -> str | None:
+    """
+    Extract the authenticated user's email from the current request.
+
+    Checks in order:
+      1. Authorization: Bearer <jwt>  header  (JS-held token)
+      2. cms_token httpOnly cookie            (server-side session, most common)
+
+    Returns None when the request is unauthenticated.
+    """
+    import jwt as _jwt
+    _secret = os.getenv("JWT_SECRET", "change-me-in-production")
+
+    # 1. Bearer token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            payload = _jwt.decode(auth_header[7:], _secret, algorithms=["HS256"])
+            email = payload.get("sub")
+            if email:
+                return email
+        except Exception:
+            pass
+
+    # 2. Cookie session (set by /login for all roles)
+    token = request.cookies.get("cms_token")
+    if token:
+        try:
+            from auth import _decode_token
+            payload = _decode_token(token)
+            email = payload.get("sub")
+            if email:
+                return email
+        except Exception:
+            pass
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -220,6 +259,83 @@ def get_config(client_id: str = None):
     if public_cfg is None:
         return jsonify({"error": f"Client '{resolved}' not found or inactive"}), 404
     return jsonify(public_cfg)
+
+
+@chat_bp.route("/sessions", methods=["GET"])
+def list_sessions():
+    """
+    GET /api/sessions
+    GET /api/sessions?client_id=<id>
+
+    Returns the authenticated user's chat sessions, most recent first.
+    Requires a valid login cookie or Bearer token.
+    """
+    user_email = _resolve_user_email()
+    if not user_email:
+        return jsonify({"error": "Authentication required"}), 401
+
+    client_id = request.args.get("client_id") or _resolve_client_id(None)
+
+    from models import ChatSession
+    sessions = (
+        ChatSession.query
+        .filter_by(user_email=user_email, client_id=client_id)
+        .order_by(ChatSession.updated_at.desc())
+        .limit(50)
+        .all()
+    )
+    return jsonify({"sessions": [s.to_dict() for s in sessions]})
+
+
+@chat_bp.route("/sessions/<int:session_id>", methods=["GET"])
+def get_session(session_id: int):
+    """
+    GET /api/sessions/<session_id>
+
+    Returns all messages for a session. The session must belong to the
+    authenticated user.
+    """
+    user_email = _resolve_user_email()
+    if not user_email:
+        return jsonify({"error": "Authentication required"}), 401
+
+    from models import ChatSession, ChatMessage
+    session = ChatSession.query.get_or_404(session_id)
+    if session.user_email != user_email:
+        return jsonify({"error": "Forbidden"}), 403
+
+    messages = (
+        ChatMessage.query
+        .filter_by(session_id=session_id)
+        .order_by(ChatMessage.position)
+        .all()
+    )
+    return jsonify({
+        "session":  session.to_dict(),
+        "messages": [m.to_dict() for m in messages],
+    })
+
+
+@chat_bp.route("/sessions/<int:session_id>", methods=["DELETE"])
+def delete_session(session_id: int):
+    """
+    DELETE /api/sessions/<session_id>
+
+    Deletes a session and all its messages. The session must belong to the
+    authenticated user.
+    """
+    user_email = _resolve_user_email()
+    if not user_email:
+        return jsonify({"error": "Authentication required"}), 401
+
+    from models import db, ChatSession
+    session = ChatSession.query.get_or_404(session_id)
+    if session.user_email != user_email:
+        return jsonify({"error": "Forbidden"}), 403
+
+    db.session.delete(session)
+    db.session.commit()
+    return jsonify({"success": True})
 
 
 @chat_bp.route("/chat", methods=["POST"])
@@ -277,19 +393,11 @@ def chat(client_id: str = None):
         return jsonify({"error": "Field 'message' is required and cannot be empty"}), 400
 
     conversation_id = body.get("conversation_id") or str(uuid.uuid4())
-    history = _validate_history(body.get("history", []))
+    history         = _validate_history(body.get("history", []))
+    session_id      = body.get("session_id")  # int or None — sent by the frontend
 
-    # Extract user email from JWT if present (optional auth — chat is open)
-    user_email = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            import jwt as _jwt
-            _secret = os.getenv("JWT_SECRET", "change-me-in-production")
-            _payload = _jwt.decode(auth_header[7:], _secret, algorithms=["HS256"])
-            user_email = _payload.get("sub")
-        except Exception:
-            pass
+    # Resolve authenticated user (cookie or Bearer token)
+    user_email = _resolve_user_email()
 
     t_start = time.monotonic()
 
@@ -353,9 +461,9 @@ def chat(client_id: str = None):
         return jsonify({"error": "Failed to generate response", "detail": str(e)}), 500
 
     # --- Log usage -----------------------------------------------------------
+    response_ms = int((time.monotonic() - t_start) * 1000)
     try:
         from models import db, UsageLog
-        response_ms = int((time.monotonic() - t_start) * 1000)
         now = datetime.now(timezone.utc)
         log = UsageLog(
             client_id=resolved,
@@ -370,8 +478,64 @@ def chat(client_id: str = None):
         db.session.add(log)
         db.session.commit()
     except Exception as e:
-        # Never let logging failure break the chat response
         logger.error(f"[chat] Usage logging failed: {e}")
+
+    # --- Persist chat history to DB ------------------------------------------
+    # Only for authenticated users. Failures are non-fatal.
+    db_session_id = session_id  # may be updated below if a new session is created
+    if user_email:
+        try:
+            from models import db, ChatSession, ChatMessage
+            now = datetime.now(timezone.utc)
+
+            # Resolve or create the ChatSession row
+            chat_session = None
+            if session_id:
+                chat_session = ChatSession.query.filter_by(
+                    id=session_id, user_email=user_email, client_id=resolved
+                ).first()
+
+            if not chat_session:
+                # First message in a new session — label it from the user message
+                label = user_message[:60] + ("…" if len(user_message) > 60 else "")
+                chat_session = ChatSession(
+                    user_email=user_email,
+                    client_id=resolved,
+                    label=label,
+                    conversation_id=conversation_id,
+                )
+                db.session.add(chat_session)
+                db.session.flush()  # get the auto-generated id
+
+            # Next position = current message count in this session
+            existing_count = ChatMessage.query.filter_by(
+                session_id=chat_session.id
+            ).count()
+
+            # Save user message then assistant reply as consecutive rows
+            db.session.add(ChatMessage(
+                session_id=chat_session.id,
+                role="user",
+                content=user_message,
+                position=existing_count,
+            ))
+            db.session.add(ChatMessage(
+                session_id=chat_session.id,
+                role="assistant",
+                content=reply,
+                position=existing_count + 1,
+            ))
+
+            # Bump updated_at so the session floats to the top of the list
+            chat_session.updated_at      = now
+            chat_session.conversation_id = conversation_id
+            db.session.commit()
+            db_session_id = chat_session.id
+
+        except Exception as e:
+            logger.error(f"[chat] Chat history persistence failed: {e}", exc_info=True)
+            db.session.rollback()
+    # -------------------------------------------------------------------------
 
     # --- Step 5: Return response ---------------------------------------------
     sources = [
@@ -386,9 +550,10 @@ def chat(client_id: str = None):
     ]
 
     return jsonify({
-        "reply": reply,
+        "reply":           reply,
         "conversation_id": conversation_id,
-        "sources": sources,
+        "session_id":      db_session_id,
+        "sources":         sources,
     })
 
 

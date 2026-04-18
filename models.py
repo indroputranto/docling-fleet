@@ -441,6 +441,81 @@ class DossierSectionConfig(db.Model):
                 f"slug={self.slug} active={self.active}>")
 
 
+class ChatSession(db.Model):
+    """
+    One conversation thread per user per client.
+
+    Created automatically on the first message of a new chat.
+    Labelled with the first user message (truncated to 60 chars).
+    Scoped by user_email + client_id so switching clients or users
+    shows only the relevant history.
+    """
+    __tablename__ = "chat_sessions"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    user_email      = db.Column(db.String(255), nullable=False, index=True)
+    client_id       = db.Column(db.String(100), nullable=False, index=True)
+    label           = db.Column(db.String(500),  nullable=False, default="New chat")
+    conversation_id = db.Column(db.String(100),  nullable=True)
+    # The UUID echoed back by /api/chat — kept so the LLM context
+    # thread can be resumed if needed in the future.
+
+    created_at = db.Column(db.DateTime, nullable=False,
+                           default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, nullable=False,
+                           default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+
+    messages = db.relationship(
+        "ChatMessage",
+        backref="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.position",
+        lazy="dynamic",
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id":              self.id,
+            "label":           self.label,
+            "conversation_id": self.conversation_id,
+            "created_at":      self.created_at.isoformat() if self.created_at else None,
+            "updated_at":      self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<ChatSession {self.id} user={self.user_email} client={self.client_id}>"
+
+
+class ChatMessage(db.Model):
+    """
+    One user or assistant message within a ChatSession.
+    """
+    __tablename__ = "chat_messages"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(
+        db.Integer,
+        db.ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role       = db.Column(db.String(20),  nullable=False)   # "user" | "assistant"
+    content    = db.Column(db.Text,        nullable=False)
+    position   = db.Column(db.Integer,     nullable=False)   # 0-indexed ordering
+    created_at = db.Column(db.DateTime, nullable=False,
+                           default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "role":    self.role,
+            "content": self.content,
+        }
+
+    def __repr__(self):
+        return f"<ChatMessage session={self.session_id} pos={self.position} role={self.role}>"
+
+
 class UsageLog(db.Model):
     """
     One row per successful chat API request.

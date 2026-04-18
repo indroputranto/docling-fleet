@@ -997,7 +997,8 @@ async function init() {
   } catch {
     // use defaults
   }
-  newChat();
+  await fetchSessions();   // populate sidebar from DB
+  newChat();               // start with a blank active chat
   hideOverlay();
 }
 
@@ -1074,42 +1075,85 @@ function hideOverlay() {
 }
 
 // ============================================================
-// Sessions
+// Sessions — DB-backed
 // ============================================================
-function newChat() {
-  if (history.length > 0 && chatSessions[activeSessionIdx]) {
-    chatSessions[activeSessionIdx].history       = [...history];
-    chatSessions[activeSessionIdx].conversationId = conversationId;
+let dbSessions     = [];   // [{id, label, conversation_id, updated_at}, ...]
+let activeSessionId = null; // DB id of the currently open session
+
+async function fetchSessions() {
+  try {
+    const res = await fetch(`/api/sessions?client_id=${clientId}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    dbSessions = data.sessions || [];
+  } catch { dbSessions = []; }
+  renderHistoryList();
+}
+
+async function loadSession(sessionId) {
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    activeSessionId = sessionId;
+    conversationId  = data.session.conversation_id || null;
+    history         = data.messages.map(m => ({ role: m.role, content: m.content }));
+    clearMessages();
+    history.forEach(m => appendMessage(m.role, m.content, false));
+    renderHistoryList();
+  } catch (e) {
+    console.error('Failed to load session', e);
   }
-  chatSessions.unshift({ id: Date.now(), label: 'New chat', history: [], conversationId: null });
-  activeSessionIdx = 0;
+}
+
+async function deleteSession(sessionId, e) {
+  e.stopPropagation();
+  try {
+    await fetch(`/api/sessions/${sessionId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (activeSessionId === sessionId) newChat();
+    dbSessions = dbSessions.filter(s => s.id !== sessionId);
+    renderHistoryList();
+  } catch (e) {
+    console.error('Failed to delete session', e);
+  }
+}
+
+function newChat() {
+  activeSessionId = null;
   history = []; conversationId = null;
   clearMessages();
   renderHistoryList();
   document.getElementById('user-input').focus();
 }
 
-function loadSession(idx) {
-  if (history.length > 0 && chatSessions[activeSessionIdx]) {
-    chatSessions[activeSessionIdx].history       = [...history];
-    chatSessions[activeSessionIdx].conversationId = conversationId;
-  }
-  activeSessionIdx = idx;
-  const s = chatSessions[idx];
-  history = [...s.history]; conversationId = s.conversationId;
-  clearMessages();
-  history.forEach(m => appendMessage(m.role, m.content, false));
-  renderHistoryList();
-}
-
 function renderHistoryList() {
   const list = document.getElementById('history-list');
   list.innerHTML = '';
-  chatSessions.forEach((s, i) => {
-    const el = document.createElement('div');
-    el.className   = 'history-item' + (i === activeSessionIdx ? ' active' : '');
-    el.textContent = s.label;
-    el.onclick     = () => loadSession(i);
+  dbSessions.forEach(s => {
+    const el  = document.createElement('div');
+    el.className = 'history-item' + (s.id === activeSessionId ? ' active' : '');
+
+    const label = document.createElement('span');
+    label.textContent = s.label;
+    label.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+
+    const del = document.createElement('button');
+    del.innerHTML = '&times;';
+    del.title = 'Delete conversation';
+    del.style.cssText = 'background:none;border:none;color:inherit;opacity:0.4;cursor:pointer;padding:0 2px;font-size:14px;line-height:1;flex-shrink:0;';
+    del.onmouseenter = () => del.style.opacity = '1';
+    del.onmouseleave = () => del.style.opacity = '0.4';
+    del.onclick = (e) => deleteSession(s.id, e);
+
+    el.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    el.appendChild(label);
+    el.appendChild(del);
+    el.addEventListener('click', () => loadSession(s.id));
     list.appendChild(el);
   });
 }
@@ -1218,21 +1262,35 @@ async function sendMessage() {
     const res = await fetch(`/api/chat/${clientId}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ message, conversation_id: conversationId, history: history.slice(0, -1) }),
+      credentials: 'include',
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId,
+        session_id:      activeSessionId,
+        history:         history.slice(0, -1),
+      }),
     });
 
     if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Error ${res.status}`); }
 
     const data     = await res.json();
     conversationId = data.conversation_id;
+
+    // Capture the DB session id returned by the server
+    if (data.session_id) {
+      const isNew = !activeSessionId;
+      activeSessionId = data.session_id;
+      if (isNew) {
+        // Prepend the new session to the sidebar list
+        const label = message.slice(0, 60) + (message.length > 60 ? '…' : '');
+        dbSessions.unshift({ id: activeSessionId, label, conversation_id: conversationId });
+        renderHistoryList();
+      }
+    }
+
     setTyping(false);
     appendMessage('assistant', data.reply);
     history.push({role: 'assistant', content: data.reply});
-
-    if (chatSessions[activeSessionIdx]) {
-      chatSessions[activeSessionIdx].history       = [...history];
-      chatSessions[activeSessionIdx].conversationId = conversationId;
-    }
   } catch (err) {
     setTyping(false);
     showError(err.message || 'Something went wrong.');
