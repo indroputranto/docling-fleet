@@ -226,6 +226,11 @@ class Document(db.Model):
     coverage_pct   = db.Column(db.Integer, nullable=True)
     coverage_notes = db.Column(db.Text,    nullable=True)
 
+    # Object storage — the key (path) of the original uploaded file in
+    # DigitalOcean Spaces, e.g. "documents/ocean7/fixture_recap_mv_aurora.pdf".
+    # NULL when object storage is not configured or the upload was skipped.
+    storage_key    = db.Column(db.String(1000), nullable=True)
+
     chunks = db.relationship(
         "DocumentChunk",
         backref="document",

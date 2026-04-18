@@ -222,6 +222,13 @@ def run():
             cur.execute(f"ALTER TABLE documents ADD COLUMN {col} {typedef}")
             print(f"  [+] documents.{col} ({typedef})")
 
+    # ── documents: object storage key ────────────────────────────────────────
+    if col_exists(cur, "documents", "storage_key"):
+        print("  [skip] documents.storage_key already exists")
+    else:
+        cur.execute("ALTER TABLE documents ADD COLUMN storage_key VARCHAR(1000)")
+        print("  [+] documents.storage_key (VARCHAR(1000))")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

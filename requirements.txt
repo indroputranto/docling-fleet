@@ -27,6 +27,11 @@ psycopg2-binary>=2.9.0  # PostgreSQL driver (required for Vercel / production)
 # Environment & config
 python-dotenv>=1.0.0
 
+# Object storage (DigitalOcean Spaces / S3-compatible)
+# minio is used instead of boto3 — it is fully S3-compatible and installs at
+# ~1 MB vs ~90 MB for boto3+botocore, keeping the Vercel bundle well within limits.
+minio>=7.2.0
+
 # Utilities (existing pipeline)
 pathlib2==2.3.7
 typing-extensions>=4.8.0

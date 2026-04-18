@@ -218,6 +218,14 @@ def replace(doc_id: int):
     skip_enrichment = request.form.get("skip_enrichment") == "on"
     client          = ClientConfig.query.filter_by(client_id=doc.client_id).first()
 
+    # ── 0. Remove old object from storage ────────────────────────────────────
+    try:
+        from documents.object_storage import is_configured, delete_file
+        if is_configured() and doc.storage_key:
+            delete_file(doc.storage_key)
+    except Exception as _se:
+        logger.warning(f"[documents] Object storage delete skipped during replace (doc {doc_id}): {_se}")
+
     # ── 1. Remove old Pinecone vectors ────────────────────────────────────────
     if doc.status == "active" and client:
         try:
@@ -310,6 +318,7 @@ def replace(doc_id: int):
     doc.chunk_count    = len(raw_chunks)
     doc.coverage_pct   = coverage_pct
     doc.coverage_notes = coverage_notes
+    doc.storage_key    = None  # cleared until we re-upload below
 
     for pos, chunk in enumerate(raw_chunks):
         db.session.add(DocumentChunk(
@@ -324,6 +333,30 @@ def replace(doc_id: int):
         f"[documents] Replaced doc {doc_id} with '{filename}' "
         f"({len(raw_chunks)} chunks) for client '{doc.client_id}'"
     )
+
+    # ── Object storage: upload replacement file ───────────────────────────────
+    try:
+        from documents.object_storage import (
+            is_configured, upload_file, build_storage_key
+        )
+        if is_configured():
+            import mimetypes
+            storage_key = build_storage_key(doc.client_id, filename)
+            content_type = (
+                mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            )
+            file.stream.seek(0)
+            upload_file(file.stream, storage_key, content_type=content_type)
+            doc.storage_key = storage_key
+            db.session.commit()
+            logger.info(
+                f"[documents] Stored replacement '{filename}' → {storage_key}"
+            )
+    except Exception as _se:
+        logger.warning(
+            f"[documents] Object storage upload skipped for replacement '{filename}': {_se}"
+        )
+    # ─────────────────────────────────────────────────────────────────────────
 
     return redirect(url_for(
         "documents.preview",
@@ -524,6 +557,32 @@ def upload():
             f"({len(raw_chunks)} chunks) for client '{client_id}'"
             + (f" vessel='{group_name}'" if group_name else "")
         )
+
+        # ── Object storage: save original file ───────────────────────────────
+        # Best-effort: a storage failure never blocks the rest of the pipeline.
+        try:
+            from documents.object_storage import (
+                is_configured, upload_file, build_storage_key
+            )
+            if is_configured():
+                import mimetypes
+                storage_key = build_storage_key(client_id, filename)
+                content_type = (
+                    mimetypes.guess_type(filename)[0]
+                    or "application/octet-stream"
+                )
+                file.stream.seek(0)
+                upload_file(file.stream, storage_key, content_type=content_type)
+                doc.storage_key = storage_key
+                db.session.commit()
+                logger.info(
+                    f"[documents] Stored original '{filename}' → {storage_key}"
+                )
+        except Exception as _se:
+            logger.warning(
+                f"[documents] Object storage upload skipped for '{filename}': {_se}"
+            )
+        # ─────────────────────────────────────────────────────────────────────
 
         # ── Auto-fill vessel metadata from spec sheet chunks ─────────────────
         # Only updates the pre-existing Vessel record — never creates one.
@@ -912,11 +971,23 @@ def delete(doc_id: int):
             )
 
     filename    = doc.filename
-    vessel_id   = doc.vessel_id  # capture before delete
+    vessel_id   = doc.vessel_id        # capture before delete
+    storage_key = doc.storage_key      # capture before delete
     from_vessel = request.form.get("from_vessel", "").strip() or None
 
     db.session.delete(doc)
     db.session.commit()
+
+    # ── Object storage: remove original file ─────────────────────────────────
+    try:
+        from documents.object_storage import is_configured, delete_file
+        if is_configured() and storage_key:
+            delete_file(storage_key)
+    except Exception as _se:
+        logger.warning(
+            f"[documents] Object storage delete skipped for '{filename}': {_se}"
+        )
+    # ─────────────────────────────────────────────────────────────────────────
 
     logger.info(f"[documents] Deleted doc {doc_id} '{filename}' for client '{client_id_for_redirect}'")
     flash(f"'{filename}' has been deleted.", "success")
