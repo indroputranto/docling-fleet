@@ -54,7 +54,7 @@ pip-wheel-metadata/
 Thumbs.db
 
 # ── CI/CD ────────────────────────────────────────────────────────────────────
-.github/
+# .github/ is tracked so workflow files can be managed in code.
 
 # ── Backups & scratch ────────────────────────────────────────────────────────
 Backup/

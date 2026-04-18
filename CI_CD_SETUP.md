@@ -4,15 +4,15 @@ This guide will help you set up automated deployment from your GitHub repository
 
 ## Prerequisites
 
-1. **GitHub Repository**: Your code is in `https://github.com/impremishub/ocean7-docling`
-2. **Digital Ocean Droplet**: IP `206.189.87.235` with SSH access
+1. **GitHub Repository**: Your code is in `https://github.com/indroputranto/docling-fleet`
+2. **Digital Ocean Droplet**: A provisioned Droplet with SSH access
 3. **GitHub Account**: With access to repository settings
 
 ## Step 1: Set Up GitHub Secrets
 
 ### 1.1 Go to GitHub Repository Settings
 
-1. Navigate to your repository: `https://github.com/impremishub/ocean7-docling`
+1. Navigate to your repository: `https://github.com/indroputranto/docling-fleet`
 2. Click on **Settings** tab
 3. In the left sidebar, click **Secrets and variables** → **Actions**
 
@@ -22,25 +22,25 @@ Add the following secrets by clicking **New repository secret**:
 
 | Secret Name | Value | Description |
 |-------------|-------|-------------|
-| `DROPLET_IP` | `206.189.87.235` | Your Digital Ocean Droplet IP |
-| `DROPLET_USERNAME` | `root` | SSH username |
-| `DROPLET_PASSWORD` | `Ocean7IT2005` | SSH password |
+| `DROPLET_IP` | Your Droplet's IP address | Your Digital Ocean Droplet IP |
+| `DROPLET_USERNAME` | `root` (or a dedicated deploy user) | SSH username |
+| `DROPLET_SSH_KEY` | Private key contents | Use SSH key auth — never store passwords in secrets |
 
-**Note**: For better security, consider using SSH keys instead of passwords.
+**Important**: Always use SSH key authentication. Never store plaintext passwords in GitHub Secrets or documentation.
 
 ## Step 2: Initial Server Setup
 
 ### 2.1 Connect to Your Droplet
 
 ```bash
-ssh root@206.189.87.235
+ssh root@<YOUR_DROPLET_IP>
 ```
 
 ### 2.2 Run Initial Deployment
 
 ```bash
 # Clone the repository
-git clone https://github.com/impremishub/ocean7-docling.git /opt/docling
+git clone https://github.com/indroputranto/docling-fleet.git /opt/docling
 cd /opt/docling
 
 # Make deployment script executable
@@ -96,7 +96,7 @@ journalctl -u docling -f
 
 ```bash
 # Test health endpoint
-curl http://206.189.87.235/health
+curl http://<YOUR_DROPLET_IP>/health
 
 # Expected response:
 {
@@ -151,7 +151,7 @@ The GitHub Actions workflow will:
 Update your Power Automate HTTP request to use the new production URL:
 
 ```
-URL: http://206.189.87.235/process-document
+URL: http://<YOUR_DROPLET_IP>/process-document
 Headers:
   Authorization: Bearer YOUR_API_KEY
   Content-Type: multipart/form-data
@@ -239,8 +239,8 @@ ps aux | grep python
 netstat -tlnp
 
 # Test API endpoints
-curl -X GET http://206.189.87.235/health
-curl -X POST http://206.189.87.235/process-document \
+curl -X GET http://<YOUR_DROPLET_IP>/health
+curl -X POST http://<YOUR_DROPLET_IP>/process-document \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -F "file=@test.docx" \
   -F "document_type=vessel"
