@@ -49,6 +49,13 @@ def run():
             cur.execute(f"ALTER TABLE client_configs ADD COLUMN {col} {typedef}")
             print(f"  [+] client_configs.{col} ({typedef})")
 
+    # ── users: theme preference ──────────────────────────────────────────────
+    if col_exists(cur, "users", "theme_preference"):
+        print("  [skip] users.theme_preference already exists")
+    else:
+        cur.execute("ALTER TABLE users ADD COLUMN theme_preference VARCHAR(10) NOT NULL DEFAULT 'dark'")
+        print("  [+] users.theme_preference (VARCHAR(10) NOT NULL DEFAULT 'dark')")
+
     # ── client_configs: rate limiting ────────────────────────────────────────
     if col_exists(cur, "client_configs", "daily_request_limit"):
         print("  [skip] client_configs.daily_request_limit already exists")

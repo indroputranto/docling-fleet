@@ -31,7 +31,7 @@ import jwt
 import logging
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, make_response, g
 from models import db, User
 
 logger = logging.getLogger(__name__)
@@ -206,12 +206,18 @@ def login():
 
     logger.info(f"[auth] Login success: {email} role={user.role}")
 
-    return jsonify({
+    resp = make_response(jsonify({
         "access_token":  access_token,
         "refresh_token": refresh_token,
         "expires_in":    int(ACCESS_EXPIRES.total_seconds()),
         "user":          user.to_dict(),
-    })
+    }))
+    resp.set_cookie(
+        "cms_token", access_token,
+        httponly=True, samesite="Lax",
+        max_age=int(ACCESS_EXPIRES.total_seconds()),
+    )
+    return resp
 
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -266,6 +272,50 @@ def me():
     Returns the current user's profile.
     """
     return jsonify(g.current_user.to_dict())
+
+
+@auth_bp.route("/preferences", methods=["PATCH"])
+def update_preferences():
+    """
+    PATCH /auth/preferences
+    Body: { "theme_preference": "dark" | "light" }
+
+    Persists per-user UI preferences to the database.
+    Accepts Bearer token or cms_token cookie.
+    """
+    import jwt as _jwt
+    _secret = os.getenv("JWT_SECRET", "change-me-in-production")
+
+    user = None
+    # 1. Bearer token
+    header = request.headers.get("Authorization", "")
+    if header.startswith("Bearer "):
+        try:
+            payload = _jwt.decode(header[7:], _secret, algorithms=["HS256"])
+            user = User.query.filter_by(email=payload.get("sub"), active=True).first()
+        except Exception:
+            pass
+    # 2. Cookie fallback
+    if not user:
+        token = request.cookies.get("cms_token")
+        if token:
+            try:
+                payload = _decode_token(token)
+                user = User.query.filter_by(email=payload.get("sub"), active=True).first()
+            except Exception:
+                pass
+
+    if not user:
+        return jsonify({"error": "Authentication required"}), 401
+
+    body = request.get_json(silent=True) or {}
+    theme = body.get("theme_preference", "").strip()
+    if theme not in ("dark", "light"):
+        return jsonify({"error": "theme_preference must be 'dark' or 'light'"}), 400
+
+    user.theme_preference = theme
+    db.session.commit()
+    return jsonify({"ok": True, "theme_preference": theme})
 
 
 @auth_bp.route("/session", methods=["GET"])

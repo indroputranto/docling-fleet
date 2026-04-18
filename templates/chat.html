@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="{{ initial_theme | default('dark') }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -868,17 +868,28 @@
 // Theme
 // ============================================================
 function _currentTheme()  { return document.documentElement.getAttribute('data-theme') || 'dark'; }
-function _setTheme(t) {
+function _applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
-  localStorage.setItem('theme', t);
   document.getElementById('icon-moon').style.display = t === 'dark'  ? 'block' : 'none';
   document.getElementById('icon-sun').style.display  = t === 'light' ? 'block' : 'none';
+}
+async function _setTheme(t) {
+  _applyTheme(t);
+  try {
+    await fetch('/auth/preferences', {
+      method: 'PATCH',
+      headers: _authHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ theme_preference: t }),
+    });
+  } catch (_) {}
 }
 function toggleTheme() { _setTheme(_currentTheme() === 'dark' ? 'light' : 'dark'); }
 
 function _initTheme(defaultTheme) {
-  const saved = localStorage.getItem('theme');
-  _setTheme(saved || defaultTheme || 'dark');
+  // User's saved preference (set in _saveAuth) takes priority over client default.
+  const pref = currentUser?.theme_preference;
+  _applyTheme(pref || defaultTheme || 'dark');
 }
 
 // ============================================================
@@ -889,38 +900,22 @@ let currentUser = null;
 
 function _saveAuth(token, user) {
   authToken = token; currentUser = user;
-  sessionStorage.setItem('auth_token', token);
-  sessionStorage.setItem('auth_user',  JSON.stringify(user));
   _applyAuthUI();
 }
 function _clearAuth() {
   authToken = null; currentUser = null;
-  sessionStorage.removeItem('auth_token');
-  sessionStorage.removeItem('auth_user');
   _applyAuthUI();
 }
 async function _restoreAuth() {
-  // 1. Try sessionStorage first (same-tab logins and page refreshes)
-  const t = sessionStorage.getItem('auth_token');
-  const u = sessionStorage.getItem('auth_user');
-  if (t && u) {
-    authToken = t; currentUser = JSON.parse(u);
-    _applyAuthUI();
-    return;
-  }
-  // 2. Fall back to the CMS session cookie — handles the case where the user
-  //    is already logged into the CMS and opens the chat in a new tab.
-  //    /auth/session checks the httpOnly cms_token cookie server-side and
-  //    returns a fresh Bearer token if valid, so we never touch the cookie directly.
+  // Check the httpOnly cms_token cookie via the server-side bridge.
+  // POST /auth/login sets this cookie, so it covers both form logins and modal logins.
   try {
     const res = await fetch('/auth/session', { credentials: 'include' });
     if (res.ok) {
       const data = await res.json();
-      _saveAuth(data.access_token, data.user);  // also calls _applyAuthUI
+      _saveAuth(data.access_token, data.user);
     }
-  } catch (_) {
-    // Network error or 401 — not logged in, leave UI as-is (Sign In visible)
-  }
+  } catch (_) {}
 }
 function _applyAuthUI() {
   const hasCmsAccess = currentUser?.role === 'admin' || currentUser?.role === 'client_admin';
@@ -1352,7 +1347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target === document.getElementById('login-modal')) closeLoginModal();
   });
 
-  await _restoreAuth();   // async: checks sessionStorage then falls back to cms_token cookie
+  await _restoreAuth();   // async: checks cms_token cookie via /auth/session
   init();
 });
 </script>

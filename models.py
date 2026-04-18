@@ -31,10 +31,11 @@ class User(db.Model):
     # null for platform admins (they see everything)
     # required for client_admin and user roles
 
-    active        = db.Column(db.Boolean, nullable=False, default=True)
-    created_at    = db.Column(db.DateTime, nullable=False,
-                              default=lambda: datetime.now(timezone.utc))
-    last_login_at = db.Column(db.DateTime, nullable=True)
+    active            = db.Column(db.Boolean, nullable=False, default=True)
+    theme_preference  = db.Column(db.String(10), nullable=False, default='dark')
+    created_at        = db.Column(db.DateTime, nullable=False,
+                                  default=lambda: datetime.now(timezone.utc))
+    last_login_at     = db.Column(db.DateTime, nullable=True)
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
@@ -44,12 +45,13 @@ class User(db.Model):
 
     def to_dict(self) -> dict:
         return {
-            "id":         self.id,
-            "email":      self.email,
-            "role":       self.role,
-            "client_id":  self.client_id,
-            "active":     self.active,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "id":               self.id,
+            "email":            self.email,
+            "role":             self.role,
+            "client_id":        self.client_id,
+            "active":           self.active,
+            "theme_preference": self.theme_preference or 'dark',
+            "created_at":       self.created_at.isoformat() if self.created_at else None,
         }
 
     def __repr__(self):

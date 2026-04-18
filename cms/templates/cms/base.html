@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="{{ g.current_user.theme_preference if g.get('current_user') else 'dark' }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -369,21 +369,26 @@
 {% block extra_scripts %}{% endblock %}
 
 <script>
-// ── Theme (shares localStorage key 'theme' with Chat so both stay in sync) ──
+// ── Theme — persisted in DB via /auth/preferences ──
 function _cmsCurrent() { return document.documentElement.getAttribute('data-theme') || 'dark'; }
-function _cmsSetTheme(t) {
+function _cmsApplyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
-  localStorage.setItem('theme', t);
   document.getElementById('cms-icon-moon').style.display = t === 'dark'  ? 'block' : 'none';
   document.getElementById('cms-icon-sun').style.display  = t === 'light' ? 'block' : 'none';
 }
-function toggleCmsTheme() { _cmsSetTheme(_cmsCurrent() === 'dark' ? 'light' : 'dark'); }
+function toggleCmsTheme() {
+  var next = _cmsCurrent() === 'dark' ? 'light' : 'dark';
+  _cmsApplyTheme(next);
+  fetch('/auth/preferences', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ theme_preference: next }),
+  }).catch(function() {});
+}
 
-// Apply saved theme immediately (avoids flash of wrong theme)
-(function() {
-  var saved = localStorage.getItem('theme');
-  _cmsSetTheme(saved || 'dark');
-})();
+// Initial theme already set server-side via data-theme attribute; just sync the icons.
+(function() { _cmsApplyTheme(_cmsCurrent()); })();
 </script>
 
 </body>

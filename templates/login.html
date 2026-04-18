@@ -174,7 +174,6 @@
 <script>
 function _setTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
-  localStorage.setItem('theme', t);
   document.getElementById('icon-moon').style.display = t === 'dark'  ? 'block' : 'none';
   document.getElementById('icon-sun').style.display  = t === 'light' ? 'block' : 'none';
 }
@@ -182,8 +181,8 @@ function toggleTheme() {
   var current = document.documentElement.getAttribute('data-theme') || 'dark';
   _setTheme(current === 'dark' ? 'light' : 'dark');
 }
-// Apply saved theme on load
-(function() { _setTheme(localStorage.getItem('theme') || 'dark'); })();
+// Login page always starts dark; no user context to load a saved preference from.
+(function() { _setTheme('dark'); })();
 </script>
 </body>
 </html>

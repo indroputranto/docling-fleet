@@ -957,10 +957,14 @@ def _check_chat_cookie():
 @app.route("/")
 def home():
     """Serve the chat UI — requires a valid session cookie."""
-    if not _check_chat_cookie():
+    payload = _check_chat_cookie()
+    if not payload:
         return redirect(url_for("chat_login", next="/"))
+    from models import User
+    user = User.query.filter_by(email=payload.get("sub"), active=True).first()
+    initial_theme = (user.theme_preference if user else None) or 'dark'
     client_id = get_client_id_from_request()
-    return render_template('chat.html', client_id=client_id)
+    return render_template('chat.html', client_id=client_id, initial_theme=initial_theme)
 
 
 @app.route("/login", methods=["GET", "POST"])
