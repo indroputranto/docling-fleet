@@ -392,7 +392,9 @@ Gunicorn + systemd deployment, nginx routing, automated provisioning.
 
 ---
 
-## 7. Infrastructure — Current State (Development)
+## 7. Infrastructure — Environments
+
+### 7.1 Local Development
 
 ```
 Developer Machine
@@ -406,7 +408,75 @@ External Services (shared, dev)
 ├── Pinecone — single index, namespace-per-client
 ├── OpenAI API — embeddings
 └── Anthropic API — LLM
+
+Database: SQLite (platform.db) — local file, not committed to git
 ```
+
+### 7.2 Staging / Demo Environment (Current — April 2026)
+
+A shared, low-ops deployment used for internal testing, feature validation, and demonstrating the product to prospective clients before they sign. **Not suitable for real client data** — see constraints below.
+
+```
+Vercel (Serverless, @vercel/python)
+└── app.py — single serverless function serving all routes
+    ├── maxDuration: 60s, memory: 1024 MB
+    ├── / → chat.html
+    ├── /api → chat_routes.py (RAG pipeline)
+    ├── /auth → auth.py (JWT)
+    ├── /cms → cms/routes.py (admin dashboard)
+    └── /documents → documents/routes.py (upload pipeline)
+
+GitHub → Vercel CI/CD
+├── Push to main → automatic Vercel redeploy (< 30s)
+└── Two Vercel projects connected to same repo:
+    ├── docling-fleet         — primary staging instance
+    └── docling-fleet-blue    — secondary / blue-green slot
+
+External Services (shared across all staging clients)
+├── Neon PostgreSQL — single managed database, client-scoped by application logic
+├── DigitalOcean Spaces — single bucket, objects namespaced as documents/{client_id}/
+├── Pinecone — single index, namespace-per-client
+├── OpenAI API — embeddings (shared API key)
+└── Anthropic API — LLM (shared API key)
+```
+
+**Environment variables (set in Vercel dashboard):**
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Neon PostgreSQL connection string |
+| `DEFAULT_CLIENT_ID` | Client slug for the deployment URL (e.g. `test-client`) |
+| `OBJECT_STORAGE_ENDPOINT` | DO Spaces endpoint URL |
+| `OBJECT_STORAGE_ACCESS_KEY` | DO Spaces access key |
+| `OBJECT_STORAGE_SECRET_KEY` | DO Spaces secret key |
+| `OBJECT_STORAGE_BUCKET` | DO Spaces bucket name |
+| `PINECONE_API_KEY` | Pinecone API key |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `JWT_SECRET` | JWT signing secret |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seeded platform admin credentials |
+
+**Client routing on staging:**
+- Vercel deployment URLs (e.g. `docling-fleet-blue.vercel.app`) fall through to `DEFAULT_CLIENT_ID` — the subdomain extractor skips known hosting-platform domains.
+- Custom subdomains (e.g. `demo.vesfleet.ai`) still route via subdomain detection as intended.
+- Explicit `?client=xxx` query param always overrides both.
+
+**Known constraints of the staging environment:**
+
+| Constraint | Detail |
+|---|---|
+| Shared database | All test clients share one Neon DB — isolation is application-level only, not infrastructure-level |
+| Shared object storage | All uploaded files land in one DO Spaces bucket, namespaced by client_id |
+| Serverless cold starts | First request after inactivity may take 2–5 s to boot the Python runtime |
+| 60 s function timeout | Long document processing (large PDFs + AI enrichment) may time out |
+| Read-only filesystem | No local file writes — all persistence must go through the DB or object storage |
+| No persistent workers | Background jobs, scheduled tasks, and long async pipelines are not supported |
+| Not suitable for real client data | Charter parties and sanctions-relevant documents must not be uploaded here |
+
+**Intended uses:**
+- Internal feature testing and QA after each push to `main`
+- Live product demos for prospective clients using synthetic or anonymised vessel data
+- Onboarding flow validation before provisioning a client's dedicated Droplet
 
 ---
 
@@ -560,3 +630,6 @@ The platform is production-ready when:
 | Vessel Dossier section count and structure? | 10 fixed sections defined as `DOCUMENT_SECTIONS` in `documents/routes.py`. Sections are not user-configurable at this stage. A `full_document` slug exists outside the 10 sections for integrated packages. | Apr 2026 |
 | document_category storage strategy? | Stored as a slug string on `Document.document_category` and in Pinecone vector metadata. Not a FK to a categories table — the 10 slugs are defined as a constant, keeping the schema simple and migration-free when sections are added. | Apr 2026 |
 | Login gate scope? | All routes — Chat root `/`, CMS `/cms`, and Documents `/documents` — require a valid `cms_token` cookie. End users (role: user) are accepted at `/login` and can reach the chat UI. Only admin/client_admin roles can access the CMS. | Apr 2026 |
+| Staging environment — Vercel vs DO App Platform vs Droplet? | Vercel chosen for staging/demo only. Zero ops overhead, instant deploys from GitHub, sufficient for synthetic data demos. Acknowledged limitations: shared infrastructure, serverless constraints, not suitable for real client data. Per-client Droplets remain the non-negotiable production target. | Apr 2026 |
+| Staging database — shared Neon vs per-client? | Single shared Neon PostgreSQL for staging. Acceptable because staging only holds synthetic/test data. Production always gets a dedicated database per client. | Apr 2026 |
+| Object storage — staging vs production bucket strategy? | Single DO Spaces bucket for staging with `documents/{client_id}/` namespacing. Each production client gets their own bucket as a line item. The `object_storage.py` module is already wired — only the bucket env var changes per deployment. | Apr 2026 |
