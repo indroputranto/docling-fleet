@@ -21,7 +21,7 @@ pipeline to detect silent content loss.  Two complementary strategies:
 Returns a standardised CoverageResult dict stored as JSON on the Document
 record, and surfaced on the preview page.
 """
-
+ 
 import re
 import logging
 from typing import List, Dict, Optional
