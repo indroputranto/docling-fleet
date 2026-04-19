@@ -527,6 +527,67 @@ When the CMS operator clicks "Provision" for a new client, a script runs that:
 
 **First clients: do this manually.** Run the steps yourself for the first 2–3 clients. Document every step. The script is written from that runbook, not the other way around.
 
+### 8.4 LLM Resilience — Local Model Fallback (Droplet Phase)
+
+**Problem:** The platform's core functionality depends on two external AI services — OpenAI (embeddings + enrichment) and Anthropic (chat LLM). If either goes down, the service degrades or stops entirely.
+
+**Solution:** Run [Ollama](https://ollama.com) as a background service on each client Droplet. Ollama serves open-source models (Llama 3, Mistral, Qwen) via an **OpenAI-compatible API** at `http://localhost:11434/v1`. The application code calls the primary service and, on failure, retries against the local endpoint — no vendor lock-in, minimal code change.
+
+**Why this only makes sense on Droplets (not Vercel):**
+Vercel is serverless — there is no persistent process to run a model server. This feature is exclusively a Droplet-phase concern.
+
+**Recommended models per use case:**
+
+| Use Case | Primary | Fallback Model | Droplet RAM needed |
+|---|---|---|---|
+| Chat (RAG Q&A) | Anthropic Claude | `llama3.1:8b` (~5 GB, 4-bit) | 8 GB |
+| Document enrichment | OpenAI gpt-4o-mini | `mistral:7b` (~5 GB, 4-bit) | 8 GB |
+| Embeddings | OpenAI text-embedding-3-small | `nomic-embed-text` (~1.5 GB) | 4 GB |
+
+A standard 8 GB RAM Droplet (~$48/mo) runs the chat and enrichment fallback models comfortably on CPU. Inference is slower than the hosted APIs (~10–20 tok/s vs ~100+ tok/s) but acceptable — enrichment is a background task, and chat users can tolerate slightly longer response times during an outage.
+
+**Implementation sketch (circuit breaker pattern):**
+```python
+def call_chat_llm(messages, client_config):
+    """Try Anthropic first; fall back to local Ollama if unreachable."""
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        # ... existing chat call ...
+    except Exception as e:
+        logger.warning(f"Anthropic unavailable ({e}), switching to local fallback")
+        import openai
+        local = openai.OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        return local.chat.completions.create(model="llama3.1:8b", messages=messages)
+
+def call_enrichment_llm(prompt):
+    """Try OpenAI gpt-4o-mini first; fall back to local Mistral."""
+    try:
+        import openai
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # ... existing enrichment call ...
+    except Exception as e:
+        logger.warning(f"OpenAI unavailable ({e}), switching to local fallback")
+        local = openai.OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        # ... same call, different base_url ...
+```
+
+**Ollama setup on a new Droplet (add to provisioning script in Phase 3B):**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.1:8b
+ollama pull mistral:7b
+ollama pull nomic-embed-text
+systemctl enable ollama
+```
+
+**Key decisions deferred to implementation:**
+- Whether to use a hard fail-fast (try once, fall back immediately) or a retry-with-backoff before fallback
+- Whether to surface the fallback status to the user ("Responding in offline mode — answers may be less precise")
+- Whether embeddings fallback is worth the complexity (mismatched embedding spaces between OpenAI and nomic-embed-text would require re-indexing the entire Pinecone namespace; this may be impractical mid-operation)
+
+**Priority:** Implement during or after the Droplet migration (Phase 3). Do not attempt on the Vercel staging environment.
+
 ---
 
 ## 9. Security Architecture
@@ -633,3 +694,4 @@ The platform is production-ready when:
 | Staging environment — Vercel vs DO App Platform vs Droplet? | Vercel chosen for staging/demo only. Zero ops overhead, instant deploys from GitHub, sufficient for synthetic data demos. Acknowledged limitations: shared infrastructure, serverless constraints, not suitable for real client data. Per-client Droplets remain the non-negotiable production target. | Apr 2026 |
 | Staging database — shared Neon vs per-client? | Single shared Neon PostgreSQL for staging. Acceptable because staging only holds synthetic/test data. Production always gets a dedicated database per client. | Apr 2026 |
 | Object storage — staging vs production bucket strategy? | Single DO Spaces bucket for staging with `documents/{client_id}/` namespacing. Each production client gets their own bucket as a line item. The `object_storage.py` module is already wired — only the bucket env var changes per deployment. | Apr 2026 |
+| LLM resilience — self-hosted fallback? | Yes, via Ollama on each client Droplet. Serves Llama 3.1 8B (chat) and Mistral 7B (enrichment) via an OpenAI-compatible API at localhost:11434. Circuit breaker pattern: try primary API, fall back to local on failure. Not viable on Vercel (serverless). Implement during or after Droplet migration (Phase 3). Embedding fallback deferred — mismatched vector spaces would require full Pinecone re-indexing. | Apr 2026 |
