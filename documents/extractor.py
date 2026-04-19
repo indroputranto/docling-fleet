@@ -1045,64 +1045,443 @@ def extract_pdf(file_obj: IO[bytes], document_category: Optional[str] = None) ->
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# XLSX extraction
+# XLSX extraction — helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Footer row labels (lower-cased, with colon) — terminate the data section.
+_XLSX_FOOTER_KEYS = frozenset({
+    'date:', 'vessel:', "vessel's name:", 'master:', "master's name:",
+    'chief mate:', "ch. mate's name:", 'chief officer:', 'voyage no.:',
+    'date of inventory:',
+})
+_XLSX_REMARKS_KEYS = frozenset({'remarks:', 'remarks'})
+_XLSX_PAGE_RE = re.compile(r'^page\s+\d+\s*(of|/)\s*\d+', re.IGNORECASE)
+
+
+def _xlsx_get_raw_grid(ws):
+    """
+    Return a 1-indexed 2D list of cell values WITHOUT merge expansion, plus
+    (max_row, max_col). grid[row][col], both 1-based; grid[0] is unused.
+    """
+    max_row = ws.max_row or 0
+    max_col = ws.max_column or 0
+    if not max_row or not max_col:
+        return [], 0, 0
+    grid = [[None] * (max_col + 1) for _ in range(max_row + 1)]
+    for row in ws.iter_rows():
+        for cell in row:
+            grid[cell.row][cell.column] = cell.value
+    return grid, max_row, max_col
+
+
+def _xlsx_expand_merged(ws, raw_grid, max_row, max_col):
+    """
+    Return a copy of raw_grid with every merged-cell region filled with the
+    anchor cell's value.  Used for composite header building and section-label
+    detection (where fully-merged rows have one value repeated across all cols).
+    """
+    import copy
+    grid = copy.deepcopy(raw_grid)
+    for mr in ws.merged_cells.ranges:
+        anchor = grid[mr.min_row][mr.min_col]
+        for r in range(mr.min_row, mr.max_row + 1):
+            for c in range(mr.min_col, mr.max_col + 1):
+                grid[r][c] = anchor
+    return grid
+
+
+def _xlsx_fmt(v) -> str:
+    """Format a cell value to a clean, newline-free string."""
+    if v is None:
+        return ""
+    from datetime import datetime as _dt
+    if isinstance(v, _dt):
+        return v.strftime("%Y-%m-%d")
+    return str(v).strip().replace('\n', ' ')
+
+
+def _xlsx_find_header_rows(raw_grid, max_row, max_col):
+    """
+    Use the RAW (unexpanded) grid to locate the main header row.
+
+    Scans rows 4–14 for the first row that has:
+    - ≥4 non-None string cells AND ≥3 DISTINCT values
+      (rules out merged single-value title rows like "Inventory of …")
+
+    Then checks whether the immediately following row is a sub-header:
+    - 2 ≤ cells < main row cells AND ≥2 distinct values
+
+    Returns (main_row_idx, sub_row_idx_or_None).
+    """
+    for r in range(4, min(max_row + 1, 15)):
+        row = raw_grid[r][1:max_col + 1]
+        str_cells = [v for v in row if v is not None and isinstance(v, str) and v.strip()]
+        if len(str_cells) >= 4 and len(set(str_cells)) >= 3:
+            sub_row = None
+            if r + 1 <= max_row:
+                nxt = raw_grid[r + 1][1:max_col + 1]
+                nxt_str = [v for v in nxt if v is not None and isinstance(v, str) and v.strip()]
+                if 2 <= len(nxt_str) < len(str_cells) and len(set(nxt_str)) >= 2:
+                    sub_row = r + 1
+            return r, sub_row
+    return None, None
+
+
+def _xlsx_build_headers(exp_grid, main_row, sub_row, max_col) -> dict:
+    """
+    Build {col_idx: header_name} using the EXPANDED grid so that
+    merge-spanned column values are available in all relevant columns.
+
+    When a sub-row value differs from the main-row value → "Main (Sub)".
+    E.g. main="Total quantity", sub="Good" → "Total quantity (Good)".
+    """
+    headers: dict = {}
+    for c in range(1, max_col + 1):
+        mv = exp_grid[main_row][c] if main_row else None
+        sv = exp_grid[sub_row][c] if sub_row else None
+        ms = str(mv).strip().replace('\n', ' ') if mv is not None else None
+        ss = str(sv).strip().replace('\n', ' ') if sv is not None else None
+        if ms and ss and ms != ss:
+            headers[c] = f"{ms} ({ss})"
+        elif ms:
+            headers[c] = ms
+        elif ss:
+            headers[c] = ss
+    return headers
+
+
+def _xlsx_is_section_label(grid_row, max_col) -> bool:
+    """
+    True when the row represents an internal section/subsection header.
+
+    Handles both:
+    - A single non-None cell in column 1 (unmerged section label)
+    - A fully-merged row where all non-None values are the same short string
+      (e.g. the A8:P8 merged "Lashings" label row)
+
+    Excludes footer keys, remarks labels, and "Page N of N" references.
+    """
+    non_none = [grid_row[c] for c in range(1, max_col + 1) if grid_row[c] is not None]
+    if not non_none:
+        return False
+    distinct = set(str(v).strip() for v in non_none)
+    if len(distinct) != 1:
+        return False
+    val_str = next(iter(distinct))
+    if not val_str:
+        return False
+    lower = val_str.lower()
+    if lower in _XLSX_FOOTER_KEYS:
+        return False
+    if lower.rstrip(':') in _XLSX_REMARKS_KEYS:
+        return False
+    if _XLSX_PAGE_RE.match(val_str):
+        return False
+    if len(val_str) > 80:
+        return False
+    return True
+
+
+def _xlsx_get_vessel_name(wb) -> Optional[str]:
+    """
+    Scan all sheets for a "Vessel:" or "Vessel's name:" label row and return
+    the first subsequent non-label cell value on the same row.
+    """
+    vessel_keys = {"vessel:", "vessel's name:"}
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        raw_grid, max_row, max_col = _xlsx_get_raw_grid(ws)
+        if max_row == 0:
+            continue
+        for r in range(1, max_row + 1):
+            row = raw_grid[r]
+            for c in range(1, max_col + 1):
+                v = row[c]
+                if v is None:
+                    continue
+                if str(v).strip().lower() in vessel_keys:
+                    for nc in range(c + 1, max_col + 1):
+                        nv = row[nc]
+                        if nv is None:
+                            continue
+                        nv_str = str(nv).strip()
+                        if nv_str and nv_str.lower() not in vessel_keys and nv_str.lower() not in _XLSX_FOOTER_KEYS:
+                            return nv_str
+    return None
+
+
+def _xlsx_extract_front_page(
+    sheet_name: str, exp_grid: list, max_row: int, max_col: int,
+    vessel_name: Optional[str], chapter: Optional[str],
+) -> Optional[Dict]:
+    """
+    Extract the Front Page tab as a labelled prose dump.
+    Merged cell values are de-duplicated within each row.
+    """
+    lines: List[str] = []
+    for r in range(1, max_row + 1):
+        seen: set = set()
+        vals: List[str] = []
+        for c in range(1, max_col + 1):
+            v = exp_grid[r][c]
+            if v is None:
+                continue
+            vs = _xlsx_fmt(v)
+            if vs and vs not in seen:
+                seen.add(vs)
+                vals.append(vs)
+        if vals:
+            lines.append("  ".join(vals))
+    body = "\n".join(lines).strip()
+    if not body:
+        return None
+    parts = [p for p in [vessel_name, chapter, sheet_name] if p]
+    return {"title": " - ".join(parts) if parts else sheet_name, "body": body}
+
+
+def _xlsx_extract_regular_sheet(
+    sheet_name: str, raw_grid: list, exp_grid: list,
+    max_row: int, max_col: int,
+    vessel_name: Optional[str], chapter: Optional[str],
+) -> List[Dict]:
+    """
+    Extract a regular data sheet into one chunk.
+
+    Title: [Vessel Name] - [Chapter] - [Subchapter (tab name)]
+    Body:
+      [Section: X]                   ← subsection headers (fully-merged rows)
+      Header: value  |  Header: value  ← data rows with composite column names
+      ...
+      Remarks: ...                   ← remarks block (if present)
+      ---
+      Date: ... | Vessel: ... | Master: ... | Chief Mate: ...
+    """
+    main_row, sub_row = _xlsx_find_header_rows(raw_grid, max_row, max_col)
+    if main_row is None:
+        # Fallback: dump all non-empty rows
+        lines: List[str] = []
+        for r in range(1, max_row + 1):
+            seen: set = set()
+            vals: List[str] = []
+            for c in range(1, max_col + 1):
+                v = exp_grid[r][c]
+                if v is None:
+                    continue
+                vs = _xlsx_fmt(v)
+                if vs and vs not in seen:
+                    seen.add(vs)
+                    vals.append(vs)
+            if vals:
+                lines.append("  ".join(vals))
+        body = "\n".join(lines).strip()
+        parts = [p for p in [vessel_name, chapter, sheet_name] if p]
+        return [{"title": " - ".join(parts), "body": body}] if body else []
+
+    headers = _xlsx_build_headers(exp_grid, main_row, sub_row, max_col)
+    if not headers:
+        return []
+
+    data_start = (sub_row or main_row) + 1
+    body_lines: List[str] = []
+    footer_parts: List[str] = []
+    remarks_lines: List[str] = []
+    in_remarks = False
+
+    for r in range(data_start, max_row + 1):
+        row = exp_grid[r]
+
+        if all(row[c] is None for c in range(1, max_col + 1)):
+            continue
+
+        # First non-None value in this row
+        first_val: Optional[str] = None
+        first_col: Optional[int] = None
+        for c in range(1, max_col + 1):
+            if row[c] is not None:
+                first_val = str(row[c]).strip()
+                first_col = c
+                break
+        if first_val is None:
+            continue
+
+        # ── Footer row ────────────────────────────────────────────────────────
+        if first_val.lower() in _XLSX_FOOTER_KEYS:
+            in_remarks = False
+            kvs = [first_val]
+            for c in range(first_col + 1, max_col + 1):
+                nv = row[c]
+                if nv is None:
+                    continue
+                nv_str = str(nv).strip()
+                if nv_str and nv_str.lower() not in _XLSX_FOOTER_KEYS and nv_str.lower() != first_val.lower():
+                    kvs.append(_xlsx_fmt(nv))
+                    break
+            footer_parts.append(" ".join(kvs))
+            continue
+
+        # ── Remarks row ───────────────────────────────────────────────────────
+        if first_val.lower().rstrip(':') in _XLSX_REMARKS_KEYS:
+            in_remarks = True
+            inline: List[str] = []
+            for c in range(first_col + 1, max_col + 1):
+                nv = row[c]
+                if nv is not None:
+                    vs = _xlsx_fmt(nv)
+                    if vs:
+                        inline.append(vs)
+            remarks_lines.append(
+                "Remarks: " + " | ".join(inline) if inline else "Remarks:"
+            )
+            continue
+
+        if in_remarks:
+            seen2: set = set()
+            vals2: List[str] = []
+            for c in range(1, max_col + 1):
+                v = row[c]
+                if v is None:
+                    continue
+                vs = _xlsx_fmt(v)
+                if vs and vs not in seen2:
+                    seen2.add(vs)
+                    vals2.append(vs)
+            if vals2:
+                remarks_lines.append("  ".join(vals2))
+            continue
+
+        # ── Section label (fully merged or single-cell row) ───────────────────
+        if _xlsx_is_section_label(row, max_col):
+            body_lines.append(f"\n[Section: {first_val}]")
+            continue
+
+        # ── Data row → composite header: value pairs ──────────────────────────
+        pairs: List[str] = []
+        for c in range(1, max_col + 1):
+            v = row[c]
+            if v is None:
+                continue
+            vs = _xlsx_fmt(v)
+            if vs and vs != '-':
+                pairs.append(f"{headers.get(c, f'Col{c}')}: {vs}")
+        if pairs:
+            body_lines.append("  |  ".join(pairs))
+
+    # ── Assemble ──────────────────────────────────────────────────────────────
+    body_parts: List[str] = []
+    if body_lines:
+        body_parts.append("\n".join(body_lines).strip("\n"))
+    if remarks_lines:
+        body_parts.append("\n".join(remarks_lines))
+    if footer_parts:
+        body_parts.append("---\n" + " | ".join(footer_parts))
+
+    body = "\n\n".join(body_parts).strip()
+    if not body:
+        return []
+
+    title_parts = [p for p in [vessel_name, chapter, sheet_name] if p]
+    return [{"title": " - ".join(title_parts), "body": body}]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# XLSX extraction — public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_xlsx(file_obj: IO[bytes]) -> List[Dict]:
     """
-    Extract chunks from an .xlsx file using openpyxl.
+    Extract chunks from an .xlsx/.xls maritime inventory or equipment file.
 
-    Strategy:
-    - One chunk per worksheet.
-    - Each row is rendered as "Col Header: value" pairs.
-    - If the first row appears to be headers, use them as column names.
+    Structure detected per sheet:
+    - Front Page tab: dumped as labelled prose (vessel info, master, instructions).
+    - Regular tabs:   one chunk each.
+        Title: [Vessel Name] - [Chapter] - [Subchapter (tab name)]
+        Body:  [Section: X] labels  +  structured data rows (Header: value |…)
+               +  Remarks block  +  '---' footer line
+
+    Composite column headers are built by merging a two-row header band:
+    e.g. "Total quantity" / "Good" → "Total quantity (Good)".
+    Fully-merged section label rows (e.g. A8:P8 "Lashings") are preserved
+    as [Section: Lashings] markers in the body.
+
+    Falls back to xlrd for legacy .xls files if openpyxl cannot load the file.
     """
-    import openpyxl
+    import io as _io
 
-    wb = openpyxl.load_workbook(file_obj, data_only=True)
+    raw = file_obj.read()
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(_io.BytesIO(raw), data_only=True)
+    except Exception as e:
+        try:
+            return _extract_xlsx_xlrd_fallback(raw)
+        except ImportError:
+            raise ImportError(
+                "No spreadsheet library found. Run: pip install openpyxl"
+            ) from e
+
+    vessel_name = _xlsx_get_vessel_name(wb)
     chunks: List[Dict] = []
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
+        raw_grid, max_row, max_col = _xlsx_get_raw_grid(ws)
+        if max_row == 0 or max_col == 0:
             continue
 
-        lines: List[str] = []
+        exp_grid = _xlsx_expand_merged(ws, raw_grid, max_row, max_col)
 
-        # Detect header row: first row where most cells are non-numeric strings
-        first_row = rows[0]
-        has_headers = all(
-            isinstance(c, str) or c is None for c in first_row
-        )
+        # Chapter title: first non-None value in row 1 (expansion covers merged title)
+        chapter: Optional[str] = None
+        for c in range(1, max_col + 1):
+            if exp_grid[1][c] is not None:
+                chapter = _xlsx_fmt(exp_grid[1][c])
+                break
 
-        if has_headers and len(rows) > 1:
-            headers = [str(c).strip() if c is not None else f"Col{i+1}"
-                       for i, c in enumerate(first_row)]
-            data_rows = rows[1:]
+        norm = sheet_name.lower().replace(" ", "").replace("_", "")
+        if norm in ("frontpage", "coverpage", "titlepage"):
+            chunk = _xlsx_extract_front_page(
+                sheet_name, exp_grid, max_row, max_col, vessel_name, chapter
+            )
+            if chunk:
+                chunks.append(chunk)
         else:
-            col_count = max(len(r) for r in rows)
-            headers = [f"Column {i+1}" for i in range(col_count)]
-            data_rows = rows
-
-        for row in data_rows:
-            if all(c is None for c in row):
-                continue
-            pairs = []
-            for h, v in zip(headers, row):
-                if v is not None:
-                    pairs.append(f"{h}: {v}")
-            if pairs:
-                lines.append("  |  ".join(pairs))
-
-        body = "\n".join(lines)
-        if body.strip():
-            chunks.append({"title": sheet_name, "body": body})
+            chunks.extend(
+                _xlsx_extract_regular_sheet(
+                    sheet_name, raw_grid, exp_grid, max_row, max_col,
+                    vessel_name, chapter,
+                )
+            )
 
     if not chunks:
         chunks = [{"title": None, "body": "No data found in spreadsheet."}]
 
     return _split_into_chunks(chunks)
+
+
+def _extract_xlsx_xlrd_fallback(raw: bytes) -> List[Dict]:
+    """
+    Basic .xls extraction via xlrd (legacy format, no merged-cell awareness).
+    Returns one chunk per sheet as pipe-separated rows.
+    """
+    import xlrd
+    wb = xlrd.open_workbook(file_contents=raw)
+    chunks: List[Dict] = []
+    for sheet_name in wb.sheet_names():
+        ws = wb.sheet_by_name(sheet_name)
+        lines: List[str] = []
+        for rx in range(ws.nrows):
+            row_vals = [
+                str(ws.cell(rx, cx).value).strip()
+                for cx in range(ws.ncols)
+                if str(ws.cell(rx, cx).value).strip()
+            ]
+            if row_vals:
+                lines.append("  |  ".join(row_vals))
+        body = "\n".join(lines).strip()
+        if body:
+            chunks.append({"title": sheet_name, "body": body})
+    return _split_into_chunks(chunks or [{"title": None, "body": "No data found in spreadsheet."}])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

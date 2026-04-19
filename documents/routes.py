@@ -29,7 +29,7 @@ from models import db, ClientConfig, Document, DocumentChunk, Vessel
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx"}
+ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "xls"}
 
 # Ordered list of document sections for the Vessel Dossier UI.
 # Each tuple is (slug_key, display_label).  The slug is stored as
@@ -211,7 +211,7 @@ def replace(doc_id: int):
 
     filename = secure_filename(file.filename)
     if not _allowed_file(filename):
-        flash("Unsupported file type — use .docx, .pdf, or .xlsx.", "error")
+        flash("Unsupported file type — use .docx, .pdf, .xlsx, or .xls.", "error")
         return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
 
     from_vessel     = request.form.get("from_vessel", "").strip() or str(doc.vessel_id or "")
@@ -425,7 +425,7 @@ def upload():
         filename = secure_filename(file.filename)
 
         if not _allowed_file(filename):
-            flash(f"'{file.filename}' skipped — unsupported type (use .docx, .pdf, .xlsx).", "error")
+            flash(f"'{file.filename}' skipped — unsupported type (use .docx, .pdf, .xlsx, or .xls).", "error")
             continue
 
         ext = filename.rsplit(".", 1)[1].lower()

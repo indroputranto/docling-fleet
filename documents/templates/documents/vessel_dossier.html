@@ -479,7 +479,7 @@
               style="display:inline">
           <input type="hidden" name="from_vessel" value="{{ vessel.id }}">
           <input type="file" name="file" id="replace-file-{{ doc.id }}"
-                 accept=".pdf,.docx,.xlsx" style="display:none"
+                 accept=".pdf,.docx,.xlsx,.xls" style="display:none"
                  onchange="document.getElementById('replace-form-{{ doc.id }}').submit()">
         </form>
         <button class="btn btn-sm btn-secondary doc-action-btn"
@@ -510,7 +510,7 @@
         <input type="hidden" name="from_vessel"       value="{{ vessel.id }}">
         <input type="file"   name="files"
                id="file-full_document"
-               accept=".pdf,.docx,.xlsx"
+               accept=".pdf,.docx,.xlsx,.xls"
                multiple
                style="display:none;"
                onchange="submitFullDoc()">
@@ -636,7 +636,7 @@
                   style="display:inline">
               <input type="hidden" name="from_vessel" value="{{ vessel.id }}">
               <input type="file" name="file" id="replace-file-{{ doc.id }}"
-                     accept=".pdf,.docx,.xlsx" style="display:none"
+                     accept=".pdf,.docx,.xlsx,.xls" style="display:none"
                      onchange="document.getElementById('replace-form-{{ doc.id }}').submit()">
             </form>
             <button class="btn btn-sm btn-secondary doc-action-btn"
@@ -667,7 +667,7 @@
             <input type="hidden" name="from_vessel"       value="{{ vessel.id }}">
             <input type="file"   name="files"
                    id="file-{{ section.key }}"
-                   accept=".pdf,.docx,.xlsx"
+                   accept=".pdf,.docx,.xlsx,.xls"
                    style="display:none;"
                    onchange="document.getElementById('form-{{ section.key }}').submit()">
 
@@ -685,7 +685,7 @@
                 <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
               </svg>
               <p>
-                Drop PDF or Word file here<br>
+                Drop PDF, Word, or Excel file here<br>
                 <a onclick="event.stopPropagation();"
                    href="javascript:void(0)"
                    onclick="document.getElementById('file-{{ section.key }}').click()">or click to browse</a>
