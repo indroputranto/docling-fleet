@@ -1050,10 +1050,12 @@ function applyConfig(cfg) {
   document.getElementById('chatbot-name').textContent  = botName;
   document.getElementById('typing-avatar').textContent = initials;
 
-  // Logo
+  // Logo — guard against non-URL values like the string "None" that can
+  // appear if the DB field was set via str(None) instead of actual NULL.
   const logoMark = document.getElementById('logo-mark');
-  if (t.logo_url) {
-    logoMark.innerHTML = `<img src="${escHtml(t.logo_url)}" alt="${escHtml(company)}" />`;
+  const validLogoUrl = t.logo_url && t.logo_url.startsWith('http') ? t.logo_url : null;
+  if (validLogoUrl) {
+    logoMark.innerHTML = `<img src="${escHtml(validLogoUrl)}" alt="${escHtml(company)}" />`;
   } else {
     logoMark.textContent = initials;
   }
