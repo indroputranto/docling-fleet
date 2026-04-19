@@ -424,8 +424,9 @@
     }
     [data-theme="light"] .bubble pre { background: rgba(0,0,0,0.05); }
     .bubble pre code { background: none; padding: 0; }
-    .bubble table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
-    .bubble th, .bubble td { padding: 7px 12px; border: 1px solid var(--border); text-align: left; }
+    .bubble .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 10px 0; border-radius: 6px; }
+    .bubble table { width: 100%; border-collapse: collapse; margin: 0; font-size: 13px; }
+    .bubble th, .bubble td { padding: 7px 12px; border: 1px solid var(--border); text-align: left; white-space: nowrap; }
     .bubble th { font-weight: 600; background: rgba(255,255,255,0.04); }
     [data-theme="light"] .bubble th { background: rgba(0,0,0,0.04); }
     del { text-decoration: line-through; opacity: 0.6; }
@@ -1205,6 +1206,15 @@ function appendMessage(role, content, animate = true) {
   if (role === 'assistant') {
     avatar.textContent  = initials;
     bubble.innerHTML    = marked.parse(content);
+
+    // Wrap every table in a scrollable container so wide tables don't
+    // overflow the chat bubble — they scroll horizontally instead.
+    bubble.querySelectorAll('table').forEach(tbl => {
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      tbl.parentNode.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    });
 
     // Copy button
     const copyBtn = document.createElement('button');
