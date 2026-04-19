@@ -20,6 +20,13 @@ All responses must follow these formatting rules:
     When presenting the speed and consumption table, a properly structured
     illustrated table is permitted.
     The table must clearly show: condition + speed + fuel consumption.
+- EXCEPTION – Inventory and Equipment Lists:
+    When presenting inventory or equipment data (lashing equipment, lifting
+    gear, dunnage, shackles, containers, or any tabular stock list), a
+    properly structured Markdown table is permitted and preferred.
+    Use the column names from the source data as headers.
+    Include all columns that contain data for at least one row; omit
+    columns that are entirely empty.
     No other tables are allowed under any circumstance.
 - If quoting multiple sections:
     Present each section clearly labeled.
