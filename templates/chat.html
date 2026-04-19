@@ -425,6 +425,8 @@
     [data-theme="light"] .bubble pre { background: rgba(0,0,0,0.05); }
     .bubble pre code { background: none; padding: 0; }
     .bubble .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 10px 0; border-radius: 6px; }
+    /* Widen assistant bubble when it contains one or more tables */
+    .message-row.assistant .bubble.has-table { max-width: min(960px, 90%); }
     .bubble table { width: 100%; border-collapse: collapse; margin: 0; font-size: 13px; }
     .bubble th, .bubble td { padding: 7px 12px; border: 1px solid var(--border); text-align: left; white-space: nowrap; }
     .bubble th { font-weight: 600; background: rgba(255,255,255,0.04); }
@@ -1209,12 +1211,18 @@ function appendMessage(role, content, animate = true) {
 
     // Wrap every table in a scrollable container so wide tables don't
     // overflow the chat bubble — they scroll horizontally instead.
-    bubble.querySelectorAll('table').forEach(tbl => {
+    // Also mark the bubble as wide when tables are present so it can
+    // expand beyond the default max-width.
+    const tables = bubble.querySelectorAll('table');
+    tables.forEach(tbl => {
       const wrap = document.createElement('div');
       wrap.className = 'table-wrap';
       tbl.parentNode.insertBefore(wrap, tbl);
       wrap.appendChild(tbl);
     });
+    if (tables.length > 0) {
+      bubble.classList.add('has-table');
+    }
 
     // Copy button
     const copyBtn = document.createElement('button');
@@ -1246,7 +1254,13 @@ function appendMessage(role, content, animate = true) {
 
 function scrollToBottom() {
   const c = document.getElementById('messages');
-  c.scrollTop = c.scrollHeight;
+  // Double rAF ensures we scroll after the browser has finished
+  // computing layout (important for tall multi-table responses).
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      c.scrollTop = c.scrollHeight;
+    });
+  });
 }
 
 function setTyping(v) {
