@@ -294,6 +294,234 @@
   </div>
   {% endif %}
 
+  <!-- Skills — visible to admin and client_admin when editing an existing client -->
+  {% if client %}
+  <div class="card" style="margin-bottom:20px;" id="skills-card">
+    <div class="card-header">
+      Skills
+      <span style="font-size:11px;font-weight:400;color:var(--muted);">
+        Custom instruction files injected into every chat for this client
+      </span>
+    </div>
+    <div style="padding:22px;">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.6;">
+        Upload <code style="font-size:12px;background:rgba(255,255,255,.07);padding:1px 6px;border-radius:4px;">.md</code> files to give this client's chatbot bespoke instructions — persona, domain rules, calculation methods, tone guidelines, and more. Active skills are appended to the system prompt on every chat request.
+      </p>
+
+      <!-- Upload form -->
+      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:20px;flex-wrap:wrap;">
+        <div class="form-group" style="flex:1;min-width:200px;margin-bottom:0;">
+          <label>Skill Name <span style="color:var(--muted);font-weight:400;">(optional — auto-derived from filename)</span></label>
+          <input type="text" id="skill-name-input" placeholder="e.g. Laytime Calculator Instructions" />
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;padding-bottom:1px;">
+          <label for="skill-file-input" class="btn btn-secondary" style="cursor:pointer;margin:0;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Choose .md file
+          </label>
+          <input type="file" id="skill-file-input" accept=".md" style="display:none;"
+                 onchange="skillFileSelected(this)" />
+          <button type="button" class="btn btn-primary" id="skill-upload-btn"
+                  onclick="uploadSkill()" disabled>
+            Upload Skill
+          </button>
+        </div>
+        <span id="skill-filename-label" style="font-size:12px;color:var(--muted);align-self:center;"></span>
+      </div>
+
+      <!-- Skills list -->
+      <div id="skills-list-wrap">
+        <div id="skills-loading" style="font-size:13px;color:var(--muted);padding:8px 0;">Loading skills…</div>
+        <div id="skills-list" style="display:none;flex-direction:column;gap:0;"></div>
+        <div id="skills-empty" style="display:none;font-size:13px;color:var(--muted);padding:8px 0;">
+          No skills uploaded yet. Add one above to make this chatbot bespoke.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+  .skill-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .skill-row:last-child { border-bottom: none; }
+  .skill-row.inactive { opacity: .45; }
+  .skill-info { flex: 1; min-width: 0; }
+  .skill-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .skill-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .skill-preview {
+    font-size: 11px; color: var(--muted);
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    border-radius: 5px; padding: 6px 10px; margin-top: 6px;
+    font-family: monospace; white-space: pre-wrap; word-break: break-word;
+    max-height: 60px; overflow: hidden;
+    display: none;
+  }
+  .skill-row.expanded .skill-preview { display: block; }
+  </style>
+
+  <script>
+  (function() {
+    const CLIENT_DB_ID = {{ client.id }};
+    let _selectedFile  = null;
+
+    // ── Load skills on page open ──────────────────────────────────────────────
+    function loadSkills() {
+      fetch(`/cms/clients/${CLIENT_DB_ID}/skills`)
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('skills-loading').style.display = 'none';
+          renderSkills(data.skills || []);
+        })
+        .catch(() => {
+          document.getElementById('skills-loading').textContent = 'Failed to load skills.';
+        });
+    }
+
+    function renderSkills(skills) {
+      const list  = document.getElementById('skills-list');
+      const empty = document.getElementById('skills-empty');
+      list.innerHTML = '';
+      if (!skills.length) {
+        list.style.display  = 'none';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+      list.style.display  = 'flex';
+      skills.forEach(s => list.appendChild(buildRow(s)));
+    }
+
+    function buildRow(s) {
+      const row = document.createElement('div');
+      row.className = 'skill-row' + (s.active ? '' : ' inactive');
+      row.id = `skill-row-${s.id}`;
+
+      const ts = s.created_at ? new Date(s.created_at).toLocaleDateString() : '';
+      const uploader = s.uploaded_by ? ` · by ${s.uploaded_by}` : '';
+
+      row.innerHTML = `
+        <label class="toggle-label" style="margin:0;flex-shrink:0;" title="${s.active ? 'Active — click to disable' : 'Inactive — click to enable'}">
+          <input type="checkbox" ${s.active ? 'checked' : ''} onchange="window._skillToggle(${s.id}, this)" />
+          <span class="toggle-track"></span>
+        </label>
+        <div class="skill-info" onclick="window._skillExpand(${s.id});" style="cursor:pointer;">
+          <div class="skill-name">${escHtml(s.name)}</div>
+          <div class="skill-meta">${escHtml(s.filename)}${ts ? ' · ' + ts : ''}${escHtml(uploader)}</div>
+          <div class="skill-preview" id="skill-preview-${s.id}">${escHtml(s.content_preview || '')}${s.content_preview && s.content_preview.length >= 200 ? '…' : ''}</div>
+        </div>
+        <button type="button" class="btn btn-danger btn-sm" onclick="window._skillDelete(${s.id})" title="Delete skill" style="flex-shrink:0;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+            <path d="M9 6V4h6v2"/>
+          </svg>
+          Delete
+        </button>`;
+      return row;
+    }
+
+    function escHtml(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── File picker ───────────────────────────────────────────────────────────
+    window.skillFileSelected = function(input) {
+      _selectedFile = input.files[0] || null;
+      const label = document.getElementById('skill-filename-label');
+      const btn   = document.getElementById('skill-upload-btn');
+      if (_selectedFile) {
+        label.textContent = _selectedFile.name;
+        btn.disabled = false;
+      } else {
+        label.textContent = '';
+        btn.disabled = true;
+      }
+    };
+
+    // ── Upload ────────────────────────────────────────────────────────────────
+    window.uploadSkill = function() {
+      if (!_selectedFile) return;
+      const btn  = document.getElementById('skill-upload-btn');
+      const name = document.getElementById('skill-name-input').value.trim();
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+
+      const fd = new FormData();
+      fd.append('skill_file', _selectedFile);
+      if (name) fd.append('skill_name', name);
+
+      fetch(`/cms/clients/${CLIENT_DB_ID}/skills/upload`, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) { alert('Upload failed: ' + data.error); return; }
+          // Reset form
+          document.getElementById('skill-file-input').value = '';
+          document.getElementById('skill-name-input').value = '';
+          document.getElementById('skill-filename-label').textContent = '';
+          _selectedFile = null;
+          loadSkills();
+        })
+        .catch(() => alert('Upload failed. Please try again.'))
+        .finally(() => {
+          btn.disabled    = false;
+          btn.textContent = 'Upload Skill';
+        });
+    };
+
+    // ── Toggle active ─────────────────────────────────────────────────────────
+    window._skillToggle = function(skillId, checkbox) {
+      fetch(`/cms/skills/${skillId}/toggle`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          const row = document.getElementById(`skill-row-${skillId}`);
+          if (row) {
+            row.classList.toggle('inactive', !data.active);
+            checkbox.checked = data.active;
+            checkbox.parentElement.title = data.active
+              ? 'Active — click to disable'
+              : 'Inactive — click to enable';
+          }
+        })
+        .catch(() => {
+          checkbox.checked = !checkbox.checked; // revert on error
+          alert('Toggle failed. Please try again.');
+        });
+    };
+
+    // ── Expand/collapse preview ───────────────────────────────────────────────
+    window._skillExpand = function(skillId) {
+      const row = document.getElementById(`skill-row-${skillId}`);
+      if (row) row.classList.toggle('expanded');
+    };
+
+    // ── Delete ────────────────────────────────────────────────────────────────
+    window._skillDelete = function(skillId) {
+      const row = document.getElementById(`skill-row-${skillId}`);
+      const name = row ? row.querySelector('.skill-name').textContent : 'this skill';
+      if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+      fetch(`/cms/skills/${skillId}/delete`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) loadSkills();
+          else alert('Delete failed.');
+        })
+        .catch(() => alert('Delete failed. Please try again.'));
+    };
+
+    // Auto-load on page ready
+    loadSkills();
+  })();
+  </script>
+  {% endif %}
+
   <!-- System Prompt — platform admin only -->
   {% if is_platform_admin %}
   <div class="card" style="margin-bottom:24px;">

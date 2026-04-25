@@ -516,6 +516,60 @@ class ChatMessage(db.Model):
         return f"<ChatMessage session={self.session_id} pos={self.position} role={self.role}>"
 
 
+class ClientSkill(db.Model):
+    """
+    A custom skill (instruction .md file) uploaded by a client admin.
+
+    Active skills are loaded on every chat request and appended to the
+    system prompt, making the chatbot bespoke to the client's needs.
+
+    Access:
+      admin        — can manage skills for any client
+      client_admin — can manage skills for their own client only
+      user         — no access; skills are applied transparently
+    """
+    __tablename__ = "client_skills"
+
+    id          = db.Column(db.Integer, primary_key=True)
+    client_id   = db.Column(
+        db.String(100),
+        db.ForeignKey("client_configs.client_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name        = db.Column(db.String(255), nullable=False)
+    # Display name shown in the CMS, e.g. "Laytime Calculator Instructions"
+
+    filename    = db.Column(db.String(500), nullable=False)
+    # Original filename of the uploaded .md file
+
+    content     = db.Column(db.Text, nullable=False)
+    # Raw markdown content of the skill file
+
+    active      = db.Column(db.Boolean, nullable=False, default=True)
+    # When False the skill is saved but not injected into chats
+
+    created_at  = db.Column(db.DateTime, nullable=False,
+                            default=lambda: datetime.now(timezone.utc))
+    uploaded_by = db.Column(db.String(255), nullable=True)
+    # Email of the admin/client_admin who uploaded the file
+
+    def to_dict(self) -> dict:
+        return {
+            "id":          self.id,
+            "client_id":   self.client_id,
+            "name":        self.name,
+            "filename":    self.filename,
+            "active":      self.active,
+            "uploaded_by": self.uploaded_by,
+            "created_at":  self.created_at.isoformat() if self.created_at else None,
+            "content_preview": (self.content or "")[:200],
+        }
+
+    def __repr__(self):
+        return f"<ClientSkill {self.name!r} client={self.client_id} active={self.active}>"
+
+
 class UsageLog(db.Model):
     """
     One row per successful chat API request.

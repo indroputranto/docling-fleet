@@ -267,6 +267,28 @@ def run():
         )
         print("  [+] chat_messages table created")
 
+    # ── client_skills table ───────────────────────────────────────────────────
+    if table_exists(cur, "client_skills"):
+        print("  [skip] client_skills table already exists")
+    else:
+        cur.execute("""
+            CREATE TABLE client_skills (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id   VARCHAR(100) NOT NULL
+                            REFERENCES client_configs(client_id) ON DELETE CASCADE,
+                name        VARCHAR(255) NOT NULL,
+                filename    VARCHAR(500) NOT NULL,
+                content     TEXT         NOT NULL,
+                active      BOOLEAN      NOT NULL DEFAULT 1,
+                created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                uploaded_by VARCHAR(255)
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX ix_client_skills_client_id ON client_skills (client_id)"
+        )
+        print("  [+] client_skills table created")
+
     con.commit()
     con.close()
     print("\nMigration complete.")
