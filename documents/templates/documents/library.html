@@ -14,96 +14,11 @@
   }
   .doc-toolbar select { width: auto; min-width: 180px; }
 
-  /* Upload zone */
-  .upload-zone {
-    border: 2px dashed var(--border); border-radius: var(--radius);
-    padding: 32px 28px; text-align: center;
-    background: var(--surface); margin-bottom: 28px;
-    transition: border-color .2s, background .2s;
-    cursor: pointer;
-  }
-  .upload-zone.drag-over {
-    border-color: var(--accent); background: rgba(15,52,96,.12);
-  }
-  .upload-zone h3  { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
-  .upload-zone p   { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
-  .upload-zone .file-types {
-    display: inline-flex; gap: 8px; margin-bottom: 18px;
-  }
   .file-type-badge {
     padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
     background: rgba(255,255,255,.08); color: var(--muted);
     text-transform: uppercase; letter-spacing: .05em;
   }
-  #file-input { display: none; }
-
-  /* Selected files list */
-  #selected-files {
-    display: none; margin-top: 12px; text-align: left;
-    border: 1px solid var(--border); border-radius: 7px; overflow: hidden;
-  }
-  .sel-file-row {
-    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
-    font-size: 13px; border-bottom: 1px solid var(--border);
-  }
-  .sel-file-row:last-child { border-bottom: none; }
-  .sel-file-icon { opacity: .5; flex-shrink: 0; }
-  .sel-file-name { flex: 1; font-weight: 500; }
-  .sel-file-size { color: var(--muted); font-size: 11px; white-space: nowrap; }
-
-  /* Vessel selector row */
-  .upload-meta {
-    display: flex; gap: 12px; align-items: flex-start;
-    margin-top: 20px; padding-top: 18px;
-    border-top: 1px solid var(--border);
-    text-align: left;
-  }
-  .upload-meta .form-group { flex: 1; margin: 0; }
-  .upload-meta label { display: block; font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); margin-bottom: 6px; }
-  .upload-meta input[type=text] { margin: 0; }
-  .vessel-hint {
-    font-size: 11px; color: var(--muted); margin-top: 5px;
-  }
-  .vessel-hint a { color: #58a6ff; text-decoration: none; }
-  .vessel-hint a:hover { text-decoration: underline; }
-
-  /* Skip enrichment toggle */
-  .enrichment-toggle-group {
-    display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; padding-top: 2px;
-  }
-  .enrichment-toggle-group > span {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .06em; color: var(--muted);
-  }
-  .toggle-row-lib {
-    display: flex; align-items: center; gap: 8px; padding-top: 2px;
-  }
-  .toggle-switch-lib {
-    position: relative; width: 34px; height: 18px; flex-shrink: 0;
-  }
-  .toggle-switch-lib input { opacity: 0; width: 0; height: 0; }
-  .toggle-slider-lib {
-    position: absolute; inset: 0; cursor: pointer;
-    background: rgba(255,255,255,.12); border-radius: 34px;
-    transition: background .2s;
-  }
-  [data-theme="light"] .toggle-slider-lib { background: rgba(0,0,0,.12); }
-  .toggle-slider-lib::before {
-    content: ""; position: absolute;
-    width: 12px; height: 12px; border-radius: 50%;
-    left: 3px; bottom: 3px; background: var(--muted);
-    transition: transform .2s, background .2s;
-  }
-  .toggle-switch-lib input:checked + .toggle-slider-lib { background: rgba(88,166,255,.4); }
-  .toggle-switch-lib input:checked + .toggle-slider-lib::before {
-    transform: translateX(16px); background: #58a6ff;
-  }
-  .toggle-label-lib { font-size: 12px; color: var(--muted); }
-  .toggle-label-lib strong { color: var(--text); font-weight: 600; }
-
-  #upload-actions { padding-bottom: 20px; }
 
   /* Status badges */
   .badge-blue   { background: rgba(15,52,96,.3);  color: #58a6ff; }
@@ -130,7 +45,6 @@
   .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
   .empty-state p  { font-size: 13px; }
 
-  .btn-uploading { opacity: .7; pointer-events: none; }
 </style>
 {% endblock %}
 
@@ -162,85 +76,10 @@
 </div>
 {% endif %}
 
-{# ── Upload form (only shown when a client is selected) ── #}
-{% if active_client_id %}
-<form id="upload-form" class="document-uploader" method="POST" action="{{ url_for('documents.upload') }}"
-      enctype="multipart/form-data">
-  <input type="hidden" name="client_id" value="{{ active_client_id }}" />
-
-  <div class="upload-zone" id="drop-zone"
-       onclick="document.getElementById('file-input').click()">
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="1.5" style="opacity:.4;margin-bottom:12px;">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-      <polyline points="17 8 12 3 7 8"/>
-      <line x1="12" y1="3" x2="12" y2="15"/>
-    </svg>
-    <h3>Drop documents here or click to browse</h3>
-    <p>Upload one or more files — each will be reviewed before saving</p>
-    <div class="file-types">
-      <span class="file-type-badge">DOCX</span>
-      <span class="file-type-badge">PDF</span>
-      <span class="file-type-badge">XLSX</span>
-      <span class="file-type-badge">XLS</span>
-    </div>
-    <input type="file" id="file-input" name="files"
-           accept=".docx,.pdf,.xlsx,.xls" multiple />
-    <div id="selected-files"></div>
-  </div>
-
-  <div id="upload-actions" style="display:none;">
-    <div class="upload-meta">
-      <div class="form-group">
-        <label>Vessel</label>
-        {% if vessels %}
-        <select name="vessel_id" style="min-width:220px;">
-          <option value="">— Unassigned (no vessel) —</option>
-          {% for v in vessels %}
-          <option value="{{ v.id }}">{{ v.name }}{% if v.imo_number %} · IMO {{ v.imo_number }}{% endif %}</option>
-          {% endfor %}
-        </select>
-        <div class="vessel-hint">
-          Can't find a vessel?
-          <a href="{{ url_for('cms.vessel_library', client=active_client_id) }}?add_vessel=1"
-             target="_blank">Add it in the Vessel Library ↗</a>
-          then refresh this page.
-        </div>
-        {% else %}
-        <div style="font-size:13px; color:var(--muted); padding:8px 0;">
-          No vessels yet —
-          <a href="{{ url_for('cms.vessel_library', client=active_client_id) }}?add_vessel=1"
-             target="_blank" style="color:#58a6ff; text-decoration:none; font-weight:500;">
-            create one in the Vessel Library ↗
-          </a>
-          then refresh this page.
-        </div>
-        <input type="hidden" name="vessel_id" value="" />
-        {% endif %}
-      </div>
-      <div class="enrichment-toggle-group">
-        <span>AI Enrichment</span>
-        <div class="toggle-row-lib">
-          <label class="toggle-switch-lib" title="When off, documents skip the AI title/clause-splitting step — faster for large structured files">
-            <input type="checkbox" name="skip_enrichment" id="lib-skip-enrichment">
-            <span class="toggle-slider-lib"></span>
-          </label>
-          <span class="toggle-label-lib" id="lib-enrichment-label"><strong>On</strong></span>
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary" id="upload-btn"
-              onclick="event.stopPropagation()" style="white-space:nowrap; align-self:flex-end; margin-bottom:1px;">
-        Extract &amp; Review →
-      </button>
-    </div>
-  </div>
-</form>
-{% else %}
-  {% if is_platform_admin %}
-  <div class="card" style="padding:20px 24px; margin-bottom:24px; color:var(--muted); font-size:13px;">
-    Select a client above to upload documents or view their knowledge base.
-  </div>
-  {% endif %}
+{% if is_platform_admin and not active_client_id %}
+<div class="card" style="padding:20px 24px; margin-bottom:24px; color:var(--muted); font-size:13px;">
+  Select a client above to view their knowledge base.
+</div>
 {% endif %}
 
 {# ── Document list, grouped by group_name ── #}
@@ -360,103 +199,12 @@
     </svg>
     <h3>No documents yet</h3>
     <p>
-      {% if active_client_id %}Upload documents above to build the knowledge base.
-      {% elif is_platform_admin %}Select a client to view their documents.
-      {% else %}No documents have been uploaded yet.{% endif %}
+      {% if is_platform_admin and not active_client_id %}Select a client to view their documents.
+      {% else %}No documents have been uploaded yet. Use the Vessel Dossier to upload documents.{% endif %}
     </p>
   </div>
   {% endif %}
 </div>
 
-<script>
-(function () {
-  const zone      = document.getElementById('drop-zone');
-  const input     = document.getElementById('file-input');
-  const filesEl   = document.getElementById('selected-files');
-  const actionsEl = document.getElementById('upload-actions');
-  const uploadBtn = document.getElementById('upload-btn');
-  const form      = document.getElementById('upload-form');
 
-  const ALLOWED = ['docx', 'pdf', 'xlsx'];
-  const ICONS   = {
-    docx: '#63b3ed', pdf: '#f85149', xlsx: '#3fb950',
-  };
-
-  function fmtSize(bytes) {
-    if (bytes < 1024)       return bytes + ' B';
-    if (bytes < 1024*1024)  return (bytes/1024).toFixed(0) + ' KB';
-    return (bytes/1024/1024).toFixed(1) + ' MB';
-  }
-
-  function renderFiles(fileList) {
-    filesEl.innerHTML = '';
-    let valid = 0;
-    Array.from(fileList).forEach(f => {
-      const ext = f.name.split('.').pop().toLowerCase();
-      const ok  = ALLOWED.includes(ext);
-      const row = document.createElement('div');
-      row.className = 'sel-file-row';
-      row.innerHTML = `
-        <svg class="sel-file-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-             stroke="${ok ? (ICONS[ext]||'currentColor') : 'var(--red)'}" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-        </svg>
-        <span class="sel-file-name">${f.name}</span>
-        <span class="sel-file-size">${fmtSize(f.size)}</span>
-        ${!ok ? '<span style="color:var(--red);font-size:11px;">unsupported</span>' : ''}
-      `;
-      filesEl.appendChild(row);
-      if (ok) valid++;
-    });
-    filesEl.style.display = fileList.length ? 'block' : 'none';
-    if (actionsEl) actionsEl.style.display = valid ? 'block' : 'none';
-    if (uploadBtn) {
-      const n = valid;
-      uploadBtn.textContent = n === 1
-        ? 'Extract & Review →'
-        : `Extract & Review ${n} files →`;
-    }
-  }
-
-  if (input) {
-    input.addEventListener('change', () => renderFiles(input.files));
-  }
-
-  if (zone) {
-    zone.addEventListener('dragover', e => {
-      e.preventDefault(); zone.classList.add('drag-over');
-    });
-    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-    zone.addEventListener('drop', e => {
-      e.preventDefault();
-      zone.classList.remove('drag-over');
-      const dt = new DataTransfer();
-      Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
-      input.files = dt.files;
-      renderFiles(input.files);
-    });
-  }
-
-  if (form) {
-    form.addEventListener('submit', () => {
-      if (uploadBtn) {
-        uploadBtn.textContent = 'Extracting…';
-        uploadBtn.classList.add('btn-uploading');
-      }
-    });
-  }
-
-  // Skip-enrichment toggle label
-  const skipToggle = document.getElementById('lib-skip-enrichment');
-  const skipLabel  = document.getElementById('lib-enrichment-label');
-  if (skipToggle && skipLabel) {
-    skipToggle.addEventListener('change', () => {
-      skipLabel.innerHTML = skipToggle.checked
-        ? '<strong style="color:var(--muted);">Off</strong>'
-        : '<strong>On</strong>';
-    });
-  }
-})();
-</script>
 {% endblock %}
