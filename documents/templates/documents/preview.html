@@ -1,7 +1,7 @@
 {% extends "cms/base.html" %}
 
-{% block title %}Review — {{ doc.filename }}{% endblock %}
-{% block topbar_title %}Review Document{% endblock %}
+{% block title %}{% if is_live %}Edit Live Document{% else %}Review{% endif %} — {{ doc.filename }}{% endblock %}
+{% block topbar_title %}{% if is_live %}Edit Live Document{% else %}Review Document{% endif %}{% endblock %}
 
 {% block head %}
 <style>
@@ -180,13 +180,13 @@
     <span>Upload</span>
   </div>
   <div class="step-line"></div>
-  <div class="step active">
-    <div class="step-num">2</div>
+  <div class="step {% if is_live %}done{% else %}active{% endif %}">
+    <div class="step-num">{% if is_live %}✓{% else %}2{% endif %}</div>
     <span>Review &amp; Edit</span>
   </div>
   <div class="step-line"></div>
-  <div class="step">
-    <div class="step-num">3</div>
+  <div class="step {% if is_live %}done{% else %}{% endif %}">
+    <div class="step-num">{% if is_live %}✓{% else %}3{% endif %}</div>
     <span>Save &amp; Publish</span>
   </div>
 </div>
@@ -201,8 +201,30 @@
   <span class="doc-meta-info" id="live-chunk-count">{{ chunks | length }} chunks</span>
   <span class="doc-meta-info">·</span>
   <span class="doc-meta-info">Uploaded {{ doc.uploaded_at.strftime('%d %b %Y, %H:%M') }}</span>
+  {% if is_live %}
+  <span style="margin-left:auto; display:inline-flex; align-items:center; gap:5px;
+               font-size:11px; font-weight:600; color:#3fb950;
+               background:rgba(35,134,54,.12); border:1px solid rgba(35,134,54,.3);
+               padding:3px 10px; border-radius:20px;">
+    <span style="width:6px;height:6px;border-radius:50%;background:#3fb950;display:inline-block;"></span>
+    Live in knowledge base
+  </span>
+  {% endif %}
 </div>
 
+{% if is_live %}
+{# ── Live-doc edit notice ── #}
+<div style="background:rgba(35,134,54,.06); border:1px solid rgba(35,134,54,.25);
+            border-radius:var(--radius); padding:12px 16px; margin-bottom:20px;
+            font-size:13px; color:var(--text);">
+  <strong style="color:#3fb950;">This document is live.</strong>
+  You can inspect and edit its chunks below for debugging.
+  <strong>Save as Draft</strong> will save your edits and <em>remove</em> this document
+  from the knowledge base until you re-publish.
+  <strong>Re-publish to Pinecone</strong> will delete the existing vectors and re-embed
+  the amended chunks immediately.
+</div>
+{% else %}
 <p style="font-size:13px; color:var(--muted); margin-bottom:20px;">
   Review each chunk below. Edit titles and content as needed — the title will be
   used as context when the AI retrieves this chunk. Delete chunks that contain
@@ -210,6 +232,7 @@
   <strong>Save Draft</strong> stores your edits without touching Pinecone.
   <strong>Publish</strong> embeds the chunks and adds them to the knowledge base.
 </p>
+{% endif %}
 
 {# ── Coverage check banner — always shown when audit ran ── #}
 {% if coverage %}
@@ -364,23 +387,29 @@
       <strong id="final-chunk-count">{{ chunks | length }}</strong> chunks ready
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
+      {% if not is_live %}
       <button type="button" class="btn btn-secondary" onclick="confirmDiscard()">Discard</button>
+      {% endif %}
 
-      {# Save Draft — writes edits to DB, no Pinecone #}
+      {# Save Draft — writes edits to DB; removes from Pinecone if doc was live #}
       <button type="button" class="btn btn-secondary" id="draft-btn"
               onclick="return submitAs('draft')">
-        {% if total > 1 and file_index < total %}
+        {% if is_live %}
+          Save as Draft (unpublish)
+        {% elif total > 1 and file_index < total %}
           Save Draft &amp; Next →
         {% else %}
           Save Draft
         {% endif %}
       </button>
 
-      {# Publish — embeds and upserts to Pinecone #}
+      {# Publish / Re-publish — embeds and upserts to Pinecone #}
       <button type="button" class="btn btn-primary" id="publish-btn"
               onclick="return submitAs('publish')"
-              title="Embed chunks and add to the Pinecone knowledge base">
-        {% if total > 1 and file_index < total %}
+              title="{% if is_live %}Delete existing vectors and re-embed amended chunks{% else %}Embed chunks and add to the Pinecone knowledge base{% endif %}">
+        {% if is_live %}
+          Re-publish to Pinecone →
+        {% elif total > 1 and file_index < total %}
           Publish &amp; Next →
         {% else %}
           Publish to Knowledge Base →
@@ -511,6 +540,8 @@
   }
 
   // ── Submit as draft or publish ────────────────────────────────────────────
+  const isLive = {{ 'true' if is_live else 'false' }};
+
   function submitAs(mode) {
     const total  = document.querySelectorAll('.chunk-card').length;
     const active = total - deletedPositions.size;
@@ -519,11 +550,32 @@
       return false;
     }
 
+    // Confirm before re-publishing a live doc so users understand what happens
+    if (mode === 'publish' && isLive) {
+      if (!confirm(
+        'This will delete the existing Pinecone vectors for this document and ' +
+        're-embed the amended chunks. The document will be briefly unavailable ' +
+        'in the knowledge base during re-indexing.\n\nContinue?'
+      )) {
+        return false;
+      }
+    }
+
+    // Confirm before saving a live doc as draft (removes from knowledge base)
+    if (mode === 'draft' && isLive) {
+      if (!confirm(
+        'Saving as draft will remove this document from the knowledge base ' +
+        'until you re-publish it. Continue?'
+      )) {
+        return false;
+      }
+    }
+
     const form = document.getElementById('preview-form');
     if (mode === 'publish') {
       form.action = '{{ url_for("documents.save", doc_id=doc.id) }}';
       const btn = document.getElementById('publish-btn');
-      btn.textContent = 'Publishing…';
+      btn.textContent = isLive ? 'Re-publishing…' : 'Publishing…';
       btn.disabled = true;
       document.getElementById('draft-btn').disabled = true;
     } else {

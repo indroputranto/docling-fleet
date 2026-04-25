@@ -616,13 +616,9 @@ def upload():
 @documents_bp.route("/<int:doc_id>/preview", methods=["GET"])
 @documents_required
 def preview(doc_id: int):
-    """Render the editable chunk card view for a draft document."""
+    """Render the editable chunk card view for a document (draft or active)."""
     doc = Document.query.get_or_404(doc_id)
     _assert_doc_access(doc)
-
-    if doc.status == "active":
-        flash("This document is already live. Delete it first to re-upload.", "error")
-        return redirect(url_for("documents.library", client=doc.client_id))
 
     chunks = (
         DocumentChunk.query
@@ -663,6 +659,7 @@ def preview(doc_id: int):
         file_index=file_index,
         from_vessel=from_vessel,
         coverage=coverage,
+        is_live=(doc.status == "active"),
     )
 
 
@@ -721,16 +718,18 @@ def save_draft(doc_id: int):
     """
     Save chunk edits to the database only — does NOT push anything to Pinecone.
 
-    The document status stays (or returns to) 'draft'.  Use this to review and
-    refine extraction quality without polluting the knowledge base.  When the
-    chunks are ready, use the Publish route to embed and index them.
+    The document status is set (or returned) to 'draft'.  If the document was
+    previously active/live, its Pinecone vectors are deleted so the knowledge
+    base stays consistent with what is in the DB.
+
+    Use this to review and refine extraction quality without affecting the
+    knowledge base.  When the chunks are ready, use the Publish route to embed
+    and index them.
     """
     doc = Document.query.get_or_404(doc_id)
     _assert_doc_access(doc)
 
-    if doc.status == "active":
-        flash("This document is already live. Delete it first to re-upload.", "error")
-        return redirect(url_for("documents.preview", doc_id=doc_id))
+    was_active = doc.status == "active"
 
     try:
         kept_chunks = _apply_chunk_edits(doc_id, request.form)
@@ -738,15 +737,36 @@ def save_draft(doc_id: int):
         flash(str(e), "error")
         return redirect(url_for("documents.preview", doc_id=doc_id))
 
+    # If the document was live, remove its vectors from Pinecone so the
+    # knowledge base stays consistent with the edited (draft) chunks.
+    if was_active:
+        from documents.embedder import delete_document_vectors
+        client = ClientConfig.query.filter_by(client_id=doc.client_id).first()
+        if client:
+            try:
+                delete_document_vectors(doc, client.pinecone_index, client.pinecone_namespace)
+            except Exception as e:
+                logger.warning(
+                    f"[documents] Could not delete Pinecone vectors for doc {doc_id} "
+                    f"during save_draft: {e}"
+                )
+
     doc.status      = "draft"
     doc.chunk_count = len(kept_chunks)
     db.session.commit()
 
-    flash(
-        f"'{doc.filename}' saved as draft — {len(kept_chunks)} chunks. "
-        "Publish when you're ready to add it to the knowledge base.",
-        "success",
-    )
+    if was_active:
+        flash(
+            f"'{doc.filename}' saved as draft and removed from the knowledge base — "
+            f"{len(kept_chunks)} chunks. Re-publish when you're ready.",
+            "success",
+        )
+    else:
+        flash(
+            f"'{doc.filename}' saved as draft — {len(kept_chunks)} chunks. "
+            "Publish when you're ready to add it to the knowledge base.",
+            "success",
+        )
 
     # Multi-file queue: if there are more files to review, advance to the next
     queue       = request.form.get("queue", "").strip()
@@ -778,17 +798,19 @@ def save(doc_id: int):
     """
     1. Read edited chunk titles + bodies from the form.
     2. Update chunks in DB.
-    3. Embed and upsert to Pinecone.
-    4. Mark document as active.
+    3. If document was already active, delete its old Pinecone vectors first.
+    4. Embed and upsert to Pinecone.
+    5. Mark document as active.
+
+    Works for both first-time publish (draft → active) and re-publish
+    (active → active), so users can amend live chunks and push the update.
     """
-    from documents.embedder import embed_and_upsert
+    from documents.embedder import embed_and_upsert, delete_document_vectors
 
     doc = Document.query.get_or_404(doc_id)
     _assert_doc_access(doc)
 
-    if doc.status == "active":
-        flash("Document is already live.", "error")
-        return redirect(url_for("documents.library", client=doc.client_id))
+    was_active = doc.status == "active"
 
     client = ClientConfig.query.filter_by(client_id=doc.client_id).first()
     if not client:
@@ -801,6 +823,18 @@ def save(doc_id: int):
     except ValueError as e:
         flash(str(e), "error")
         return redirect(url_for("documents.preview", doc_id=doc_id))
+
+    # ── If re-publishing, delete stale Pinecone vectors before re-embed ───────
+    # Chunk positions may have changed (deletions, additions), so a plain upsert
+    # would leave orphaned vectors for any removed or repositioned chunks.
+    if was_active:
+        try:
+            delete_document_vectors(doc, client.pinecone_index, client.pinecone_namespace)
+        except Exception as e:
+            logger.warning(
+                f"[documents] Could not delete old Pinecone vectors for doc {doc_id} "
+                f"before re-publish: {e}"
+            )
 
     # ── Mark processing ───────────────────────────────────────────────────────
     doc.status      = "processing"
@@ -835,10 +869,19 @@ def save(doc_id: int):
     db.session.commit()
 
     logger.info(
-        f"[documents] Doc {doc_id} '{doc.filename}' live — "
+        f"[documents] Doc {doc_id} '{doc.filename}' {'re-published' if was_active else 'published'} — "
         f"{upserted} vectors in {client.pinecone_index}/{client.pinecone_namespace}"
     )
-    flash(f"'{doc.filename}' is now live — {upserted} chunks added to the knowledge base.", "success")
+    if was_active:
+        flash(
+            f"'{doc.filename}' re-published — {upserted} chunks updated in the knowledge base.",
+            "success",
+        )
+    else:
+        flash(
+            f"'{doc.filename}' is now live — {upserted} chunks added to the knowledge base.",
+            "success",
+        )
 
     # Multi-file queue: advance to next doc if there is one
     queue     = request.form.get("queue", "").strip()
