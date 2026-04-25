@@ -207,6 +207,100 @@
   .uploading .section-dropzone { pointer-events: none; opacity: .6; }
   .uploading .upload-spinner   { display: inline-block; }
 
+  /* ── Upload progress modal ── */
+  .upload-modal-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+  }
+  .upload-modal-overlay.active { display: flex; }
+  .upload-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 36px 40px;
+    width: 100%; max-width: 440px;
+    box-shadow: 0 24px 64px rgba(0,0,0,.4);
+    display: flex; flex-direction: column; gap: 20px;
+    animation: modalIn .22s cubic-bezier(.22,1,.36,1);
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(.94) translateY(10px); }
+    to   { opacity: 1; transform: scale(1)  translateY(0); }
+  }
+  .upload-modal-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    background: rgba(88,166,255,.12);
+    display: flex; align-items: center; justify-content: center;
+    color: #58a6ff; flex-shrink: 0;
+  }
+  .upload-modal-header { display: flex; align-items: center; gap: 14px; }
+  .upload-modal-title { font-size: 16px; font-weight: 700; }
+  .upload-modal-subtitle { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .upload-modal-stage {
+    font-size: 13px; font-weight: 600; color: #58a6ff;
+    min-height: 20px; transition: opacity .3s;
+  }
+  .upload-modal-stage.fading { opacity: 0; }
+  .upload-progress-track {
+    height: 6px; border-radius: 99px;
+    background: var(--border); overflow: hidden;
+  }
+  .upload-progress-fill {
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, #58a6ff, #3b82f6);
+    width: 0%; transition: width .6s cubic-bezier(.4,0,.2,1);
+  }
+  .upload-modal-wait {
+    font-size: 12px; color: var(--muted); text-align: center; line-height: 1.6;
+  }
+  .upload-log {
+    background: #0d1117;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+    height: 340px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Fira Mono', 'Consolas', monospace;
+    font-size: 11.5px;
+    line-height: 1.75;
+    color: #8b949e;
+    scroll-behavior: smooth;
+  }
+  [data-theme="light"] .upload-log {
+    background: #f6f8fa;
+    border-color: rgba(0,0,0,.08);
+    color: #57606a;
+  }
+  .upload-log-line {
+    display: flex; gap: 10px; align-items: flex-start;
+    opacity: 0; animation: logFadeIn .25s ease forwards;
+  }
+  @keyframes logFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .upload-log-time {
+    color: #3d444d; flex-shrink: 0; user-select: none;
+  }
+  [data-theme="light"] .upload-log-time { color: #b0b8c3; }
+  .upload-log-line.ok   .upload-log-msg { color: #3fb950; }
+  .upload-log-line.warn .upload-log-msg { color: #d29922; }
+  .upload-log-line.info .upload-log-msg { color: #8b949e; }
+  [data-theme="light"] .upload-log-line.ok   .upload-log-msg { color: #1a7f37; }
+  [data-theme="light"] .upload-log-line.warn .upload-log-msg { color: #9a6700; }
+  [data-theme="light"] .upload-log-line.info .upload-log-msg { color: #57606a; }
+  .upload-log-cursor {
+    display: inline-block; width: 7px; height: 13px;
+    background: #58a6ff; border-radius: 1px;
+    margin-left: 2px; vertical-align: middle;
+    animation: blink .9s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
   /* ── Full Document Package card ── */
   .full-doc-card {
     background: var(--surface); border: 1px solid var(--border);
@@ -669,7 +763,7 @@
                    id="file-{{ section.key }}"
                    accept=".pdf,.docx,.xlsx,.xls"
                    style="display:none;"
-                   onchange="document.getElementById('form-{{ section.key }}').submit()">
+                   onchange="showUploading('{{ section.key }}')">
 
             <div class="section-dropzone"
                  id="dz-{{ section.key }}"
@@ -702,6 +796,43 @@
 
 </div>{# /dossier-wrap #}
 
+{# ── Upload progress modal ── #}
+<div class="upload-modal-overlay" id="uploadModalOverlay">
+  <div class="upload-modal" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle"
+       style="max-width:560px;">
+    <div class="upload-modal-header">
+      <div class="upload-modal-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 16 12 12 8 16"/>
+          <line x1="12" y1="12" x2="12" y2="21"/>
+          <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="upload-modal-title" id="uploadModalTitle">Processing Document</div>
+        <div class="upload-modal-subtitle">Please don't close this tab</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="upload-modal-stage" id="uploadModalStage">Preparing upload…</div>
+      <div style="margin-top:10px;" class="upload-progress-track">
+        <div class="upload-progress-fill" id="uploadProgressFill"></div>
+      </div>
+    </div>
+
+    <div class="upload-log" id="uploadLog">
+      <span class="upload-log-cursor" id="uploadLogCursor"></span>
+    </div>
+
+    <p class="upload-modal-wait">
+      You'll be taken to the chunk review page automatically once processing is complete.
+    </p>
+  </div>
+</div>
+
 <script>
 function toggleSection(key) {
   const item = document.getElementById('section-' + key);
@@ -709,18 +840,107 @@ function toggleSection(key) {
 }
 
 function submitFullDoc() {
-  // For the full-document zone we submit programmatically after file selection
-  // so the form includes the current state of the skip_enrichment checkbox.
-  const form = document.getElementById('form-full_document');
+  // Delegates entirely to showUploading — no separate form.submit() needed.
   showUploading('full_document');
-  form.submit();
 }
 
 function showUploading(key) {
+  // ── Dim the dropzone ────────────────────────────────────────────────────────
   const wrap = document.getElementById('form-' + key).closest('.section-dropzone-wrap');
   wrap.classList.add('uploading');
-  const spinner = wrap.querySelector('.upload-spinner');
-  if (spinner) spinner.style.display = 'block';
+
+  // ── Show the modal ──────────────────────────────────────────────────────────
+  const overlay = document.getElementById('uploadModalOverlay');
+  const stageEl = document.getElementById('uploadModalStage');
+  const fillEl  = document.getElementById('uploadProgressFill');
+  const logEl   = document.getElementById('uploadLog');
+  const cursor  = document.getElementById('uploadLogCursor');
+  overlay.classList.add('active');
+  stageEl.textContent = 'Uploading file to server…';
+
+  // ── Log helper ──────────────────────────────────────────────────────────────
+  function appendLog(type, msg) {
+    const ts   = new Date().toTimeString().slice(0, 8);
+    const line = document.createElement('div');
+    line.className = 'upload-log-line ' + type;
+    line.innerHTML =
+      '<span class="upload-log-time">' + ts + '</span>' +
+      '<span class="upload-log-msg">'  + msg + '</span>';
+    logEl.insertBefore(line, cursor);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setStage(label) {
+    stageEl.classList.add('fading');
+    setTimeout(function() {
+      stageEl.textContent = label;
+      stageEl.classList.remove('fading');
+    }, 180);
+  }
+
+  // ── Generate a unique task ID ────────────────────────────────────────────────
+  const taskId = (crypto.randomUUID ? crypto.randomUUID()
+                                    : Math.random().toString(36).slice(2) + Date.now().toString(36));
+
+  // ── Open SSE stream BEFORE submitting so we don't miss early messages ───────
+  const evtSource = new EventSource('/documents/upload-progress/' + taskId);
+
+  evtSource.onmessage = function(e) {
+    let data;
+    try { data = JSON.parse(e.data); } catch(err) { return; }
+
+    if (data.type === 'done') {
+      evtSource.close();
+      fillEl.style.width = '100%';
+      setStage('Complete — loading review page…');
+      appendLog('ok', 'Processing complete — redirecting to chunk review ✓');
+      setTimeout(function() { window.location.href = data.url; }, 500);
+      return;
+    }
+
+    if (data.type === 'stage') {
+      setStage(data.msg);
+      return;  // stage labels don't go into the log pane
+    }
+
+    if (data.type === 'error' || data.type === 'timeout') {
+      evtSource.close();
+      appendLog('warn', data.msg || 'Connection lost — page will redirect when processing finishes');
+      return;
+    }
+
+    // Regular info / ok / warn line
+    appendLog(data.type, data.msg);
+    if (data.pct !== undefined) {
+      fillEl.style.width = data.pct + '%';
+    }
+  };
+
+  evtSource.onerror = function() {
+    // Browser will retry automatically; only log if it keeps failing
+  };
+
+  // ── Submit via fetch() so JS keeps running throughout ───────────────────────
+  const form     = document.getElementById('form-' + key);
+  const formData = new FormData(form);
+  formData.set('task_id', taskId);
+
+  appendLog('info', 'Establishing connection to upload server…');
+
+  fetch(form.action, {
+    method:   'POST',
+    body:     formData,
+    redirect: 'follow',
+  }).then(function(resp) {
+    // SSE handles navigation via the 'done' event.
+    // This is a fallback in case the SSE connection dropped.
+    if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
+      window.location.href = resp.url;
+    }
+  }).catch(function(err) {
+    evtSource.close();
+    appendLog('warn', 'Upload request failed: ' + err.message);
+  });
 }
 
 function dzOver(e, key) {
@@ -801,11 +1021,11 @@ function dzDrop(e, key) {
     dt.items.add(files[0]);
   }
   input.files = dt.files;
+  // showUploading / submitFullDoc handle fetch() submission — no form.submit() needed
   if (key === 'full_document') {
-    submitFullDoc();   // goes through the enrichment-toggle-aware helper
+    submitFullDoc();
   } else {
     showUploading(key);
-    document.getElementById('form-' + key).submit();
   }
 }
 </script>

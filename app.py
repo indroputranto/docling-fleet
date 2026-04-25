@@ -1027,4 +1027,6 @@ def handle_exception(e):
     return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host=config.HOST, port=config.PORT)
+    # threaded=True is required so the SSE progress stream and the upload
+    # request can run concurrently in the dev server.
+    app.run(host=config.HOST, port=config.PORT, threaded=True)

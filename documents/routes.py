@@ -15,13 +15,17 @@ Routes:
 """
 
 import os
+import json
 import logging
+import queue as _queue
+import threading as _threading
+import time as _time
 from datetime import datetime, timezone
 from functools import wraps
 
 from flask import (
     Blueprint, render_template, redirect, url_for,
-    request, flash, g, abort, current_app
+    request, flash, g, abort, current_app, Response
 )
 from werkzeug.utils import secure_filename
 
@@ -58,6 +62,95 @@ documents_bp = Blueprint(
     url_prefix="/documents",
     template_folder="templates",
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SSE upload-progress stream
+#
+# The upload route writes events into a per-task queue; the /upload-progress
+# SSE endpoint streams them to the browser in real time.  Each request runs in
+# its own thread (Flask threaded=True / gunicorn), so queue.Queue provides the
+# needed thread-safe hand-off.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_pq_lock:  _threading.Lock = _threading.Lock()
+_pq_store: dict             = {}   # task_id → queue.Queue
+
+
+def _pq_create(task_id: str) -> None:
+    """Register a new progress queue for *task_id*."""
+    with _pq_lock:
+        _pq_store[task_id] = _queue.Queue()
+
+
+def _pq_emit(task_id: str | None, type_: str, msg: str, pct: int | None = None) -> None:
+    """Push one event onto the task's queue (no-op if task_id is falsy)."""
+    if not task_id:
+        return
+    with _pq_lock:
+        q = _pq_store.get(task_id)
+    if q is None:
+        return
+    payload: dict = {"type": type_, "msg": msg}
+    if pct is not None:
+        payload["pct"] = pct
+    q.put(payload)
+
+
+def _pq_done(task_id: str | None, redirect_url: str) -> None:
+    """Signal completion and supply the URL the browser should navigate to."""
+    if not task_id:
+        return
+    with _pq_lock:
+        q = _pq_store.get(task_id)
+    if q is not None:
+        q.put({"type": "done", "url": redirect_url})
+
+
+@documents_bp.route("/upload-progress/<task_id>")
+def upload_progress(task_id: str):
+    """
+    SSE endpoint — streams upload/processing progress back to the browser.
+    Opened by the frontend before the AJAX upload is sent; holds open until
+    the upload route calls _pq_done() or the 10-minute safety timeout fires.
+    No auth required: the task_id UUID is only known to the tab that started it.
+    """
+    def _generate():
+        # Give the upload request up to 10 s to create the queue before we bail.
+        q = None
+        for _ in range(100):
+            with _pq_lock:
+                q = _pq_store.get(task_id)
+            if q is not None:
+                break
+            _time.sleep(0.1)
+
+        if q is None:
+            yield "data: " + json.dumps({"type": "error", "msg": "Task not found"}) + "\n\n"
+            return
+
+        try:
+            while True:
+                try:
+                    item = q.get(timeout=600)   # 10-minute hard cap
+                except _queue.Empty:
+                    yield "data: " + json.dumps({"type": "timeout"}) + "\n\n"
+                    return
+                yield "data: " + json.dumps(item) + "\n\n"
+                if item.get("type") == "done":
+                    return
+        finally:
+            with _pq_lock:
+                _pq_store.pop(task_id, None)
+
+    return Response(
+        _generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # disable nginx buffering
+        },
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -376,11 +469,19 @@ def upload():
     """
     from documents.extractor import extract
 
+    # ── SSE task registration ────────────────────────────────────────────────
+    task_id = request.form.get("task_id", "").strip() or None
+    if task_id:
+        _pq_create(task_id)
+    # ────────────────────────────────────────────────────────────────────────
+
     # Determine target client
     client_id = request.form.get("client_id") or _resolve_client_id()
     if not client_id:
         flash("Please select a client before uploading.", "error")
-        return redirect(url_for("documents.library"))
+        redir = url_for("documents.library")
+        _pq_done(task_id, redir)
+        return redirect(redir)
 
     if not g.is_platform_admin and client_id != g.scoped_client_id:
         abort(403)
@@ -388,7 +489,9 @@ def upload():
     client = ClientConfig.query.filter_by(client_id=client_id).first()
     if not client:
         flash("Client not found.", "error")
-        return redirect(url_for("documents.library"))
+        redir = url_for("documents.library")
+        _pq_done(task_id, redir)
+        return redirect(redir)
 
     # Resolve selected vessel (optional — documents may be unassigned)
     vessel_id  = request.form.get("vessel_id", "").strip() or None
@@ -398,7 +501,9 @@ def upload():
         vessel = Vessel.query.filter_by(id=vessel_id, client_id=client_id).first()
         if not vessel:
             flash("Selected vessel not found.", "error")
-            return redirect(url_for("documents.library", client=client_id))
+            redir = url_for("documents.library", client=client_id)
+            _pq_done(task_id, redir)
+            return redirect(redir)
         group_name = vessel.name   # keep for display / backward compat
 
     # Explicit document category from Vessel Dossier upload (optional)
@@ -417,7 +522,9 @@ def upload():
 
     if not files:
         flash("No files selected.", "error")
-        return redirect(url_for("documents.library", client=client_id))
+        redir = url_for("documents.library", client=client_id)
+        _pq_done(task_id, redir)
+        return redirect(redir)
 
     doc_ids = []
 
@@ -426,31 +533,40 @@ def upload():
 
         if not _allowed_file(filename):
             flash(f"'{file.filename}' skipped — unsupported type (use .docx, .pdf, .xlsx, or .xls).", "error")
+            _pq_emit(task_id, "warn", f"Skipped '{file.filename}' — unsupported file type")
             continue
 
         ext = filename.rsplit(".", 1)[1].lower()
 
+        # ── Extraction ───────────────────────────────────────────────────────
+        _pq_emit(task_id, "stage", "Extracting document content…")
+        _pq_emit(task_id, "info",  f"File received: {filename}", pct=15)
+        _pq_emit(task_id, "info",  f"Detecting document format ({ext.upper()})…", pct=18)
+        _pq_emit(task_id, "info",  "Initialising parser…", pct=20)
         try:
             raw_chunks = extract(file.stream, filename, document_category=document_category)
         except Exception as e:
             flash(f"'{filename}' skipped — could not extract text: {e}", "error")
             logger.error(f"[documents] Extraction error for {filename}: {e}", exc_info=True)
+            _pq_emit(task_id, "warn", f"Extraction failed for '{filename}': {e}")
             continue
 
         if not raw_chunks or not any(c["body"].strip() for c in raw_chunks):
             flash(f"'{filename}' skipped — no text found (scanned image PDF?).", "error")
+            _pq_emit(task_id, "warn", f"No text found in '{filename}' — may be a scanned PDF")
             continue
 
+        _pq_emit(task_id, "info", "Applying clause-aware chunking…", pct=32)
+        _pq_emit(task_id, "ok",   f"Extraction complete — {len(raw_chunks)} chunks found ✓", pct=40)
+        # ────────────────────────────────────────────────────────────────────
+
         # ── Snapshot raw chunks before enrichment (for coverage check) ─────────
-        # We capture a shallow copy of the list at this point so the coverage
-        # module can compare pre-enrichment word counts against the final output.
         raw_chunks_snapshot = [{"body": c.get("body", "")} for c in raw_chunks]
 
         # ── AI enrichment pass ───────────────────────────────────────────────
-        # Sends baseline chunks to gpt-4o-mini for title assignment and
-        # clause-level splitting. Skipped when skip_enrichment=True (e.g.
-        # large full-document packages where extraction is already clean).
         if not skip_enrichment:
+            _pq_emit(task_id, "stage", "Running AI enrichment…")
+            _pq_emit(task_id, "info",  f"Sending {len(raw_chunks)} chunks to GPT-4o mini…", pct=45)
             try:
                 from documents.ai_enrichment import enrich_chunks
                 raw_chunks = enrich_chunks(
@@ -459,24 +575,23 @@ def upload():
                     vessel_name=vessel.name if vessel else None,
                     document_category=document_category,
                 )
+                _pq_emit(task_id, "info", "Cleaning and normalising chunk titles…", pct=60)
+                _pq_emit(task_id, "info", "Detecting and splitting compound clauses…", pct=68)
+                _pq_emit(task_id, "ok",   "AI enrichment complete ✓", pct=75)
             except Exception as ae:
                 logger.warning(
                     f"[documents] AI enrichment failed for '{filename}', "
                     f"using raw extraction: {ae}"
                 )
+                _pq_emit(task_id, "warn", f"AI enrichment failed — using raw extraction: {ae}")
         else:
             logger.info(
                 f"[documents] AI enrichment skipped for '{filename}' (skip_enrichment=True)"
             )
+            _pq_emit(task_id, "warn", "AI enrichment skipped (user preference)", pct=62)
         # ────────────────────────────────────────────────────────────────────
 
         # ── Section title prefix ──────────────────────────────────────────────
-        # When a document is uploaded to a named Dossier section (anything
-        # except the top-level full_document package), prepend the section's
-        # display label to every chunk title so retrieval context is always
-        # explicit — e.g. "Addendum - Owners Information Request".
-        # We prefer the client's custom label (DossierSectionConfig) over the
-        # built-in default, so the prefix matches what the user sees in the UI.
         if document_category and document_category != FULL_DOCUMENT_CATEGORY:
             section_label = next(
                 (lbl for slug, lbl in DOCUMENT_SECTIONS if slug == document_category),
@@ -506,13 +621,12 @@ def upload():
         # ─────────────────────────────────────────────────────────────────────
 
         # ── Coverage check ────────────────────────────────────────────────────
-        # Compare the source document against the final chunks to detect
-        # silent content loss in the extraction or enrichment steps.
+        _pq_emit(task_id, "stage", "Finalising document…")
+        _pq_emit(task_id, "info",  "Running coverage check against source…", pct=80)
         coverage_pct   = None
         coverage_notes = None
         try:
             from documents.coverage import run_coverage_check
-            import json as _json
             file.stream.seek(0)
             cov = run_coverage_check(
                 file_stream=file.stream,
@@ -521,11 +635,14 @@ def upload():
                 final_chunks=raw_chunks,
             )
             coverage_pct   = cov.get("coverage_pct")
-            coverage_notes = _json.dumps(cov)
+            coverage_notes = json.dumps(cov)
+            if coverage_pct is not None:
+                _pq_emit(task_id, "info", f"Coverage check passed — {coverage_pct:.0f}% content retained", pct=84)
         except Exception as ce:
             logger.warning(f"[documents] Coverage check failed for '{filename}': {ce}")
         # ─────────────────────────────────────────────────────────────────────
 
+        _pq_emit(task_id, "info", "Writing document record to database…", pct=87)
         doc = Document(
             client_id=client_id,
             filename=filename,
@@ -552,6 +669,7 @@ def upload():
 
         db.session.commit()
         doc_ids.append(doc.id)
+        _pq_emit(task_id, "ok", f"Document saved — {len(raw_chunks)} chunks ✓", pct=92)
         logger.info(
             f"[documents] Uploaded '{filename}' → doc {doc.id} "
             f"({len(raw_chunks)} chunks) for client '{client_id}'"
@@ -559,7 +677,7 @@ def upload():
         )
 
         # ── Object storage: save original file ───────────────────────────────
-        # Best-effort: a storage failure never blocks the rest of the pipeline.
+        _pq_emit(task_id, "info", "Uploading original file to object storage…", pct=94)
         try:
             from documents.object_storage import (
                 is_configured, upload_file, build_storage_key
@@ -578,15 +696,17 @@ def upload():
                 logger.info(
                     f"[documents] Stored original '{filename}' → {storage_key}"
                 )
+                _pq_emit(task_id, "ok", "Original file stored ✓", pct=97)
+            else:
+                _pq_emit(task_id, "info", "Object storage not configured — skipping", pct=97)
         except Exception as _se:
             logger.warning(
                 f"[documents] Object storage upload skipped for '{filename}': {_se}"
             )
+            _pq_emit(task_id, "warn", f"Object storage skipped: {_se}")
         # ─────────────────────────────────────────────────────────────────────
 
         # ── Auto-fill vessel metadata from spec sheet chunks ─────────────────
-        # Only updates the pre-existing Vessel record — never creates one.
-        # Fields already set by the user are never overwritten.
         if vessel:
             try:
                 from documents.vessel_extractor import fill_vessel_metadata
@@ -599,18 +719,23 @@ def upload():
                 )
 
     if not doc_ids:
-        return redirect(url_for("documents.library", client=client_id))
+        redir = url_for("documents.library", client=client_id)
+        _pq_done(task_id, redir)
+        return redirect(redir)
 
     first_id  = doc_ids[0]
     queue     = ",".join(str(i) for i in doc_ids[1:])
     total     = len(doc_ids)
-    return redirect(url_for(
+    redir = url_for(
         "documents.preview",
         doc_id=first_id,
         queue=queue or None,
         total=total,
         from_vessel=from_vessel or None,
-    ))
+    )
+    _pq_emit(task_id, "ok", "Processing complete — loading chunk review…", pct=99)
+    _pq_done(task_id, redir)
+    return redirect(redir)
 
 
 @documents_bp.route("/<int:doc_id>/preview", methods=["GET"])
