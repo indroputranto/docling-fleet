@@ -372,7 +372,6 @@
     const CLIENT_DB_ID = {{ client.id }};
     let _selectedFile  = null;
 
-    // ── Load skills on page open ──────────────────────────────────────────────
     function loadSkills() {
       fetch(`/cms/clients/${CLIENT_DB_ID}/skills`)
         .then(r => r.json())
@@ -403,10 +402,8 @@
       const row = document.createElement('div');
       row.className = 'skill-row' + (s.active ? '' : ' inactive');
       row.id = `skill-row-${s.id}`;
-
       const ts = s.created_at ? new Date(s.created_at).toLocaleDateString() : '';
       const uploader = s.uploaded_by ? ` · by ${s.uploaded_by}` : '';
-
       row.innerHTML = `
         <label class="toggle-label" style="margin:0;flex-shrink:0;" title="${s.active ? 'Active — click to disable' : 'Inactive — click to enable'}">
           <input type="checkbox" ${s.active ? 'checked' : ''} onchange="window._skillToggle(${s.id}, this)" />
@@ -432,7 +429,6 @@
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // ── File picker ───────────────────────────────────────────────────────────
     window.skillFileSelected = function(input) {
       _selectedFile = input.files[0] || null;
       const label = document.getElementById('skill-filename-label');
@@ -446,23 +442,19 @@
       }
     };
 
-    // ── Upload ────────────────────────────────────────────────────────────────
     window.uploadSkill = function() {
       if (!_selectedFile) return;
       const btn  = document.getElementById('skill-upload-btn');
       const name = document.getElementById('skill-name-input').value.trim();
       btn.disabled = true;
       btn.textContent = 'Uploading…';
-
       const fd = new FormData();
       fd.append('skill_file', _selectedFile);
       if (name) fd.append('skill_name', name);
-
       fetch(`/cms/clients/${CLIENT_DB_ID}/skills/upload`, { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
           if (data.error) { alert('Upload failed: ' + data.error); return; }
-          // Reset form
           document.getElementById('skill-file-input').value = '';
           document.getElementById('skill-name-input').value = '';
           document.getElementById('skill-filename-label').textContent = '';
@@ -476,7 +468,6 @@
         });
     };
 
-    // ── Toggle active ─────────────────────────────────────────────────────────
     window._skillToggle = function(skillId, checkbox) {
       fetch(`/cms/skills/${skillId}/toggle`, { method: 'POST' })
         .then(r => r.json())
@@ -485,38 +476,26 @@
           if (row) {
             row.classList.toggle('inactive', !data.active);
             checkbox.checked = data.active;
-            checkbox.parentElement.title = data.active
-              ? 'Active — click to disable'
-              : 'Inactive — click to enable';
           }
         })
-        .catch(() => {
-          checkbox.checked = !checkbox.checked; // revert on error
-          alert('Toggle failed. Please try again.');
-        });
+        .catch(() => { checkbox.checked = !checkbox.checked; alert('Toggle failed.'); });
     };
 
-    // ── Expand/collapse preview ───────────────────────────────────────────────
     window._skillExpand = function(skillId) {
       const row = document.getElementById(`skill-row-${skillId}`);
       if (row) row.classList.toggle('expanded');
     };
 
-    // ── Delete ────────────────────────────────────────────────────────────────
     window._skillDelete = function(skillId) {
-      const row = document.getElementById(`skill-row-${skillId}`);
+      const row  = document.getElementById(`skill-row-${skillId}`);
       const name = row ? row.querySelector('.skill-name').textContent : 'this skill';
       if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
       fetch(`/cms/skills/${skillId}/delete`, { method: 'POST' })
         .then(r => r.json())
-        .then(data => {
-          if (data.ok) loadSkills();
-          else alert('Delete failed.');
-        })
+        .then(data => { if (data.ok) loadSkills(); else alert('Delete failed.'); })
         .catch(() => alert('Delete failed. Please try again.'));
     };
 
-    // Auto-load on page ready
     loadSkills();
   })();
   </script>
