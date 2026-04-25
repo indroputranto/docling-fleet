@@ -844,6 +844,10 @@ function submitFullDoc() {
   showUploading('full_document');
 }
 
+// Files above this threshold are uploaded directly to object storage via a
+// pre-signed PUT URL, bypassing the Vercel serverless function body limit.
+var LARGE_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
+
 function showUploading(key) {
   // ── Dim the dropzone ────────────────────────────────────────────────────────
   const wrap = document.getElementById('form-' + key).closest('.section-dropzone-wrap');
@@ -856,7 +860,7 @@ function showUploading(key) {
   const logEl   = document.getElementById('uploadLog');
   const cursor  = document.getElementById('uploadLogCursor');
   overlay.classList.add('active');
-  stageEl.textContent = 'Uploading file to server…';
+  stageEl.textContent = 'Uploading file…';
 
   // ── Log helper ──────────────────────────────────────────────────────────────
   function appendLog(type, msg) {
@@ -882,46 +886,158 @@ function showUploading(key) {
   const taskId = (crypto.randomUUID ? crypto.randomUUID()
                                     : Math.random().toString(36).slice(2) + Date.now().toString(36));
 
-  // ── Open SSE stream BEFORE submitting so we don't miss early messages ───────
-  const evtSource = new EventSource('/documents/upload-progress/' + taskId);
+  // ── SSE event handler (shared by both upload paths) ──────────────────────────
+  function attachSse(evtSource) {
+    evtSource.onmessage = function(e) {
+      let data;
+      try { data = JSON.parse(e.data); } catch(err) { return; }
 
-  evtSource.onmessage = function(e) {
-    let data;
-    try { data = JSON.parse(e.data); } catch(err) { return; }
+      if (data.type === 'done') {
+        evtSource.close();
+        fillEl.style.width = '100%';
+        setStage('Complete — loading review page…');
+        appendLog('ok', 'Processing complete — redirecting to chunk review ✓');
+        setTimeout(function() { window.location.href = data.url; }, 500);
+        return;
+      }
+      if (data.type === 'stage') {
+        setStage(data.msg);
+        return;
+      }
+      if (data.type === 'error' || data.type === 'timeout') {
+        evtSource.close();
+        appendLog('warn', data.msg || 'Connection lost — page will redirect when processing finishes');
+        return;
+      }
+      appendLog(data.type, data.msg);
+      if (data.pct !== undefined) {
+        fillEl.style.width = data.pct + '%';
+      }
+    };
+    evtSource.onerror = function() {
+      // Browser retries automatically; only act on explicit errors above.
+    };
+    return evtSource;
+  }
 
-    if (data.type === 'done') {
-      evtSource.close();
-      fillEl.style.width = '100%';
-      setStage('Complete — loading review page…');
-      appendLog('ok', 'Processing complete — redirecting to chunk review ✓');
-      setTimeout(function() { window.location.href = data.url; }, 500);
-      return;
-    }
+  const form       = document.getElementById('form-' + key);
+  const fileInput  = document.getElementById('file-' + key);
+  const fileList   = fileInput ? fileInput.files : null;
 
-    if (data.type === 'stage') {
-      setStage(data.msg);
-      return;  // stage labels don't go into the log pane
-    }
+  // ── Large-file path: single file above threshold → presign + direct PUT ─────
+  // Multi-file batches keep the normal path (full-document zone with several
+  // small files is rare to exceed 3 MB per-file across a batch).
+  if (fileList && fileList.length === 1 && fileList[0].size > LARGE_FILE_THRESHOLD) {
+    const file = fileList[0];
 
-    if (data.type === 'error' || data.type === 'timeout') {
-      evtSource.close();
-      appendLog('warn', data.msg || 'Connection lost — page will redirect when processing finishes');
-      return;
-    }
+    // Collect form metadata to send with the presign request
+    const clientId         = (form.querySelector('[name=client_id]')         || {}).value || '';
+    const vesselId         = (form.querySelector('[name=vessel_id]')         || {}).value || '';
+    const documentCategory = (form.querySelector('[name=document_category]') || {}).value || '';
+    const fromVessel       = (form.querySelector('[name=from_vessel]')       || {}).value || '';
+    const skipEnrichment   = !!(form.querySelector('[name=skip_enrichment]') || {}).checked;
 
-    // Regular info / ok / warn line
-    appendLog(data.type, data.msg);
-    if (data.pct !== undefined) {
-      fillEl.style.width = data.pct + '%';
-    }
-  };
+    appendLog('info', 'File is ' + (file.size / (1024*1024)).toFixed(1) + ' MB — using direct storage upload…');
 
-  evtSource.onerror = function() {
-    // Browser will retry automatically; only log if it keeps failing
-  };
+    // Step 1: obtain pre-signed PUT URL from Flask
+    fetch('/documents/presign', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        filename:          file.name,
+        content_type:      file.type || 'application/octet-stream',
+        file_size:         file.size,
+        client_id:         clientId,
+        vessel_id:         vesselId,
+        document_category: documentCategory,
+        from_vessel:       fromVessel,
+        skip_enrichment:   skipEnrichment,
+      }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(meta) {
+      if (!meta.use_direct) {
+        // Object storage not configured — fall back to normal upload
+        appendLog('info', 'Direct upload unavailable — falling back to standard upload…');
+        _doNormalUpload(key, form, taskId, appendLog, attachSse);
+        return;
+      }
 
-  // ── Submit via fetch() so JS keeps running throughout ───────────────────────
-  const form     = document.getElementById('form-' + key);
+      const presignUrl = meta.presign_url;
+      const docId      = meta.doc_id;
+
+      // Step 2: PUT the file directly to DO Spaces (no Vercel limit applies)
+      setStage('Uploading file to storage…');
+      appendLog('info', 'Uploading directly to object storage (bypassing server)…');
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', presignUrl, true);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+
+      // Show upload progress in the bar (0 → 50%; server processing takes 50 → 100%)
+      xhr.upload.onprogress = function(ev) {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 50);
+          fillEl.style.width = pct + '%';
+        }
+      };
+
+      xhr.onload = function() {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          appendLog('warn', 'Storage PUT failed (HTTP ' + xhr.status + ') — please try again.');
+          wrap.classList.remove('uploading');
+          return;
+        }
+
+        appendLog('ok', 'File uploaded to storage ✓');
+        fillEl.style.width = '50%';
+
+        // Step 3: open SSE stream, then trigger server-side processing
+        const evtSource = attachSse(new EventSource('/documents/upload-progress/' + taskId));
+
+        const processData = new FormData();
+        processData.set('task_id',         taskId);
+        processData.set('from_vessel',     fromVessel);
+        processData.set('skip_enrichment', skipEnrichment ? 'on' : '');
+
+        fetch('/documents/' + docId + '/process-from-storage', {
+          method:   'POST',
+          body:     processData,
+          redirect: 'follow',
+        }).then(function(resp) {
+          if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
+            window.location.href = resp.url;
+          }
+        }).catch(function(err) {
+          evtSource.close();
+          appendLog('warn', 'Processing request failed: ' + err.message);
+        });
+      };
+
+      xhr.onerror = function() {
+        appendLog('warn', 'Storage upload failed — network error. Please try again.');
+        wrap.classList.remove('uploading');
+      };
+
+      xhr.send(file);
+    })
+    .catch(function(err) {
+      // Presign call failed — fall back to normal upload
+      appendLog('info', 'Pre-sign request failed (' + err.message + ') — falling back to standard upload…');
+      _doNormalUpload(key, form, taskId, appendLog, attachSse);
+    });
+
+    return; // large-file path initiated; normal path below will not run
+  }
+
+  // ── Normal path: small file (or multiple files) — submit form via fetch() ───
+  _doNormalUpload(key, form, taskId, appendLog, attachSse);
+}
+
+// Extracted so both paths can reuse it.
+function _doNormalUpload(key, form, taskId, appendLog, attachSse) {
+  const evtSource = attachSse(new EventSource('/documents/upload-progress/' + taskId));
+
   const formData = new FormData(form);
   formData.set('task_id', taskId);
 

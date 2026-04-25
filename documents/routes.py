@@ -738,6 +738,329 @@ def upload():
     return redirect(redir)
 
 
+@documents_bp.route("/presign", methods=["POST"])
+@documents_required
+def presign():
+    """
+    Issue a pre-signed PUT URL for a direct browser-to-storage upload.
+
+    Called by the frontend when a single file exceeds the large-file threshold
+    (currently 3 MB).  Creates a placeholder Document record in ``pending_upload``
+    status so the browser has a ``doc_id`` to pass back once the PUT completes,
+    then returns the signed URL and that ID.
+
+    Request JSON
+    ------------
+    filename          : str   — original file name (will be sanitised)
+    content_type      : str   — MIME type (informational; DO Spaces sets it on PUT)
+    file_size         : int   — byte size (logged only)
+    client_id         : str   — target client slug
+    vessel_id         : str   — optional vessel ID
+    document_category : str   — optional category slug
+    from_vessel       : str   — optional vessel ID for post-process redirect
+    skip_enrichment   : bool  — skip AI enrichment step
+
+    Response JSON (direct upload available)
+    ---------------------------------------
+    { use_direct: true, presign_url, storage_key, doc_id }
+
+    Response JSON (fallback — object storage not configured)
+    --------------------------------------------------------
+    { use_direct: false }
+    """
+    from flask import jsonify
+    from documents.object_storage import (
+        is_configured, build_storage_key, generate_presigned_put_url,
+    )
+
+    if not is_configured():
+        return jsonify({"use_direct": False})
+
+    data = request.get_json(silent=True) or {}
+
+    filename = secure_filename(data.get("filename", ""))
+    if not filename or not _allowed_file(filename):
+        return jsonify({"error": "Invalid or unsupported file type"}), 400
+
+    client_id = data.get("client_id") or _resolve_client_id()
+    if not client_id:
+        return jsonify({"error": "No client selected"}), 400
+
+    if not g.is_platform_admin and client_id != g.scoped_client_id:
+        abort(403)
+
+    client = ClientConfig.query.filter_by(client_id=client_id).first()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+
+    vessel_id         = data.get("vessel_id") or None
+    document_category = data.get("document_category") or None
+    if document_category and document_category not in VALID_CATEGORIES:
+        document_category = None
+    skip_enrichment   = bool(data.get("skip_enrichment", False))
+
+    ext         = filename.rsplit(".", 1)[1].lower()
+    storage_key = build_storage_key(client_id, filename)
+
+    # Resolve vessel name for group_name
+    group_name = None
+    vessel_obj = None
+    if vessel_id:
+        vessel_obj = Vessel.query.filter_by(id=vessel_id, client_id=client_id).first()
+        if vessel_obj:
+            group_name = vessel_obj.name
+
+    # Create a placeholder Document so we have a stable doc_id to track progress.
+    doc = Document(
+        client_id=client_id,
+        filename=filename,
+        file_type=ext,
+        status="pending_upload",
+        uploaded_by=g.cms_user.email,
+        chunk_count=0,
+        vessel_id=int(vessel_id) if vessel_id else None,
+        group_name=group_name,
+        document_category=document_category,
+        storage_key=storage_key,
+    )
+    db.session.add(doc)
+    db.session.commit()
+
+    try:
+        presign_url = generate_presigned_put_url(storage_key)
+    except Exception as e:
+        db.session.delete(doc)
+        db.session.commit()
+        logger.error(f"[documents] Pre-signed PUT URL generation failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+    file_size = data.get("file_size", 0)
+    logger.info(
+        f"[documents] Pre-signed PUT issued for '{filename}' ({file_size} bytes) → "
+        f"{storage_key} (doc {doc.id}, client '{client_id}')"
+    )
+
+    return jsonify({
+        "use_direct":   True,
+        "presign_url":  presign_url,
+        "storage_key":  storage_key,
+        "doc_id":       doc.id,
+    })
+
+
+@documents_bp.route("/<int:doc_id>/process-from-storage", methods=["POST"])
+@documents_required
+def process_from_storage(doc_id: int):
+    """
+    Download a file that was PUT directly to DO Spaces and run the full
+    extraction → AI enrichment → coverage pipeline on it.
+
+    Called by the frontend after a successful direct PUT, passing back the
+    ``doc_id`` returned by ``/presign``.  Wires into the same SSE progress
+    stream as the regular upload route.
+
+    Form fields
+    -----------
+    task_id         : str  — SSE task ID (optional but expected)
+    from_vessel     : str  — vessel ID for post-process redirect (optional)
+    skip_enrichment : str  — "on" to skip AI enrichment
+    """
+    import io
+    import json as _json
+    from documents.extractor import extract
+    from documents.object_storage import is_configured, download_file
+
+    doc = Document.query.get_or_404(doc_id)
+    _assert_doc_access(doc)
+
+    # Guard against accidental double-processing
+    if doc.status not in ("pending_upload", "error"):
+        return redirect(url_for("documents.preview", doc_id=doc_id))
+
+    task_id         = request.form.get("task_id", "").strip() or None
+    from_vessel     = request.form.get("from_vessel", "").strip() or None
+    skip_enrichment = request.form.get("skip_enrichment", "") == "on"
+
+    if task_id:
+        _pq_create(task_id)
+
+    filename          = doc.filename
+    ext               = doc.file_type
+    storage_key       = doc.storage_key
+    client_id         = doc.client_id
+    document_category = doc.document_category
+
+    # ── Download file from DO Spaces ──────────────────────────────────────────
+    _pq_emit(task_id, "stage", "Retrieving file from storage…")
+    _pq_emit(task_id, "info",  f"Downloading '{filename}' from object storage…", pct=10)
+
+    try:
+        file_bytes = download_file(storage_key)
+    except Exception as e:
+        doc.status        = "error"
+        doc.error_message = f"Storage download failed: {e}"
+        db.session.commit()
+        _pq_emit(task_id, "warn", f"Failed to retrieve file from storage: {e}")
+        redir = url_for("documents.library", client=client_id)
+        _pq_done(task_id, redir)
+        return redirect(redir)
+
+    file_stream = io.BytesIO(file_bytes)
+
+    # ── Extraction ────────────────────────────────────────────────────────────
+    _pq_emit(task_id, "stage", "Extracting document content…")
+    _pq_emit(task_id, "info",  f"File received: {filename}", pct=15)
+    _pq_emit(task_id, "info",  f"Detecting document format ({ext.upper()})…", pct=18)
+    _pq_emit(task_id, "info",  "Initialising parser…", pct=20)
+
+    try:
+        raw_chunks = extract(file_stream, filename, document_category=document_category)
+    except Exception as e:
+        doc.status        = "error"
+        doc.error_message = str(e)
+        db.session.commit()
+        logger.error(f"[documents] Extraction error (from storage) for {filename}: {e}", exc_info=True)
+        _pq_emit(task_id, "warn", f"Extraction failed for '{filename}': {e}")
+        redir = url_for("documents.library", client=client_id)
+        _pq_done(task_id, redir)
+        return redirect(redir)
+
+    if not raw_chunks or not any(c["body"].strip() for c in raw_chunks):
+        doc.status        = "error"
+        doc.error_message = "No text found (scanned image PDF?)"
+        db.session.commit()
+        _pq_emit(task_id, "warn", f"No text found in '{filename}' — may be a scanned PDF")
+        redir = url_for("documents.library", client=client_id)
+        _pq_done(task_id, redir)
+        return redirect(redir)
+
+    _pq_emit(task_id, "info", "Applying clause-aware chunking…", pct=32)
+    _pq_emit(task_id, "ok",   f"Extraction complete — {len(raw_chunks)} chunks found ✓", pct=40)
+
+    raw_chunks_snapshot = [{"body": c.get("body", "")} for c in raw_chunks]
+
+    # ── AI enrichment ─────────────────────────────────────────────────────────
+    if not skip_enrichment:
+        _pq_emit(task_id, "stage", "Running AI enrichment…")
+        _pq_emit(task_id, "info",  f"Sending {len(raw_chunks)} chunks to GPT-4o mini…", pct=45)
+        try:
+            from documents.ai_enrichment import enrich_chunks
+            vessel_obj = Vessel.query.get(doc.vessel_id) if doc.vessel_id else None
+            raw_chunks = enrich_chunks(
+                raw_chunks,
+                filename,
+                vessel_name=vessel_obj.name if vessel_obj else None,
+                document_category=document_category,
+            )
+            _pq_emit(task_id, "info", "Cleaning and normalising chunk titles…", pct=60)
+            _pq_emit(task_id, "info", "Detecting and splitting compound clauses…", pct=68)
+            _pq_emit(task_id, "ok",   "AI enrichment complete ✓", pct=75)
+        except Exception as ae:
+            logger.warning(
+                f"[documents] AI enrichment failed (from storage) for '{filename}': {ae}"
+            )
+            _pq_emit(task_id, "warn", f"AI enrichment failed — using raw extraction: {ae}")
+    else:
+        logger.info(
+            f"[documents] AI enrichment skipped for '{filename}' (skip_enrichment=True)"
+        )
+        _pq_emit(task_id, "warn", "AI enrichment skipped (user preference)", pct=62)
+
+    # ── Section title prefix ──────────────────────────────────────────────────
+    if document_category and document_category != FULL_DOCUMENT_CATEGORY:
+        section_label = next(
+            (lbl for slug, lbl in DOCUMENT_SECTIONS if slug == document_category),
+            None,
+        )
+        if section_label:
+            try:
+                from models import DossierSectionConfig
+                cfg = DossierSectionConfig.query.filter_by(
+                    client_id=client_id, slug=document_category
+                ).first()
+                if cfg and cfg.label and cfg.label.strip():
+                    section_label = cfg.label.strip()
+            except Exception:
+                pass
+            if section_label:
+                prefix = f"{section_label} - "
+                for chunk in raw_chunks:
+                    title = (chunk.get("title") or "").strip()
+                    if title and not title.startswith(prefix):
+                        chunk["title"] = prefix + title
+
+    # ── Coverage check ────────────────────────────────────────────────────────
+    _pq_emit(task_id, "stage", "Finalising document…")
+    _pq_emit(task_id, "info",  "Running coverage check against source…", pct=80)
+    coverage_pct = coverage_notes = None
+    try:
+        from documents.coverage import run_coverage_check
+        file_stream.seek(0)
+        cov = run_coverage_check(
+            file_stream=file_stream,
+            filename=filename,
+            raw_chunks_before_enrichment=raw_chunks_snapshot,
+            final_chunks=raw_chunks,
+        )
+        coverage_pct   = cov.get("coverage_pct")
+        coverage_notes = _json.dumps(cov)
+        if coverage_pct is not None:
+            _pq_emit(task_id, "info",
+                     f"Coverage check passed — {coverage_pct:.0f}% content retained", pct=84)
+    except Exception as ce:
+        logger.warning(f"[documents] Coverage check failed (from storage) for '{filename}': {ce}")
+
+    # ── Persist chunks + update Document record ───────────────────────────────
+    _pq_emit(task_id, "info", "Writing document record to database…", pct=87)
+
+    doc.status         = "draft"
+    doc.chunk_count    = len(raw_chunks)
+    doc.coverage_pct   = coverage_pct
+    doc.coverage_notes = coverage_notes
+    doc.error_message  = None
+
+    for pos, chunk in enumerate(raw_chunks):
+        db.session.add(DocumentChunk(
+            document_id=doc.id,
+            position=pos,
+            title=chunk.get("title") or "",
+            body=chunk["body"],
+        ))
+
+    db.session.commit()
+    _pq_emit(task_id, "ok", f"Document saved — {len(raw_chunks)} chunks ✓", pct=92)
+    _pq_emit(task_id, "ok", "Original file already in object storage ✓", pct=97)
+
+    logger.info(
+        f"[documents] Processed large upload '{filename}' → doc {doc.id} "
+        f"({len(raw_chunks)} chunks) for client '{client_id}'"
+    )
+
+    # ── Auto-fill vessel metadata ─────────────────────────────────────────────
+    if doc.vessel_id:
+        vessel_obj = Vessel.query.get(doc.vessel_id)
+        if vessel_obj:
+            try:
+                from documents.vessel_extractor import fill_vessel_metadata
+                fill_vessel_metadata(vessel_obj, raw_chunks)
+                db.session.commit()
+            except Exception as ve:
+                logger.warning(
+                    f"[documents] Vessel metadata extraction failed (from storage) "
+                    f"for '{doc.group_name}': {ve}"
+                )
+
+    redir = url_for(
+        "documents.preview",
+        doc_id=doc.id,
+        total=1,
+        from_vessel=from_vessel or None,
+    )
+    _pq_emit(task_id, "ok", "Processing complete — loading chunk review…", pct=99)
+    _pq_done(task_id, redir)
+    return redirect(redir)
+
+
 @documents_bp.route("/<int:doc_id>/preview", methods=["GET"])
 @documents_required
 def preview(doc_id: int):

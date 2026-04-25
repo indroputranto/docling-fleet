@@ -165,6 +165,84 @@ def get_public_url(storage_key: str) -> str:
     return f"{_ENDPOINT}/{_BUCKET}/{storage_key}"
 
 
+def generate_presigned_put_url(storage_key: str, expiry_seconds: int = 900) -> str:
+    """
+    Generate a pre-signed PUT URL so a browser can upload a file directly
+    to the Space without routing the binary payload through the Flask server.
+
+    Intended for large files (> 3 MB) that would exceed Vercel's serverless
+    function request-body limit.  The URL expires after *expiry_seconds*
+    (default: 15 minutes).
+
+    Parameters
+    ----------
+    storage_key : str
+        The object key the file will be stored under.
+    expiry_seconds : int
+        How long (in seconds) the URL remains valid.
+
+    Returns
+    -------
+    str
+        A pre-signed HTTPS URL accepting HTTP PUT requests.
+    """
+    from datetime import timedelta
+
+    client = _get_client()
+    try:
+        url = client.presigned_put_object(
+            _BUCKET,
+            storage_key,
+            expires=timedelta(seconds=expiry_seconds),
+        )
+        logger.info(f"[object_storage] Pre-signed PUT URL generated for '{storage_key}'")
+        return url
+    except Exception as exc:
+        logger.error(
+            f"[object_storage] Pre-signed PUT URL generation failed for '{storage_key}': {exc}",
+            exc_info=True,
+        )
+        raise RuntimeError(f"Could not generate pre-signed PUT URL: {exc}") from exc
+
+
+def download_file(storage_key: str) -> bytes:
+    """
+    Download an object from the Space and return its raw bytes.
+
+    Used by the server-side processing pipeline to retrieve a file that was
+    uploaded directly by the browser via a pre-signed PUT URL.
+
+    Parameters
+    ----------
+    storage_key : str
+        The object key to download.
+
+    Returns
+    -------
+    bytes
+        The full file contents.
+
+    Raises
+    ------
+    RuntimeError
+        When the download fails.
+    """
+    client = _get_client()
+    try:
+        response = client.get_object(_BUCKET, storage_key)
+        data = response.read()
+        response.close()
+        response.release_conn()
+        logger.info(f"[object_storage] Downloaded {len(data)} bytes from '{storage_key}'")
+        return data
+    except Exception as exc:
+        logger.error(
+            f"[object_storage] Download failed for key '{storage_key}': {exc}",
+            exc_info=True,
+        )
+        raise RuntimeError(f"Object storage download failed: {exc}") from exc
+
+
 def generate_presigned_url(storage_key: str, expiry_seconds: int = 3600) -> str:
     """
     Generate a time-limited pre-signed URL so a document can be downloaded
