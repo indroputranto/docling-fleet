@@ -538,7 +538,7 @@
 function updateModelHint(sel) {
   const opt  = sel.options[sel.selectedIndex];
   const hint = document.getElementById('llm_model_hint');
-  if (hint) hint.textContent = opt.dataset.desc || '';
+  if (hint) hint.textContent = (opt && opt.dataset.desc) || '';
 }
 // Populate hint on initial page load
 (function() {

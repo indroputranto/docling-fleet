@@ -414,6 +414,7 @@ def client_new():
             suggested_questions_text="",
             dossier_sections=DOCUMENT_SECTIONS,
             dossier_section_configs={},
+            llm_models=LLM_MODELS,
         )
     return _save_client(client=None)
 
@@ -580,125 +581,6 @@ def client_delete(client_db_id: int):
     db.session.commit()
     flash(f"Client '{name}' deleted.", "success")
     return redirect(url_for("cms.dashboard"))
-
-
-# ---------------------------------------------------------------------------
-# Skills management
-# ---------------------------------------------------------------------------
-
-@cms_bp.route("/clients/<int:client_db_id>/skills", methods=["GET"])
-@cms_required
-def skills_list(client_db_id: int):
-    """
-    GET /cms/clients/<id>/skills
-    Returns the list of skills for a client as JSON.
-    Accessible to admin and the scoped client_admin.
-    """
-    from models import ClientSkill
-    client = ClientConfig.query.get_or_404(client_db_id)
-    _assert_client_access(client)
-
-    skills = (
-        ClientSkill.query
-        .filter_by(client_id=client.client_id)
-        .order_by(ClientSkill.created_at.desc())
-        .all()
-    )
-    return jsonify({"skills": [s.to_dict() for s in skills]})
-
-
-@cms_bp.route("/clients/<int:client_db_id>/skills/upload", methods=["POST"])
-@cms_required
-def skills_upload(client_db_id: int):
-    """
-    POST /cms/clients/<id>/skills/upload
-    Accepts a multipart form upload of one .md file.
-    Creates a ClientSkill row with the file's content.
-    """
-    from models import ClientSkill
-    client = ClientConfig.query.get_or_404(client_db_id)
-    _assert_client_access(client)
-
-    uploaded_file = request.files.get("skill_file")
-    if not uploaded_file or not uploaded_file.filename:
-        return jsonify({"error": "No file provided"}), 400
-
-    filename = uploaded_file.filename.strip()
-    if not filename.lower().endswith(".md"):
-        return jsonify({"error": "Only .md files are accepted"}), 400
-
-    content = uploaded_file.read().decode("utf-8", errors="replace").strip()
-    if not content:
-        return jsonify({"error": "The uploaded file is empty"}), 400
-
-    # Derive a display name from the filename (strip .md, replace dashes/underscores)
-    display_name = request.form.get("skill_name", "").strip()
-    if not display_name:
-        display_name = filename.rsplit(".", 1)[0].replace("-", " ").replace("_", " ").title()
-
-    skill = ClientSkill(
-        client_id=client.client_id,
-        name=display_name,
-        filename=filename,
-        content=content,
-        active=True,
-        uploaded_by=g.cms_user.email,
-    )
-    db.session.add(skill)
-    db.session.commit()
-
-    logger.info(
-        f"[skills] Uploaded skill '{display_name}' for client={client.client_id} "
-        f"by {g.cms_user.email}"
-    )
-    return jsonify({"skill": skill.to_dict()}), 201
-
-
-@cms_bp.route("/skills/<int:skill_id>/toggle", methods=["POST"])
-@cms_required
-def skill_toggle(skill_id: int):
-    """
-    POST /cms/skills/<id>/toggle
-    Flips the active state of a skill.
-    """
-    from models import ClientSkill
-    skill = ClientSkill.query.get_or_404(skill_id)
-
-    # Scope check: find the parent ClientConfig to validate access
-    parent = ClientConfig.query.filter_by(client_id=skill.client_id).first_or_404()
-    _assert_client_access(parent)
-
-    skill.active = not skill.active
-    db.session.commit()
-
-    logger.info(
-        f"[skills] Skill {skill_id} ({skill.name!r}) set active={skill.active} "
-        f"by {g.cms_user.email}"
-    )
-    return jsonify({"id": skill.id, "active": skill.active})
-
-
-@cms_bp.route("/skills/<int:skill_id>/delete", methods=["POST"])
-@cms_required
-def skill_delete(skill_id: int):
-    """
-    POST /cms/skills/<id>/delete
-    Permanently deletes a skill.
-    """
-    from models import ClientSkill
-    skill = ClientSkill.query.get_or_404(skill_id)
-
-    parent = ClientConfig.query.filter_by(client_id=skill.client_id).first_or_404()
-    _assert_client_access(parent)
-
-    name = skill.name
-    db.session.delete(skill)
-    db.session.commit()
-
-    logger.info(
-        f"[skills] Skill {skill_id} ({name!r}) deleted by {g.cms_user.email}"
-    )
-    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------

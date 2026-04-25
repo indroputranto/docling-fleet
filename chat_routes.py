@@ -406,34 +406,6 @@ def chat(client_id: str = None):
         f"history_turns={len(history)//2} message_len={len(user_message)}"
     )
 
-    # --- Load active skills and augment system prompt ------------------------
-    try:
-        from models import ClientSkill
-        active_skills = (
-            ClientSkill.query
-            .filter_by(client_id=resolved, active=True)
-            .order_by(ClientSkill.created_at)
-            .all()
-        )
-        if active_skills:
-            skills_block = "\n\n".join(
-                f"--- SKILL: {s.name} ---\n{s.content.strip()}"
-                for s in active_skills
-            )
-            cfg = dict(cfg)   # shallow copy so we don't mutate the original
-            cfg["system_prompt"] = (
-                cfg["system_prompt"].rstrip()
-                + "\n\n"
-                "---\n"
-                "CUSTOM SKILLS\n"
-                "The following skill instructions have been configured for this deployment. "
-                "Follow them precisely alongside your general guidelines.\n\n"
-                + skills_block
-            )
-            logger.info(f"[chat] Injected {len(active_skills)} skill(s) for client={resolved}")
-    except Exception as e:
-        logger.warning(f"[chat] Skills load failed (non-fatal): {e}")
-
     # --- Step 1: Embed the user message --------------------------------------
     try:
         query_vector = _embed_query(user_message, model=cfg["embedding_model"])
