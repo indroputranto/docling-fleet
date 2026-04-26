@@ -227,21 +227,30 @@ def _is_docx_subsection_label(text: str) -> bool:
     return True
 
 
-def _split_into_chunks(segments: List[Dict]) -> List[Dict]:
+def _split_into_chunks(segments: List[Dict], max_words: int = MAX_CHUNK_WORDS) -> List[Dict]:
     """
     Given a list of {title, body} where body may be very long,
-    split any chunk exceeding MAX_CHUNK_WORDS into sub-chunks.
+    split any chunk exceeding max_words into sub-chunks.
+
+    Args:
+        segments:  list of {title, body} dicts from an extraction pass.
+        max_words: soft word ceiling per chunk.  Defaults to MAX_CHUNK_WORDS
+                   (1500) for general documents.  Pass a higher value (e.g.
+                   5000) for clause-presplit paths where splitting mid-clause
+                   is worse than a large chunk — the hard ceiling is the
+                   embedding model's token limit (~6 000 words for
+                   text-embedding-3-small at 8 191 tokens).
     """
     result = []
     for seg in segments:
         words = seg["body"].split()
-        if len(words) <= MAX_CHUNK_WORDS:
+        if len(words) <= max_words:
             result.append(seg)
         else:
             # Split into sub-chunks; carry the original title on the first only
             parts = [
-                words[i : i + MAX_CHUNK_WORDS]
-                for i in range(0, len(words), MAX_CHUNK_WORDS)
+                words[i : i + max_words]
+                for i in range(0, len(words), max_words)
             ]
             for idx, part in enumerate(parts):
                 suffix = f" (part {idx + 1})" if len(parts) > 1 else ""
@@ -1077,6 +1086,23 @@ _RAW_EXTRACTION_CATEGORIES = {
     "speed_consumption",
 }
 
+# Document categories that require BOTH PyMuPDF's graphical strikethrough
+# detection AND numbered-clause splitting (instead of font-based headers).
+#
+# Charter parties are the canonical case: they are heavily negotiated, so
+# struck-out text carries legal significance and must be preserved as
+# ~~markers~~.  At the same time, BIMCO/NYPE PDFs use bold body text for
+# legal emphasis, which causes the font-based header detector to misfire and
+# produce hundreds of spurious chunks.
+#
+# The fitz-presplit path solves both problems:
+#   1. Extracts text via PyMuPDF (graphical strikethrough preserved)
+#   2. Splits on numbered top-level clauses, not font properties
+#   3. Falls back to page batches + AI enrichment when no clause structure
+_FITZ_PRESPLIT_CATEGORIES = {
+    "charter_party",
+}
+
 # Word count threshold below which the whole document is returned as ONE chunk
 # rather than split by page.  7-page fixture recaps are ~3 000 words — well
 # within gpt-4o-mini's 128k-token context.
@@ -1091,6 +1117,12 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
         "1. Vessel / Owners"
         "14. C/P Details"
         "1.1 Owners confirm ..."   ← sub-clause: kept inside parent chunk
+
+    Also handles the BIMCO SmartCon split-line format where PyMuPDF renders
+    the clause number and title as consecutive lines:
+        "1."
+        "Duration/Trip Description"
+    These are joined into "1. Duration/Trip Description" in a pre-pass.
 
     Only TOP-level integers (no dot after the digit group) trigger a new
     chunk boundary, so sub-clauses like "1.1", "1.2" stay within their
@@ -1107,11 +1139,35 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
         r"^(\d{1,2})\.\s+(.+)$",
         re.MULTILINE,
     )
+    # Matches a bare clause number on its own line: "1." or "14."
+    _BARE_NUM_RE = re.compile(r"^(\d{1,2})\.$")
 
-    lines = full_text.splitlines()
+    raw_lines = full_text.splitlines()
+
+    # Pre-pass: join bare "N." lines with the following content line.
+    # BIMCO SmartCon PDFs often render the clause number and title as
+    # separate text spans/lines in PyMuPDF, e.g.:
+    #   "1."                        ← fitz line 1
+    #   "Duration/Trip Description" ← fitz line 2
+    # We merge them so TOP_CLAUSE_RE can match "1. Duration/Trip Description".
+    lines: List[str] = []
+    i = 0
+    while i < len(raw_lines):
+        stripped = raw_lines[i].strip()
+        if _BARE_NUM_RE.match(stripped) and i + 1 < len(raw_lines):
+            next_stripped = raw_lines[i + 1].strip()
+            # Only join if the next line is non-empty content (not another
+            # bare number or a known non-title pattern)
+            if next_stripped and not _BARE_NUM_RE.match(next_stripped):
+                lines.append(stripped + " " + next_stripped)
+                i += 2
+                continue
+        lines.append(raw_lines[i])
+        i += 1
     chunks: List[Dict] = []
     current_title: Optional[str] = None
     current_lines: List[str] = []
+    max_clause_seen: int = 0   # monotonic guard — same logic as _column_to_chunks
 
     def _flush():
         body = "\n".join(current_lines).strip()
@@ -1122,19 +1178,31 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
         stripped = line.strip()
         m = TOP_CLAUSE_RE.match(stripped)
         if m:
-            _flush()
-            current_title = stripped
-            current_lines = []
+            num = int(m.group(1))
+            # Monotonic guard: a numbered line whose number is LOWER than the
+            # highest clause seen so far is a sub-clause list item inside the
+            # current clause body, not a new top-level clause.
+            # e.g. "1. the Vessel shall..." inside clause 9 → body text.
+            if num <= max_clause_seen:
+                current_lines.append(line)
+            else:
+                _flush()
+                max_clause_seen = num
+                current_title = stripped
+                current_lines = []
         else:
             current_lines.append(line)
 
     _flush()
 
-    # If no clause markers were found, return None so caller falls back
+    # If no clause markers were found, return empty so caller falls back
     if not any(c["title"] for c in chunks):
         return []
 
-    return _split_into_chunks(chunks)
+    # Use a generous per-clause ceiling: clause integrity matters more than
+    # chunk size for contract documents.  5 000 words ≈ 6 500 tokens — safely
+    # below text-embedding-3-small's 8 191-token hard limit.
+    return _split_into_chunks(chunks, max_words=5_000)
 
 
 def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
@@ -1214,6 +1282,164 @@ def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PDF extraction — PyMuPDF + clause presplit (hybrid, for negotiated contracts)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
+    """
+    Hybrid extraction for negotiated contract PDFs (e.g. charter parties).
+
+    Combines the two things each path does best:
+      - PyMuPDF  : graphical strikethrough detection via drawing-rectangle
+                   analysis.  Struck spans are wrapped in ~~markers~~ exactly
+                   as _extract_pdf_fitz does, preserving legally significant
+                   deleted text that pdfplumber cannot see at all.
+      - Raw path : _presplit_on_clauses splits on numbered top-level clause
+                   headers (1. Duration, 2. Delivery …) instead of relying on
+                   font size / bold flags, which misfire on BIMCO/NYPE PDFs
+                   where bold is used for legal emphasis inside clause bodies.
+
+    Falls back to fixed page batches (for AI enrichment) when the document
+    has no numbered clause structure.
+    """
+    import fitz
+
+    MIN_FONT = 7.0
+    page_texts: List[str] = []
+
+    with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
+        for page in pdf:
+            # ── Strikethrough band detection (same logic as _extract_pdf_fitz) ─
+            _span_ybounds: List[tuple] = []
+            for _blk in page.get_text("dict")["blocks"]:
+                if _blk.get("type") != 0:
+                    continue
+                for _ln in _blk.get("lines", []):
+                    for _sp in _ln.get("spans", []):
+                        _bb = _sp.get("bbox")
+                        if _bb and _bb[3] > _bb[1]:
+                            _span_ybounds.append((_bb[1], _bb[3]))
+
+            strike_bands: List[tuple] = []
+            for d in page.get_drawings():
+                r = d.get("rect")
+                if r is None:
+                    continue
+                band_h = r.y1 - r.y0
+                band_w = r.x1 - r.x0
+                if band_h > 3.0 or band_w < 10.0:
+                    continue
+                by_mid = (r.y0 + r.y1) / 2
+                if not any(y0 <= by_mid <= y1 for y0, y1 in _span_ybounds):
+                    continue
+                strike_bands.append((r.x0, r.x1, by_mid))
+
+            def _span_is_struck(bbox) -> bool:
+                sx0, sy0, sx1, sy1 = bbox
+                span_h = sy1 - sy0
+                if span_h <= 0:
+                    return False
+                for bx0, bx1, by_mid in strike_bands:
+                    overlap_w = min(sx1, bx1) - max(sx0, bx0)
+                    if overlap_w < (sx1 - sx0) * 0.4:
+                        continue
+                    rel = (by_mid - sy0) / span_h
+                    if 0.25 <= rel <= 0.80:
+                        return True
+                return False
+            # ──────────────────────────────────────────────────────────────────
+
+            page_lines: List[str] = []
+            for block in page.get_text("dict")["blocks"]:
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    spans = line.get("spans", [])
+                    text_spans = [s for s in spans if s["text"].strip()]
+                    if not text_spans:
+                        continue
+                    max_size = max(s["size"] for s in text_spans)
+                    if max_size < MIN_FONT:
+                        continue
+
+                    # Build line text with per-span strikethrough markers,
+                    # grouping consecutive struck spans before cleaning so
+                    # that ligature fragments merge correctly inside ~~…~~.
+                    parts: List[str] = []
+                    struck_buf: List[str] = []
+
+                    def _flush_struck_ps() -> None:
+                        if not struck_buf:
+                            return
+                        merged = _clean_pdf_text(" ".join(struck_buf)).strip()
+                        if merged:
+                            parts.append(f"~~{merged}~~")
+                        struck_buf.clear()
+
+                    for s in text_spans:
+                        raw = s["text"]
+                        if not raw.strip():
+                            continue
+                        if _span_is_struck(s["bbox"]):
+                            struck_buf.append(raw)
+                        else:
+                            _flush_struck_ps()
+                            parts.append(_clean_pdf_text(raw))
+                    _flush_struck_ps()
+
+                    combined = " ".join(parts).strip()
+                    if combined:
+                        page_lines.append(combined)
+
+            if page_lines:
+                page_texts.append("\n".join(page_lines))
+
+    if not page_texts:
+        return []
+
+    full_text = "\n\n".join(page_texts)
+
+    # Strip left-margin line numbers before clause splitting (same as raw path)
+    full_text = _strip_text_line_numbers(full_text)
+
+    # Try numbered-clause splitting first
+    clause_chunks = _presplit_on_clauses(full_text)
+    if clause_chunks:
+        logger.info(
+            "[extractor] Fitz-presplit: %d clause chunks (strikethrough preserved)",
+            len(clause_chunks),
+        )
+        return clause_chunks
+
+    # No numbered structure — return as page batches so AI enrichment still
+    # receives the full context (strikethrough markers intact throughout)
+    total_words = len(full_text.split())
+    logger.info(
+        "[extractor] Fitz-presplit: no clause markers found, "
+        "%d words as page batches (strikethrough preserved)",
+        total_words,
+    )
+
+    if total_words <= _RAW_SINGLE_CHUNK_THRESHOLD:
+        return [{"title": None, "body": full_text}]
+
+    chunks: List[Dict] = []
+    batch_lines: List[str] = []
+    batch_words = 0
+    for pt in page_texts:
+        pw = len(pt.split())
+        if batch_words + pw > _RAW_SINGLE_CHUNK_THRESHOLD and batch_lines:
+            chunks.append({"title": None, "body": "\n\n".join(batch_lines)})
+            batch_lines = []
+            batch_words = 0
+        batch_lines.append(pt)
+        batch_words += pw
+    if batch_lines:
+        chunks.append({"title": None, "body": "\n\n".join(batch_lines)})
+    return chunks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF extraction — public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1221,18 +1447,47 @@ def extract_pdf(file_obj: IO[bytes], document_category: Optional[str] = None) ->
     """
     Extract chunks from a .pdf file.
 
-    When document_category is one of _RAW_EXTRACTION_CATEGORIES, uses
-    _extract_pdf_raw (full-text, minimal pre-chunking) so that AI enrichment
-    receives the complete document context and can split it correctly.
+    Dispatch order by document_category:
 
-    Otherwise dispatch order:
-      1. PyMuPDF  — font-aware header detection (bold / larger text)
-      2. pdfplumber — clause-regex only (if PyMuPDF not installed)
-      3. Fixed-size word chunks (if neither library produces structure)
+      1. _FITZ_PRESPLIT_CATEGORIES (e.g. charter_party)
+             → _extract_pdf_fitz_presplit
+             PyMuPDF strikethrough detection + numbered-clause splitting.
+             Use when struck-out text is legally significant AND bold body
+             text would confuse the font-based header detector.
+
+      2. _RAW_EXTRACTION_CATEGORIES (e.g. fixture_recap, addendum)
+             → _extract_pdf_raw
+             pdfplumber full-text + numbered-clause splitting, AI-first.
+             Use when font heuristics misfire and strikethrough is not needed.
+
+      3. Everything else
+             → _extract_pdf_fitz  (font-aware header detection)
+             →   pdfplumber fallback (clause-regex only, no font info)
+             →   fixed-size word chunks (last resort)
     """
     raw_bytes = file_obj.read()
 
-    # Use raw extraction for document types where font-heuristics misfire
+    # Hybrid: PyMuPDF strikethrough + clause-based splitting
+    if document_category in _FITZ_PRESPLIT_CATEGORIES:
+        logger.info(
+            f"[extractor] Using fitz-presplit (strikethrough + clause) "
+            f"for category '{document_category}'"
+        )
+        try:
+            chunks = _extract_pdf_fitz_presplit(raw_bytes)
+            if chunks:
+                return chunks
+            logger.warning(
+                "[extractor] Fitz-presplit returned no content — "
+                "falling back to font-based extraction"
+            )
+        except ImportError:
+            logger.warning(
+                "[extractor] PyMuPDF not available for fitz-presplit — "
+                "falling back to raw extraction"
+            )
+
+    # Raw: pdfplumber full-text, AI-first (no strikethrough detection)
     if document_category in _RAW_EXTRACTION_CATEGORIES:
         logger.info(
             f"[extractor] Using raw (AI-first) PDF extraction "
