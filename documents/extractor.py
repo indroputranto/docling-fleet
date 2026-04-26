@@ -1142,6 +1142,31 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
     # Matches a bare clause number on its own line: "1." or "14."
     _BARE_NUM_RE = re.compile(r"^(\d{1,2})\.$")
 
+    # Appendix / annex / schedule header detection (best-effort).
+    # Covers two common patterns:
+    #   1. Line starts with keyword + identifier:
+    #        "APPENDIX A", "Annex B", "Schedule I", "Exhibit C"
+    #   2. Short all-caps line containing keyword anywhere:
+    #        "NYPE 2015 APPENDIX A (VESSEL DESCRIPTION)"
+    # Custom appendix titles that use neither pattern are not caught — they
+    # remain in the last clause body, which is acceptable.
+    _APPENDIX_START_RE = re.compile(
+        r"^(?:APPENDIX|ANNEX|SCHEDULE|EXHIBIT)\s+[A-Z0-9]",
+        re.IGNORECASE,
+    )
+
+    def _is_appendix_header(text: str) -> bool:
+        if not text or len(text) > 80:
+            return False
+        # Pattern 1: starts with keyword
+        if _APPENDIX_START_RE.match(text):
+            return True
+        # Pattern 2: short all-caps line containing keyword
+        alpha = [c for c in text if c.isalpha()]
+        if alpha and all(c.isupper() for c in alpha):
+            return any(kw in text for kw in ("APPENDIX", "ANNEX", "SCHEDULE", "EXHIBIT"))
+        return False
+
     raw_lines = full_text.splitlines()
 
     # Pre-pass: join bare "N." lines with the following content line.
@@ -1190,6 +1215,14 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
                 max_clause_seen = num
                 current_title = stripped
                 current_lines = []
+        elif _is_appendix_header(stripped):
+            # Non-numbered structural boundary: Appendix A, Annex B, etc.
+            # Reset max_clause_seen so sub-items inside the appendix are not
+            # accidentally swallowed by the monotonic guard.
+            _flush()
+            max_clause_seen = 0
+            current_title = stripped
+            current_lines = []
         else:
             current_lines.append(line)
 
