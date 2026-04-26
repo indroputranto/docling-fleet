@@ -690,6 +690,95 @@ def _detect_margin_line_numbers(elements: List[Dict]) -> Optional[Dict]:
     }
 
 
+def _strip_text_line_numbers(text: str) -> str:
+    """
+    Detect and strip sequential left-margin line numbers from plain text output.
+
+    Used by the pdfplumber extraction paths (``_extract_pdf_raw`` and
+    ``_extract_pdf_pdfplumber``) where coordinate metadata is unavailable.
+
+    pdfplumber preserves PDF line-breaks, so left-margin numbers appear as
+    leading integers on each text line::
+
+        '23 1. Duration'
+        '24 The Owners agree to let...'
+        '26'                               ← empty content line (bare number)
+        '27'
+        '28 within below mentioned...'
+
+    Stripping produces::
+
+        '1. Duration'
+        'The Owners agree to let...'
+        ''
+        ''
+        'within below mentioned...'
+
+    After stripping, ``_presplit_on_clauses`` can correctly detect ``1. Duration``
+    and ``2. Delivery`` as clause boundaries, enabling proper chunking.
+
+    Detection conditions (all must be satisfied):
+      1. ≥ 10 lines start with a 1–3 digit integer followed by whitespace OR
+         are a bare integer (the line is only a number — an empty content line).
+      2. Those integers cover a numeric range of ≥ 15.
+      3. At least 40 % of the covered integer range is represented
+         (density — rules out sparse numbered lists like "1 Vessel … 3 Port").
+      4. At least 25 % of non-empty lines match the leading-number pattern
+         (coverage — ensures systematic numbering, not incidental matches).
+
+    Returns the text unchanged if any condition is not satisfied.
+    """
+    if not text:
+        return text
+
+    lines = text.splitlines()
+
+    # Matches a line that IS a bare number OR starts with a number + whitespace
+    # Groups: (1) the integer string, (2) the remainder (may be empty)
+    _prefix = re.compile(r'^(\d{1,3})(\s+.*|)$')
+
+    candidate_nums: list = []
+    for line in lines:
+        m = _prefix.match(line.strip())
+        if m:
+            # Only count if remainder is empty (bare number) or starts with space
+            # — prevents matching "12580 MT" because _prefix requires the full
+            # line to be consumed (anchored $ at the end).
+            candidate_nums.append(int(m.group(1)))
+
+    non_empty = [l for l in lines if l.strip()]
+    if len(candidate_nums) < 10:
+        return text
+    if not non_empty or len(candidate_nums) / len(non_empty) < 0.25:
+        return text
+
+    nums = sorted(candidate_nums)
+    span = nums[-1] - nums[0]
+    if span < 15:
+        return text
+    if len(set(candidate_nums)) / (span + 1) < 0.40:
+        return text
+
+    logger.info(
+        "[extractor] pdfplumber: stripping left-margin line numbers "
+        "(range %d–%d, %d/%d lines)",
+        nums[0], nums[-1], len(candidate_nums), len(non_empty),
+    )
+
+    cleaned: list = []
+    for line in lines:
+        stripped = line.strip()
+        m = _prefix.match(stripped)
+        if m:
+            # Remove the leading integer (and any whitespace after it)
+            remainder = m.group(2).strip()
+            cleaned.append(remainder)   # may be '' for bare-number lines
+        else:
+            cleaned.append(line)
+
+    return "\n".join(cleaned)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PDF extraction — PyMuPDF (primary)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -935,6 +1024,12 @@ def _extract_pdf_pdfplumber(raw_bytes: bytes) -> List[Dict]:
     if not full_text_lines:
         return []
 
+    # Strip left-margin line numbers (charter-party style) so that clause
+    # headers like "23 1. Duration" are cleaned to "1. Duration" before the
+    # clause-detection loop below tries to recognise them.
+    joined = _strip_text_line_numbers("\n".join(full_text_lines))
+    full_text_lines = joined.splitlines()
+
     chunks: List[Dict] = []
     current_title: Optional[str] = None
     current_lines: List[str] = []
@@ -1074,6 +1169,11 @@ def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
         return []
 
     full_text = "\n\n".join(page_texts)
+
+    # Strip left-margin line numbers before clause splitting so that clause
+    # headers like "23 1. Duration" become "1. Duration" and are correctly
+    # detected by _presplit_on_clauses.
+    full_text = _strip_text_line_numbers(full_text)
 
     # Try numbered-clause splitting first
     clause_chunks = _presplit_on_clauses(full_text)
