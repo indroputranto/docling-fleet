@@ -129,6 +129,17 @@ _CLAUSE_RE = re.compile(
     re.MULTILINE,
 )
 
+# Matches a left-margin line number that was merged into a content span by
+# PyMuPDF when the number and content happen to be in the same text line object.
+# Pattern: 1–3 digits at the very start, followed by whitespace and a letter.
+# Upper bound of 3 digits (≤999) safely avoids stripping genuine numeric content
+# like "12580 MT" (5 digits) or "9611 GT" (4 digits).
+# The positive lookahead (?=[A-Za-z]) ensures we never strip a number that is
+# itself the start of the content (e.g. "1.5 knots" would NOT match because
+# the next char after "1" is "." not a space; "12580 metric" won't match —
+# 5 digits exceeds \d{1,3}).
+_LN_PREFIX_RE = re.compile(r'^\d{1,3}\s+(?=[A-Za-z])')
+
 
 def _is_clause_header(text: str) -> bool:
     return bool(_CLAUSE_RE.match(text.strip()))
@@ -588,6 +599,98 @@ def _fallback_fixed_chunks(text_lines: List[str]) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Left-margin line-number detection & stripping
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _detect_margin_line_numbers(elements: List[Dict]) -> Optional[Dict]:
+    """
+    Detect sequential left-margin line numbers in charter-party style PDFs.
+
+    Many BIMCO standard forms (and other maritime contracts) print a column of
+    sequential integers (1, 2, 3 …) in the left margin of every page for legal
+    cross-referencing.  PyMuPDF captures these as ordinary text elements,
+    polluting extracted chunks with noise like "13 Deadweight 12580 MT".
+
+    Detection algorithm (all conditions must be satisfied):
+      1. At least 10 pure-integer (1–3 digit) elements exist in the document.
+      2. Those integers cluster at a consistent x-position (modal 15-pt bin
+         contains ≥10 members).
+      3. The cluster's x-position falls in the left 25 % of the text area.
+      4. The clustered integers span a range of at least 15 (e.g. 1–15+),
+         ruling out incidental small numbers like page counts or table values.
+      5. At least 50 % of the integers in the covered range are present
+         (density check — rules out sparse data columns).
+      6. When the cluster is sorted by vertical position (y), the numbers are
+         mostly non-decreasing (≤ 20 % inversions), confirming top-to-bottom
+         sequential ordering.
+
+    Returns a dict with:
+        'strip_ids'  — set of id(element) for pure-numeric margin elements to remove
+        'x_cluster'  — approximate x-coordinate of the detected line-number column
+    Returns None if no line-number column is detected.
+    """
+    from collections import Counter
+
+    if not elements:
+        return None
+
+    # Step 1: candidate elements — bare 1-3 digit integers only
+    numeric_els = [
+        e for e in elements
+        if re.fullmatch(r'\d{1,3}', e['text'].strip())
+    ]
+    if len(numeric_els) < 10:
+        return None
+
+    # Step 2: find modal x-position bin (15 pt resolution)
+    BIN = 15.0
+    x_bins: Counter = Counter(int(e['x'] / BIN) for e in numeric_els)
+    modal_bin, modal_count = x_bins.most_common(1)[0]
+    if modal_count < 10:
+        return None
+
+    cluster = [e for e in numeric_els if int(e['x'] / BIN) == modal_bin]
+    cluster_x = modal_bin * BIN
+
+    # Step 3: cluster must sit in the left quarter of the overall text area
+    all_x = [e['x'] for e in elements]
+    x_min, x_max = min(all_x), max(all_x)
+    text_width = x_max - x_min
+    if text_width > 0 and (cluster_x - x_min) / text_width > 0.25:
+        return None
+
+    # Step 4: numbers must cover a meaningful range
+    nums = sorted(int(e['text'].strip()) for e in cluster)
+    span = nums[-1] - nums[0]
+    if span < 15:
+        return None
+
+    # Step 5: density — at least 50 % of integers in the range are present
+    density = len(set(nums)) / (span + 1)
+    if density < 0.50:
+        return None
+
+    # Step 6: monotonicity — when read top-to-bottom the numbers should
+    # be non-decreasing with at most 20 % inversions
+    cluster_by_y = sorted(cluster, key=lambda e: e['y'])
+    seq = [int(e['text'].strip()) for e in cluster_by_y]
+    if len(seq) > 1:
+        inversions = sum(1 for i in range(len(seq) - 1) if seq[i] > seq[i + 1])
+        if inversions / (len(seq) - 1) > 0.20:
+            return None
+
+    logger.info(
+        "[extractor] Left-margin line numbers detected: "
+        "x≈%.0fpt, range %d–%d, %d elements to strip",
+        cluster_x, nums[0], nums[-1], len(cluster),
+    )
+    return {
+        'strip_ids': {id(e) for e in cluster},
+        'x_cluster': cluster_x,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF extraction — PyMuPDF (primary)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -778,6 +881,28 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
 
             # Advance global offset past this page (+ small inter-page gap)
             y_global += page_height * 2 + 200
+
+    # ── Left-margin line-number stripping ─────────────────────────────────────
+    # Charter-party PDFs (BIMCO and similar) print sequential integers in a
+    # narrow left-margin column for legal cross-referencing.  Strip them before
+    # chunking so they don't pollute chunk bodies.
+    #
+    # Two-pass strategy:
+    #   Pass 1 — remove elements whose entire text is a bare line number
+    #             (the common case: number and content are in separate PyMuPDF
+    #             blocks and therefore separate elements in all_elements).
+    #   Pass 2 — for elements where PyMuPDF happened to merge a line number and
+    #             its content into one span, strip the leading "N " prefix using
+    #             _LN_PREFIX_RE (safe: requires ≤3 digits + space + letter, so
+    #             genuine numeric content like "12580 MT" is never touched).
+    ln_info = _detect_margin_line_numbers(all_elements)
+    if ln_info:
+        # Pass 1: drop pure-numeric margin elements
+        all_elements = [e for e in all_elements if id(e) not in ln_info['strip_ids']]
+        # Pass 2: strip inline prefixes from any merged spans
+        for e in all_elements:
+            e['text'] = _LN_PREFIX_RE.sub('', e['text'])
+    # ──────────────────────────────────────────────────────────────────────────
 
     # Single global pass — header context is maintained across page boundaries
     all_chunks = _column_to_chunks(all_elements) if all_elements else []
