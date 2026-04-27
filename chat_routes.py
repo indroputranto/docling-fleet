@@ -100,14 +100,21 @@ def _query_pinecone(
     vector: list[float],
     namespace: str,
     top_k: int,
+    vessel_filter: str | None = None,
 ) -> list[dict]:
     """
     Query Pinecone and return a list of match dicts.
     Each dict has 'id', 'score', and 'metadata'.
+
+    If vessel_filter is provided, results are restricted to chunks whose
+    'vessel' metadata field matches that name exactly (case-sensitive as
+    stored in Pinecone).
     """
     kwargs = dict(vector=vector, top_k=top_k, include_metadata=True)
     if namespace:
         kwargs["namespace"] = namespace
+    if vessel_filter:
+        kwargs["filter"] = {"vessel": {"$eq": vessel_filter}}
 
     result = index.query(**kwargs)
     return result.get("matches", [])
@@ -180,6 +187,63 @@ def _build_messages(
 
     messages = trimmed_history + [{"role": "user", "content": user_message}]
     return system, messages
+
+
+def _resolve_vessel_name(user_message: str, client_id: str) -> str | None:
+    """
+    Try to find a vessel name in the user's message by partial/fuzzy matching
+    against all vessel names registered for this client in the database.
+
+    Matching strategy (case-insensitive):
+      1. Full vessel name is a substring of the user message  ("ocean7 algora" in msg)
+      2. Any token from the vessel name (≥ 3 chars) appears in the message
+         ("algora" matches "Ocean7 Algora")
+      3. Any token from the message (≥ 3 chars) appears in the vessel name
+
+    If exactly one vessel matches it is returned; if none or multiple match,
+    returns None so we don't silently guess wrong.
+    """
+    try:
+        from models import Vessel
+        vessels = Vessel.query.filter_by(client_id=client_id).all()
+        if not vessels:
+            return None
+
+        msg_lower = user_message.lower()
+        msg_tokens = [t for t in msg_lower.split() if len(t) >= 3]
+        matched = []
+
+        for vessel in vessels:
+            vessel_name = (vessel.name or "").strip()
+            if not vessel_name:
+                continue
+            vessel_lower = vessel_name.lower()
+            vessel_tokens = [t for t in vessel_lower.split() if len(t) >= 3]
+
+            # Strategy 1: full name substring
+            if vessel_lower in msg_lower:
+                matched.append(vessel_name)
+                continue
+
+            # Strategy 2: any vessel token appears in message
+            if any(vt in msg_lower for vt in vessel_tokens):
+                matched.append(vessel_name)
+                continue
+
+            # Strategy 3: any message token appears in vessel name
+            if any(mt in vessel_lower for mt in msg_tokens):
+                matched.append(vessel_name)
+                continue
+
+        if len(matched) == 1:
+            logger.info(f"[chat] Vessel name resolved: '{matched[0]}' from message")
+            return matched[0]
+        if len(matched) > 1:
+            logger.info(f"[chat] Ambiguous vessel match ({matched}); skipping filter")
+        return None
+    except Exception as e:
+        logger.warning(f"[chat] Vessel name resolution failed: {e}")
+        return None
 
 
 def _validate_history(raw_history) -> list[dict]:
@@ -406,6 +470,11 @@ def chat(client_id: str = None):
         f"history_turns={len(history)//2} message_len={len(user_message)}"
     )
 
+    # --- Vessel name resolution (fuzzy partial match) ------------------------
+    # Identifies which vessel the user is asking about so we can scope the
+    # Pinecone query and give Claude an explicit hint.
+    matched_vessel = _resolve_vessel_name(user_message, resolved)
+
     # --- Step 1: Embed the user message --------------------------------------
     try:
         query_vector = _embed_query(user_message, model=cfg["embedding_model"])
@@ -421,8 +490,12 @@ def chat(client_id: str = None):
             vector=query_vector,
             namespace=cfg["pinecone_namespace"],
             top_k=cfg["max_context_chunks"],
+            vessel_filter=matched_vessel,
         )
-        logger.info(f"[chat] Pinecone returned {len(matches)} matches")
+        logger.info(
+            f"[chat] Pinecone returned {len(matches)} matches"
+            + (f" (vessel filter: '{matched_vessel}')" if matched_vessel else "")
+        )
     except Exception as e:
         logger.error(f"[chat] Pinecone query failed: {e}")
         return jsonify({"error": "Failed to query knowledge base", "detail": str(e)}), 500
@@ -431,9 +504,20 @@ def chat(client_id: str = None):
     context_block = _build_context_block(matches)
 
     # --- Step 4: Build prompt and call Claude --------------------------------
+    # Prepend a vessel hint to the system prompt when one was resolved so
+    # Claude knows which vessel the user is referring to even if they only
+    # used a partial name (e.g. "ALGORA" → "Ocean7 Algora").
+    base_system_prompt = cfg["system_prompt"]
+    if matched_vessel:
+        base_system_prompt = (
+            f"VESSEL CONTEXT: The user's question refers to the vessel "
+            f"'{matched_vessel}'. Use this as the primary vessel context "
+            f"when interpreting their query.\n\n"
+        ) + base_system_prompt
+
     try:
         system_str, messages = _build_messages(
-            system_prompt=cfg["system_prompt"],
+            system_prompt=base_system_prompt,
             context_block=context_block,
             history=history,
             user_message=user_message,
