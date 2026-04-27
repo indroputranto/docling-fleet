@@ -104,8 +104,8 @@ def embed_and_upsert(
 
     # ── Build Pinecone vectors ────────────────────────────────────────────────
     vectors = []
-    for chunk, vector_id, embedding in zip(chunks, vector_ids, all_embeddings):
-        body_text = texts[chunk.position]
+    for idx, (chunk, vector_id, embedding) in enumerate(zip(chunks, vector_ids, all_embeddings)):
+        body_text = texts[idx]   # use loop index — not chunk.position, which may drift
         vectors.append({
             "id":     vector_id,
             "values": embedding,
@@ -130,13 +130,34 @@ def embed_and_upsert(
         })
 
     # ── Upsert to Pinecone (batch of 100 max) ─────────────────────────────────
+    logger.info(
+        f"[embedder] Upserting {len(vectors)} vectors to index={pinecone_index!r} "
+        f"ns={pinecone_namespace!r} host={PINECONE_HOST!r} doc={document.id}"
+    )
     upserted = 0
     for i in range(0, len(vectors), 100):
         batch = vectors[i : i + 100]
-        index.upsert(vectors=batch, namespace=pinecone_namespace)
-        upserted += len(batch)
+        resp = index.upsert(vectors=batch, namespace=pinecone_namespace)
+        # Pinecone v4 returns UpsertResponse(upserted_count=N).
+        # Fall back to len(batch) for older SDK versions that return None.
+        actual = getattr(resp, "upserted_count", None)
+        if actual is None:
+            actual = len(batch)
+        upserted += actual
+        if actual != len(batch):
+            logger.warning(
+                f"[embedder] Pinecone batch upsert mismatch: sent {len(batch)}, "
+                f"confirmed {actual} (doc={document.id}, ns={pinecone_namespace!r})"
+            )
         logger.info(f"[embedder] Upserted {upserted}/{len(vectors)} vectors "
                     f"(doc={document.id}, ns={pinecone_namespace!r})")
+
+    if upserted < len(vectors):
+        raise RuntimeError(
+            f"Pinecone upsert incomplete: {upserted}/{len(vectors)} vectors written "
+            f"(index={pinecone_index!r}, ns={pinecone_namespace!r}). "
+            "Check PINECONE_API_KEY, PINECONE_HOST, and index quota."
+        )
 
     return upserted
 

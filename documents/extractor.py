@@ -1334,10 +1334,15 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
 
     Falls back to fixed page batches (for AI enrichment) when the document
     has no numbered clause structure.
+
+    MIN_FONT is set to 8.0pt (higher than the 7.0pt used in _extract_pdf_fitz)
+    to filter out the BIMCO SmartCon copyright footer, which is consistently
+    printed at 7.0pt on every page.  All substantive clause text in NYPE/BIMCO
+    forms is 9pt or larger, so no legal content is lost.
     """
     import fitz
 
-    MIN_FONT = 7.0
+    MIN_FONT = 8.0
     page_texts: List[str] = []
 
     with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
