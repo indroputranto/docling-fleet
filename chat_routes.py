@@ -496,6 +496,23 @@ def chat(client_id: str = None):
             f"[chat] Pinecone returned {len(matches)} matches"
             + (f" (vessel filter: '{matched_vessel}')" if matched_vessel else "")
         )
+
+        # Fallback: if the metadata filter found nothing (vessel name in Pinecone
+        # may differ from the DB name), retry without the filter so semantic
+        # search can still surface the right chunks.  The vessel hint already
+        # injected into the system prompt keeps Claude focused on the right vessel.
+        if matched_vessel and not matches:
+            logger.info(
+                f"[chat] Vessel filter '{matched_vessel}' returned 0 results; "
+                f"retrying with unfiltered query"
+            )
+            matches = _query_pinecone(
+                index=index,
+                vector=query_vector,
+                namespace=cfg["pinecone_namespace"],
+                top_k=cfg["max_context_chunks"],
+            )
+            logger.info(f"[chat] Unfiltered fallback returned {len(matches)} matches")
     except Exception as e:
         logger.error(f"[chat] Pinecone query failed: {e}")
         return jsonify({"error": "Failed to query knowledge base", "detail": str(e)}), 500
