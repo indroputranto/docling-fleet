@@ -612,34 +612,28 @@ def _fallback_fixed_chunks(text_lines: List[str]) -> List[Dict]:
 # Left-margin line-number detection & stripping
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _detect_margin_line_numbers(elements: List[Dict]) -> Optional[Dict]:
+def _detect_margin_line_numbers(
+    elements: List[Dict],
+    *,
+    margin_side: str = "left",
+) -> Optional[Dict]:
     """
-    Detect sequential left-margin line numbers in charter-party style PDFs.
+    Detect sequential margin line numbers in charter-party style PDFs (PyMuPDF path).
 
-    Many BIMCO standard forms (and other maritime contracts) print a column of
-    sequential integers (1, 2, 3 …) in the left margin of every page for legal
-    cross-referencing.  PyMuPDF captures these as ordinary text elements,
-    polluting extracted chunks with noise like "13 Deadweight 12580 MT".
+    Many BIMCO / NYPE forms print integers (1, 2, 3 …) in the **left** or
+    **right** margin. PyMuPDF captures these as ordinary text elements.
 
-    Detection algorithm (all conditions must be satisfied):
-      1. At least 10 pure-integer (1–3 digit) elements exist in the document.
-      2. Those integers cluster at a consistent x-position (modal 15-pt bin
-         contains ≥10 members).
-      3. The cluster's x-position falls in the left 25 % of the text area.
-      4. The clustered integers span a range of at least 15 (e.g. 1–15+),
-         ruling out incidental small numbers like page counts or table values.
-      5. At least 50 % of the integers in the covered range are present
-         (density check — rules out sparse data columns).
-      6. When the cluster is sorted by vertical position (y), the numbers are
-         mostly non-decreasing (≤ 20 % inversions), confirming top-to-bottom
-         sequential ordering.
+    *margin_side* ``\"left\"``: cluster in left 25 % of text width (original behaviour).
+    *margin_side* ``\"right\"``: cluster in right 25 % — same numeric heuristics,
+    mirrored geometry (e.g. Ocean7 working-copy layout).
 
-    Returns a dict with:
-        'strip_ids'  — set of id(element) for pure-numeric margin elements to remove
-        'x_cluster'  — approximate x-coordinate of the detected line-number column
-    Returns None if no line-number column is detected.
+    Returns a dict with ``strip_ids``, ``x_cluster``, or None.
     """
     from collections import Counter
+
+    margin_side = (margin_side or "left").lower()
+    if margin_side not in ("left", "right"):
+        return None
 
     if not elements:
         return None
@@ -662,12 +656,18 @@ def _detect_margin_line_numbers(elements: List[Dict]) -> Optional[Dict]:
     cluster = [e for e in numeric_els if int(e['x'] / BIN) == modal_bin]
     cluster_x = modal_bin * BIN
 
-    # Step 3: cluster must sit in the left quarter of the overall text area
+    # Step 3: cluster must sit in the outer quarter on the chosen side
     all_x = [e['x'] for e in elements]
     x_min, x_max = min(all_x), max(all_x)
     text_width = x_max - x_min
-    if text_width > 0 and (cluster_x - x_min) / text_width > 0.25:
-        return None
+    if text_width > 0:
+        rel_pos = (cluster_x - x_min) / text_width
+        if margin_side == "left":
+            if rel_pos > 0.25:
+                return None
+        else:
+            if rel_pos < 0.75:
+                return None
 
     # Step 4: numbers must cover a meaningful range
     nums = sorted(int(e['text'].strip()) for e in cluster)
@@ -690,9 +690,9 @@ def _detect_margin_line_numbers(elements: List[Dict]) -> Optional[Dict]:
             return None
 
     logger.info(
-        "[extractor] Left-margin line numbers detected: "
+        "[extractor] %s-margin line numbers detected: "
         "x≈%.0fpt, range %d–%d, %d elements to strip",
-        cluster_x, nums[0], nums[-1], len(cluster),
+        margin_side, cluster_x, nums[0], nums[-1], len(cluster),
     )
     return {
         'strip_ids': {id(e) for e in cluster},
@@ -700,9 +700,89 @@ def _detect_margin_line_numbers(elements: List[Dict]) -> Optional[Dict]:
     }
 
 
+def _try_strip_left_prefix_line_numbers(lines: List[str]) -> Optional[List[str]]:
+    """Apply leading-integer line stripping; return new lines or None if not applicable."""
+    _prefix = re.compile(r'^(\d{1,3})(\s+.*|)$')
+
+    candidate_nums: list = []
+    for line in lines:
+        m = _prefix.match(line.strip())
+        if m:
+            candidate_nums.append(int(m.group(1)))
+
+    non_empty = [l for l in lines if l.strip()]
+    if len(candidate_nums) < 10:
+        return None
+    if not non_empty or len(candidate_nums) / len(non_empty) < 0.25:
+        return None
+
+    nums = sorted(candidate_nums)
+    span = nums[-1] - nums[0]
+    if span < 15:
+        return None
+    if len(set(candidate_nums)) / (span + 1) < 0.40:
+        return None
+
+    logger.info(
+        "[extractor] pdfplumber: stripping left-margin line numbers "
+        "(range %d–%d, %d/%d lines)",
+        nums[0], nums[-1], len(candidate_nums), len(non_empty),
+    )
+
+    _prefix_c = re.compile(r'^(\d{1,3})(\s+.*|)$')
+    cleaned: list = []
+    for line in lines:
+        stripped = line.strip()
+        m = _prefix_c.match(stripped)
+        if m:
+            remainder = m.group(2).strip()
+            cleaned.append(remainder)
+        else:
+            cleaned.append(line)
+    return cleaned
+
+
+def _strip_bare_sequential_line_rows(lines: List[str]) -> Optional[List[str]]:
+    """
+    Remove rows that are only a 1-3 digit integer when they form a running
+    line-number column (typical of **right** margin: each number on its own
+    extracted line). These fail the left-prefix stripper's coverage ratio when
+    most lines are normal prose.
+    """
+    bare_indices: List[int] = []
+    bare_values: List[int] = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if re.fullmatch(r'\d{1,3}', s):
+            bare_indices.append(i)
+            bare_values.append(int(s))
+    if len(bare_values) < 10:
+        return None
+
+    span = max(bare_values) - min(bare_values)
+    if span < 15:
+        return None
+    if len(set(bare_values)) / (span + 1) < 0.40:
+        return None
+    if len(bare_values) > 1:
+        inv = sum(
+            1 for i in range(len(bare_values) - 1) if bare_values[i] > bare_values[i + 1]
+        )
+        if inv / (len(bare_values) - 1) > 0.25:
+            return None
+
+    logger.info(
+        "[extractor] Stripping bare line-number rows (margin column, often right): "
+        "range %d–%d, %d rows removed",
+        min(bare_values), max(bare_values), len(bare_indices),
+    )
+    skip = set(bare_indices)
+    return [line for i, line in enumerate(lines) if i not in skip]
+
+
 def _strip_text_line_numbers(text: str) -> str:
     """
-    Detect and strip sequential left-margin line numbers from plain text output.
+    Detect and strip sequential margin line numbers from plain text output.
 
     Used by the pdfplumber extraction paths (``_extract_pdf_raw`` and
     ``_extract_pdf_pdfplumber``) where coordinate metadata is unavailable.
@@ -724,69 +804,26 @@ def _strip_text_line_numbers(text: str) -> str:
         ''
         'within below mentioned...'
 
-    After stripping, ``_presplit_on_clauses`` can correctly detect ``1. Duration``
-    and ``2. Delivery`` as clause boundaries, enabling proper chunking.
+    **Right-margin** columns often appear as **bare** numeric lines interleaved
+    with body text; a second pass removes those rows when they match the same
+    sequential pattern (without requiring 25% of all lines to carry numbers).
 
-    Detection conditions (all must be satisfied):
-      1. ≥ 10 lines start with a 1–3 digit integer followed by whitespace OR
-         are a bare integer (the line is only a number — an empty content line).
-      2. Those integers cover a numeric range of ≥ 15.
-      3. At least 40 % of the covered integer range is represented
-         (density — rules out sparse numbered lists like "1 Vessel … 3 Port").
-      4. At least 25 % of non-empty lines match the leading-number pattern
-         (coverage — ensures systematic numbering, not incidental matches).
-
-    Returns the text unchanged if any condition is not satisfied.
+    Returns the text unchanged if no pattern matches.
     """
     if not text:
         return text
 
     lines = text.splitlines()
 
-    # Matches a line that IS a bare number OR starts with a number + whitespace
-    # Groups: (1) the integer string, (2) the remainder (may be empty)
-    _prefix = re.compile(r'^(\d{1,3})(\s+.*|)$')
+    left_try = _try_strip_left_prefix_line_numbers(lines)
+    if left_try is not None:
+        lines = left_try
 
-    candidate_nums: list = []
-    for line in lines:
-        m = _prefix.match(line.strip())
-        if m:
-            # Only count if remainder is empty (bare number) or starts with space
-            # — prevents matching "12580 MT" because _prefix requires the full
-            # line to be consumed (anchored $ at the end).
-            candidate_nums.append(int(m.group(1)))
+    bare_try = _strip_bare_sequential_line_rows(lines)
+    if bare_try is not None:
+        lines = bare_try
 
-    non_empty = [l for l in lines if l.strip()]
-    if len(candidate_nums) < 10:
-        return text
-    if not non_empty or len(candidate_nums) / len(non_empty) < 0.25:
-        return text
-
-    nums = sorted(candidate_nums)
-    span = nums[-1] - nums[0]
-    if span < 15:
-        return text
-    if len(set(candidate_nums)) / (span + 1) < 0.40:
-        return text
-
-    logger.info(
-        "[extractor] pdfplumber: stripping left-margin line numbers "
-        "(range %d–%d, %d/%d lines)",
-        nums[0], nums[-1], len(candidate_nums), len(non_empty),
-    )
-
-    cleaned: list = []
-    for line in lines:
-        stripped = line.strip()
-        m = _prefix.match(stripped)
-        if m:
-            # Remove the leading integer (and any whitespace after it)
-            remainder = m.group(2).strip()
-            cleaned.append(remainder)   # may be '' for bare-number lines
-        else:
-            cleaned.append(line)
-
-    return "\n".join(cleaned)
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1131,24 +1168,20 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
             # Advance global offset past this page (+ small inter-page gap)
             y_global += page_height * 2 + 200
 
-    # ── Left-margin line-number stripping ─────────────────────────────────────
-    # Charter-party PDFs (BIMCO and similar) print sequential integers in a
-    # narrow left-margin column for legal cross-referencing.  Strip them before
-    # chunking so they don't pollute chunk bodies.
+    # ── Margin line-number stripping (left and/or right column) ─────────────
+    # Charter-party PDFs print sequential integers in a margin for cross-ref.
+    # PyMuPDF yields separate elements per column; strip both sides before chunking.
     #
-    # Two-pass strategy:
+    # Two-pass strategy per detected column:
     #   Pass 1 — remove elements whose entire text is a bare line number
-    #             (the common case: number and content are in separate PyMuPDF
-    #             blocks and therefore separate elements in all_elements).
-    #   Pass 2 — for elements where PyMuPDF happened to merge a line number and
-    #             its content into one span, strip the leading "N " prefix using
-    #             _LN_PREFIX_RE (safe: requires ≤3 digits + space + letter, so
-    #             genuine numeric content like "12580 MT" is never touched).
-    ln_info = _detect_margin_line_numbers(all_elements)
-    if ln_info:
-        # Pass 1: drop pure-numeric margin elements
-        all_elements = [e for e in all_elements if id(e) not in ln_info['strip_ids']]
-        # Pass 2: strip inline prefixes from any merged spans
+    #   Pass 2 — strip leading "N " prefix via _LN_PREFIX_RE (merged left margin)
+    strip_ids: set = set()
+    for _side in ("left", "right"):
+        ln_info = _detect_margin_line_numbers(all_elements, margin_side=_side)
+        if ln_info:
+            strip_ids |= ln_info["strip_ids"]
+    if strip_ids:
+        all_elements = [e for e in all_elements if id(e) not in strip_ids]
         for e in all_elements:
             e['text'] = _LN_PREFIX_RE.sub('', e['text'])
     # ──────────────────────────────────────────────────────────────────────────
