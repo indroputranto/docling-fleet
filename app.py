@@ -110,6 +110,20 @@ db.init_app(app)
 with app.app_context():
     try:
         db.create_all()
+
+        # ── Idempotent column migrations (safe on Postgres + SQLite) ─────────
+        _pending_cols = [
+            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE",
+        ]
+        with db.engine.connect() as _conn:
+            for _sql in _pending_cols:
+                try:
+                    _conn.execute(db.text(_sql))
+                    _conn.commit()
+                except Exception as _ce:
+                    logging.warning(f"[boot] column migration skipped ({_ce})")
+        # ─────────────────────────────────────────────────────────────────────
+
         from models import User
         if not User.query.filter_by(role='admin').first():
             admin_email    = os.getenv('ADMIN_EMAIL', 'admin@platform.com')

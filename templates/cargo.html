@@ -425,8 +425,20 @@ function updateScaleBar() {
 }
 
 // ── Build scene ────────────────────────────────────────────────────
+function clearCSS2DLabels(group) {
+  group.traverse(obj => {
+    if (obj.isCSS2DObject && obj.element && obj.element.parentNode) {
+      obj.element.parentNode.removeChild(obj.element);
+    }
+  });
+}
+
 function buildScene(v) {
-  if (vesselGroup) { scene.remove(vesselGroup); vesselGroup = null; }
+  if (vesselGroup) {
+    clearCSS2DLabels(vesselGroup);
+    scene.remove(vesselGroup);
+    vesselGroup = null;
+  }
 
   const g = new THREE.Group();
   scene.add(g);
