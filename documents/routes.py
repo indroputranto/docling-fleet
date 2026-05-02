@@ -715,11 +715,6 @@ def upload():
                 logger.info(
                     f"[documents] AI enrichment skipped for '{filename}' (charter_party policy)"
                 )
-                _pq_emit(
-                    task_id, "warn",
-                    "AI enrichment skipped for Charter Party — using clause-aware extraction only (faster)",
-                    pct=62,
-                )
             else:
                 logger.info(
                     f"[documents] AI enrichment skipped for '{filename}' (user preference)"
@@ -1121,11 +1116,6 @@ def process_from_storage(doc_id: int):
             logger.info(
                 f"[documents] AI enrichment skipped (from storage) for '{filename}' "
                 "(charter_party policy)"
-            )
-            _pq_emit(
-                task_id, "warn",
-                "AI enrichment skipped for Charter Party — using clause-aware extraction only (faster)",
-                pct=62,
             )
         else:
             logger.info(

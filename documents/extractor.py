@@ -141,9 +141,92 @@ _CLAUSE_RE = re.compile(
 # 5 digits exceeds \d{1,3}).
 _LN_PREFIX_RE = re.compile(r'^\d{1,3}\s+(?=[A-Za-z])')
 
+# When the last seen top-level clause is e.g. 9 but a line begins "47. The …",
+# it is almost always a **merged right-margin line number** (47) plus the next
+# sentence — not charter-party clause 47.  Real consecutive clauses rarely jump
+# by this much; when they do, titles are capitalised ("47. Liens"), not prose.
+_CLAUSE_JUMP_RUNON_MIN_GAP = 20
+
+
+def _is_inline_clause_citation_sentence(line: str) -> bool:
+    """
+    True when a line *opens* with ``Clause N`` but continues as a sentence
+    (reference to another clause / rider text), not as a standalone title.
+
+    Examples that MUST NOT be headers:
+        "Clause 47. The Owners reserve…"
+        "Clause 12 the charterers shall…"   (unlikely typography; guarded anyway)
+
+    Standalone titles like ``Clause 14`` or ``Clause 14 — Hire`` are False here.
+    """
+    s = line.strip()
+    if not re.match(r"(?i)^(?:clause|CLAUSE)\s+\d+", s):
+        return False
+    # Standalone clause label (possibly with a trailing period only)
+    if re.match(r"(?i)^(?:clause|CLAUSE)\s+\d+\.?\s*$", s):
+        return False
+    # Dash / em-dash title on the same line: "Clause 14 — Hire Payment"
+    if re.match(r"(?i)^(?:clause|CLAUSE)\s+\d+\s*[—\-–]\s*\S", s):
+        return False
+    # Sentence continues after "Clause N" / "Clause N." — word after "the" starts
+    # lowercase → body prose (PDF may still use "The" when it should be "the").
+    m = re.search(r"(?i)(?:clause|CLAUSE)\s+\d+\.?\s+the\s+(\w)", s)
+    if m and m.group(1).islower():
+        return True
+    return False
+
+
+def _looks_like_merged_margin_clause_number(
+    clause_num: int,
+    max_clause_seen: int,
+    title_rest: str,
+) -> bool:
+    """
+    Detect ``N. <prose>`` that is likely a margin line number pasted onto the
+    start of the next sentence, not a real top-level clause heading.
+    """
+    if max_clause_seen <= 0:
+        return False
+    if clause_num <= max_clause_seen:
+        return False
+    gap = clause_num - max_clause_seen
+    if gap < _CLAUSE_JUMP_RUNON_MIN_GAP:
+        return False
+    rest = (title_rest or "").strip()
+    if not rest:
+        return False
+
+    # Sentence-style openers after "N. " (merged right-margin line number + body).
+    m_the = re.match(r"(?i)^the\s+(\w+)", rest)
+    if m_the:
+        w = m_the.group(1)
+        if w[0].islower():
+            return True
+        # "The Owners reserve…" — title-case but long clause jump + long line → body
+        if gap >= 30 and len(rest) > 50:
+            return True
+        return False
+
+    m_kw = re.match(
+        r"(?i)^(if|where|when)\s+(\w)",
+        rest,
+    )
+    if m_kw and m_kw.group(2)[0].islower():
+        return True
+
+    if re.match(r"(?i)^in order to\s+\w", rest):
+        return True
+    if re.match(r"(?i)^in the event that\s+\w", rest):
+        return True
+
+    return False
+
 
 def _is_clause_header(text: str) -> bool:
-    return bool(_CLAUSE_RE.match(text.strip()))
+    s = text.strip()
+    if _is_inline_clause_citation_sentence(s):
+        return False
+    return bool(_CLAUSE_RE.match(s))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -564,6 +647,10 @@ def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
         if not txt:
             continue
 
+        if _is_inline_clause_citation_sentence(txt):
+            current_lines.append(txt)
+            continue
+
         is_bold = all(e["is_bold"] for e in row)
         max_size = max(e["size"] for e in row)
         first_char = txt[0] if txt else ""
@@ -584,7 +671,16 @@ def _column_to_chunks(elements: List[Dict], snap: float = 3.0) -> List[Dict]:
                     # Back-reference: treat as body text, not a new header
                     is_header = False
                 else:
-                    max_clause_seen = num
+                    rm = re.match(
+                        r"^\s*\d{1,3}\s*[.\-—]\s*(.+)$", txt.strip()
+                    )
+                    rest = rm.group(1) if rm else ""
+                    if _looks_like_merged_margin_clause_number(
+                        num, max_clause_seen, rest
+                    ):
+                        is_header = False
+                    else:
+                        max_clause_seen = num
 
         if is_header:
             _flush_col()
@@ -778,6 +874,162 @@ def _strip_bare_sequential_line_rows(lines: List[str]) -> Optional[List[str]]:
     )
     skip = set(bare_indices)
     return [line for i, line in enumerate(lines) if i not in skip]
+
+
+# Lines repeated on every page of many BIMCO / owner “working copy” charter PDFs
+# (footer band is often ≥8pt so MIN_FONT filtering in fitz-presplit does not remove it).
+_CP_PDF_FOOTER_LINE_RES: Tuple[re.Pattern, ...] = (
+    re.compile(r"^CP ID:\s*\d+\s*$", re.I),
+    re.compile(r"^CP Date:\s*.+$", re.I),
+    re.compile(r"^Vessel:\s*.+$", re.I),
+    re.compile(r"^Page\s+\d+\s+of\s+\d+\s*$", re.I),
+    re.compile(r"^WORKING COPY\s*$", re.I),
+)
+
+# Single-line SmartCon / owner working-copy footer glued into body text (between
+# “1. …” and “2. …”) — all metadata on one physical line in the PDF.
+_CP_INLINE_FOOTER_RE = re.compile(
+    r"[ \t]*CP ID:\s*\d+\s+CP Date:\s*.+?\s+Vessel:\s*.+?\s+Page\s+\d+\s+of\s+\d+"
+    r"(?:[ \t]+WORKING COPY)?[ \t]*",
+    re.I,
+)
+
+
+def _strip_cp_pdf_repeating_footer_lines(text: str) -> str:
+    """Drop known working-copy footer lines (inserted once per PDF page in the text layer)."""
+    if not text:
+        return text
+    t = text
+    t, n_inline = _CP_INLINE_FOOTER_RE.subn(" ", t)
+    if n_inline:
+        logger.info(
+            "[extractor] Collapsed %d inline working-copy footer blob(s) (CP ID … Page N of M)",
+            n_inline,
+        )
+        t = "\n".join(re.sub(r" {2,}", " ", ln) for ln in t.splitlines())
+    removed = 0
+    out: List[str] = []
+    for line in t.splitlines():
+        s = line.strip()
+        if s and any(rx.match(s) for rx in _CP_PDF_FOOTER_LINE_RES):
+            removed += 1
+            continue
+        out.append(line)
+    if removed:
+        logger.info("[extractor] Removed %d working-copy / CP footer line(s)", removed)
+    return "\n".join(out)
+
+
+def _strip_trailing_margin_line_numbers(text: str) -> str:
+    """
+    Remove right-margin line indices glued to the end of body lines, e.g.
+    ``...human; 1``, ``...Vessel. 12``, or (when the layout is pervasive)
+    ``...crew 2``. Safe patterns run always; an aggressive `` \\d{1,3}$ ``
+    pass runs only when many lines share the same artefact.
+    """
+    if not text:
+        return text
+    lines = text.splitlines()
+    non_empty = [ln.strip() for ln in lines if ln.strip()]
+    n = len(non_empty)
+    hits = 0
+    aggressive_tail = False
+    if n >= 8:
+        for s in non_empty:
+            if (len(s) >= 28 and re.search(r";\s*\d{1,3}\s*$", s)) or (
+                len(s) >= 55 and re.search(r"[.!?]\s+\d{1,3}\s*$", s)
+            ):
+                hits += 1
+                continue
+            # Long prose line ending with a tight “␠12” tail (no 4-digit year)
+            if len(s) >= 58 and re.search(r"\s\d{1,3}\s*$", s) and not re.search(
+                r"\d{4}\s*$", s
+            ):
+                hits += 1
+        aggressive_tail = hits >= 8 and (hits / n) >= 0.12
+
+    if aggressive_tail:
+        logger.info(
+            "[extractor] Stripping trailing right-margin line numbers (aggressive tail pass; "
+            "%.0f%% of lines matched artefact pattern)",
+            100.0 * hits / n,
+        )
+
+    out: List[str] = []
+    for line in lines:
+        s = line.rstrip()
+        if not s:
+            out.append(line)
+            continue
+        lead = line[: len(line) - len(line.lstrip("\t "))]
+        orig = s
+        if len(s) >= 28:
+            s = re.sub(r";\s*\d{1,3}\s*$", "", s).rstrip()
+        if len(s) >= 55:
+            s = re.sub(r"([.!?])\s+\d{1,3}\s*$", r"\1", s)
+        if aggressive_tail and len(s) >= 45 and not re.search(r"\d{4}\s*$", s):
+            s = re.sub(r"\s+\d{1,3}\s*$", "", s)
+        if s != orig:
+            out.append(lead + s)
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _strip_working_copy_watermark(text: str) -> str:
+    """
+    Remove diagonal "WORKING COPY" watermark text that PyMuPDF often captures as
+    fragmented/strike-split spans (e.g. ``~~W~~ ORKING COPY``).
+    """
+    if not text:
+        return text
+    t = text
+    n = 0
+    patterns = (
+        r"~+\s*W\s*~+\s*ORKING\s+COPY",
+        r"(?<![A-Za-z])W\s*ORKING\s+COPY(?![A-Za-z])(?:\s*[-—]+)?",
+        r"(?<![A-Za-z])WORKING\s+COPY(?![A-Za-z])(?:\s*[-—]+)?",
+    )
+    for pat in patterns:
+        t, k = re.subn(pat, " ", t, flags=re.I)
+        n += k
+    # Drop lines that are only watermark noise (after removing markers)
+    lines_out: List[str] = []
+    dropped = 0
+    for line in t.splitlines():
+        collapsed = re.sub(r"[*~]+", "", line)
+        collapsed = re.sub(r"\s+", " ", collapsed).strip()
+        if re.fullmatch(r"W\s*ORKING\s+COPY(?:\s*[-—]+)?", collapsed, re.I):
+            dropped += 1
+            continue
+        if re.fullmatch(r"WORKING\s+COPY(?:\s*[-—]+)?", collapsed, re.I):
+            dropped += 1
+            continue
+        lines_out.append(line)
+    t = "\n".join(lines_out)
+    if n or dropped:
+        logger.info(
+            "[extractor] Stripped WORKING COPY watermark (%d inline + %d line hits)",
+            n,
+            dropped,
+        )
+    t = "\n".join(re.sub(r" {2,}", " ", ln) for ln in t.splitlines())
+    return t
+
+
+def _sanitize_charter_party_pdf_text(full_text: str) -> str:
+    """
+    Post-process PDF full text for negotiated charter / working-copy layouts:
+    working-copy footers, watermark, inline right-margin numerals, then
+    row/column numbers.
+    """
+    if not full_text:
+        return full_text
+    t = _strip_cp_pdf_repeating_footer_lines(full_text)
+    t = _strip_working_copy_watermark(t)
+    t = _strip_trailing_margin_line_numbers(t)
+    t = _strip_text_line_numbers(t)
+    return t
 
 
 def _strip_text_line_numbers(text: str) -> str:
@@ -1217,10 +1469,12 @@ def _extract_pdf_pdfplumber(raw_bytes: bytes) -> List[Dict]:
     if not full_text_lines:
         return []
 
-    # Strip left-margin line numbers (charter-party style) so that clause
-    # headers like "23 1. Duration" are cleaned to "1. Duration" before the
-    # clause-detection loop below tries to recognise them.
-    joined = _strip_text_line_numbers("\n".join(full_text_lines))
+    # Working-copy footers, margin numerals, then row/column line numbers (CP PDFs).
+    joined = _sanitize_charter_party_pdf_text("\n".join(full_text_lines))
+    clause_try = _presplit_on_clauses(joined)
+    if clause_try:
+        return clause_try
+
     full_text_lines = joined.splitlines()
 
     chunks: List[Dict] = []
@@ -1293,6 +1547,118 @@ _FITZ_PRESPLIT_CATEGORIES = {
 _RAW_SINGLE_CHUNK_THRESHOLD = 6_000  # words
 
 
+def _presplit_line_core_for_heading_match(stripped: str) -> str:
+    """
+    Peel outer ~~…~~ wrappers (PyMuPDF strikethrough markdown) and leading /
+    trailing ``**`` bold markers so lines like ``~~APPENDIX A~~`` or
+    ``** Clause 46 - Title **`` can still match heading detection.
+    """
+    core = (stripped or "").strip()
+    while core.startswith("~~") and core.endswith("~~") and len(core) >= 4:
+        core = core[2:-2].strip()
+    while True:
+        t = re.sub(r"^\*+\s*", "", core)
+        t = re.sub(r"\s*\*+$", "", t).strip()
+        if t == core:
+            break
+        core = t
+    return core
+
+
+def _presplit_parse_clause_heading_line(core: str) -> Optional[Tuple[int, str]]:
+    """
+    If *core* opens a top-level clause heading, return (clause_num, title_rest).
+
+    Supports:
+      - ``46. BIMCO …``  (main form)
+      - ``Clause 46 - …`` / ``Clause 46 — …`` (rider / additional-clauses pages)
+    """
+    if not core:
+        return None
+    m = re.match(r"^(\d{1,3})\.\s+(.+)$", core)
+    if m:
+        return int(m.group(1)), (m.group(2) or "").strip()
+    m2 = re.match(r"(?i)^Clause\s+(\d{1,3})\s*[—–\-]\s*(.+)$", core)
+    if m2:
+        return int(m2.group(1)), (m2.group(2) or "").strip()
+    # e.g. "47 Charter Party - SEE APPENDIX B FOR VESSEL DESCRIPTION" (owner riders)
+    m3 = re.match(
+        r"(?i)^(\d{1,3})\s+Charter Party\s*[—–\-]\s*(.+)$",
+        core,
+    )
+    if m3:
+        n = int(m3.group(1))
+        r = (m3.group(2) or "").strip()
+        tail = f"Charter Party - {r}" if r else "Charter Party"
+        return n, tail
+    return None
+
+
+def _title_is_bare_clause_marker(title: str) -> bool:
+    """
+    True when chunk title is only the numeric / chapter marker so the real
+    BIMCO rider name is likely on the first line of the body (separate PDF line).
+    """
+    if not (title or "").strip():
+        return False
+    core = _presplit_line_core_for_heading_match(title.strip())
+    if re.fullmatch(r"\d{1,3}\.?", core):
+        return True
+    if re.fullmatch(r"CHAPTER\s+\d{1,3}\.?", core, re.I):
+        return True
+    if re.fullmatch(r"Clause\s+\d{1,3}\.?", core, re.I):
+        return True
+    return False
+
+
+def _looks_like_rider_clause_subtitle_line(line: str) -> bool:
+    """
+    First body line that names the rider clause (BIMCO / NYPE …), not (a)/(1).
+    """
+    s = (line or "").strip()
+    if len(s) < 12:
+        return False
+    if re.match(r"^\(\s*[a-z]\s*\)\s", s, re.I):
+        return False
+    if re.match(r"^\(\s*\d+\s*\)\s", s):
+        return False
+    if re.match(r"^[a-z]\)\s", s, re.I):
+        return False
+    if re.match(r"^\d+\.\d+\s", s):
+        return False
+    head = s[:120]
+    if re.search(r"(?i)\bBIMCO\b", head):
+        return True
+    if re.search(r"(?i)\bNYPE\b", head):
+        return True
+    if re.search(r"(?i)Clause\s+for\s+(?:Time\s+)?Charter", head):
+        return True
+    if re.search(r"(?i)\b(?:INTERTANKO|BARECON|SUPPLYTIME)\b", head):
+        return True
+    return False
+
+
+def _promote_rider_subtitle_line_into_chunk_titles(chunks: List[Dict]) -> None:
+    """Merge ``46.`` + first body line ``BIMCO …`` into one title."""
+    for c in chunks:
+        title = (c.get("title") or "").strip()
+        body = (c.get("body") or "").strip()
+        if not body or not title:
+            continue
+        if not _title_is_bare_clause_marker(title):
+            continue
+        if "\n" in body:
+            first_line, _, rest = body.partition("\n")
+        else:
+            first_line, rest = body, ""
+        fl = first_line.strip()
+        if not _looks_like_rider_clause_subtitle_line(fl):
+            continue
+        joiner = " " if title.endswith((".", ":")) else " - "
+        c["title"] = f"{title}{joiner}{fl}".strip()
+        c["body"] = rest.strip()
+
+
 def _presplit_on_clauses(full_text: str) -> List[Dict]:
     """
     Split a large text blob on numbered top-level clause headers.
@@ -1300,6 +1666,8 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
     Matches lines like:
         "1. Vessel / Owners"
         "14. C/P Details"
+        "** Clause 46 - BIMCO Infectious… **"   ← additional/rider pages
+        "~~46. Title~~"   ← strikethrough wrapper peeled before matching
         "1.1 Owners confirm ..."   ← sub-clause: kept inside parent chunk
 
     Also handles the BIMCO SmartCon split-line format where PyMuPDF renders
@@ -1317,14 +1685,8 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
     clause 1).  Chunks are further split at MAX_CHUNK_WORDS if a single
     clause is very long.
     """
-    # Matches "  1. " or "1. " at the start of a line — top-level only,
-    # NOT "1.1" (has a second digit group after the dot).
-    TOP_CLAUSE_RE = re.compile(
-        r"^(\d{1,2})\.\s+(.+)$",
-        re.MULTILINE,
-    )
-    # Matches a bare clause number on its own line: "1." or "14."
-    _BARE_NUM_RE = re.compile(r"^(\d{1,2})\.$")
+    # Matches a bare clause number on its own line: "1." or "89."
+    _BARE_NUM_RE = re.compile(r"^(\d{1,3})\.$")
 
     # Appendix / annex / schedule header detection (best-effort).
     # Covers two common patterns:
@@ -1385,28 +1747,65 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
 
     for line in lines:
         stripped = line.strip()
-        m = TOP_CLAUSE_RE.match(stripped)
-        if m:
-            num = int(m.group(1))
+        core = _presplit_line_core_for_heading_match(stripped)
+        heading = _presplit_parse_clause_heading_line(core)
+        if heading:
+            num, title_rest = heading
+            synthetic = f"{num}. {title_rest}" if title_rest else f"{num}."
             # Monotonic guard: a numbered line whose number is LOWER than the
             # highest clause seen so far is a sub-clause list item inside the
             # current clause body, not a new top-level clause.
             # e.g. "1. the Vessel shall..." inside clause 9 → body text.
             if num <= max_clause_seen:
                 current_lines.append(line)
+            elif _looks_like_merged_margin_clause_number(
+                num, max_clause_seen, title_rest
+            ):
+                # e.g. right-margin "47" merged with "The Owners reserve…"
+                current_lines.append(line)
             else:
                 _flush()
                 max_clause_seen = num
-                current_title = stripped
-                current_lines = []
-        elif _is_appendix_header(stripped):
+                # One PDF text line can hold an entire lettered sub-paragraph
+                # ("1. Owners will arrange for the armed guards…"). Using that
+                # as the chunk title blows up the title field and reads as a
+                # mid-sentence split in the UI.
+                #
+                # Heuristic: real NYPE/BIMCO numbered clause titles are terse
+                # (≤ 10 words after the number, e.g. "10. Rate of Hire/
+                # Redelivery Areas and Notices").  Lines with > 10 words after
+                # the number are almost always prose sentences inside an
+                # additional-clauses block, not top-level headings.
+                # The "> 220 chars" guard is kept as a hard upper limit.
+                _title_word_count = len(title_rest.split())
+                if len(synthetic) > 220 or _title_word_count > 10:
+                    current_title = f"{num}."
+                    current_lines = (
+                        [title_rest.strip()] if title_rest.strip() else []
+                    )
+                else:
+                    current_title = synthetic
+                    current_lines = []
+        elif _is_appendix_header(core):
             # Non-numbered structural boundary: Appendix A, Annex B, etc.
             # Reset max_clause_seen so sub-items inside the appendix are not
             # accidentally swallowed by the monotonic guard.
-            _flush()
-            max_clause_seen = 0
-            current_title = stripped
-            current_lines = []
+            #
+            # Exception: a fully struck-through appendix marker (e.g.
+            # "~~APPENDIX "A"~~") is deleted content — the appendix was
+            # removed in negotiation and is NOT a real structural boundary.
+            # Treating it as a boundary would reset max_clause_seen to 0,
+            # causing the numbered prose items that follow (sub-clauses like
+            # "1. Owners will arrange…", "2. Charterers to pay…") to be
+            # misidentified as top-level clause headings.
+            if stripped.startswith("~~"):
+                # Struck-through appendix — treat as body text, keep counter.
+                current_lines.append(line)
+            else:
+                _flush()
+                max_clause_seen = 0
+                current_title = stripped
+                current_lines = []
         else:
             current_lines.append(line)
 
@@ -1415,6 +1814,8 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
     # If no clause markers were found, return empty so caller falls back
     if not any(c["title"] for c in chunks):
         return []
+
+    _promote_rider_subtitle_line_into_chunk_titles(chunks)
 
     # Use a generous per-clause ceiling: clause integrity matters more than
     # chunk size for contract documents.  5 000 words ≈ 6 500 tokens — safely
@@ -1455,10 +1856,9 @@ def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
 
     full_text = "\n\n".join(page_texts)
 
-    # Strip left-margin line numbers before clause splitting so that clause
-    # headers like "23 1. Duration" become "1. Duration" and are correctly
-    # detected by _presplit_on_clauses.
-    full_text = _strip_text_line_numbers(full_text)
+    # Sanitize working-copy footers, inline line indices, and row/column numbers
+    # so clause headers like "23 1. Duration" become "1. Duration".
+    full_text = _sanitize_charter_party_pdf_text(full_text)
 
     # Try numbered-clause splitting first
     clause_chunks = _presplit_on_clauses(full_text)
@@ -1592,8 +1992,7 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
 
     full_text = "\n\n".join(page_texts)
 
-    # Strip left-margin line numbers before clause splitting (same as raw path)
-    full_text = _strip_text_line_numbers(full_text)
+    full_text = _sanitize_charter_party_pdf_text(full_text)
 
     # Try numbered-clause splitting first
     clause_chunks = _presplit_on_clauses(full_text)
