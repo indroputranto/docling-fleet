@@ -1123,15 +1123,18 @@ def _fitz_span_bboxes_from_blocks(blocks: list) -> List[Tuple[float, float, floa
 # Shared strike-vs-underline vertical geometry (relative to a text box).
 # Underlines sit just above the baseline → small (y1 - y_mid) vs box height.
 # Strikethrough crosses the glyph body → more “air” below the rule.
-_FITZ_STRIKE_REL_LO = 0.25   # raised from 0.10: underline bands that bleed into
-                              # the TOP of the next line's bbox sit at rel≈0.14
-                              # (line-spacing overlap) — raising the floor to 0.25
-                              # excludes all "underline bleed-up" false positives
-                              # while preserving real strikethroughs (rel≈0.40–0.50)
-# Keep ceiling tight: underlines / bottom decoration often land rel≈0.55–0.75
-# in a full-line bbox; watermarks can sit near mid-glyph with similar rel+gap.
-_FITZ_STRIKE_REL_HI = 0.50
+_FITZ_STRIKE_REL_LO = 0.10   # minimum rel — bands at rel<0.10 are above the glyph
+# Real strikethroughs in BIMCO SmartCon PDFs sit at rel≈0.55–0.65 (the glyph
+# body takes up the lower portion of the bbox once ascenders/descenders are
+# included); raise the ceiling from 0.50 → 0.65 to capture them.
+_FITZ_STRIKE_REL_HI = 0.65
 _FITZ_STRIKE_MIN_GAP_BELOW = 0.22   # fraction of box height; underlines are < ~0.18
+# Underline bleed-up: the underline of span N sits at the very TOP of span N+1
+# (due to line-spacing bbox overlap) giving rel≈0.14 AND gap_below≈0.86.
+# A real strikethrough never has that much air below it (gap_below≈0.35–0.55).
+# Capping gap_below at 0.70 rejects all bleed-up cases while leaving true
+# strikes untouched — confirmed by diagnostic on Ocean7_Revolution_NEW_CP.pdf.
+_FITZ_STRIKE_MAX_GAP_BELOW = 0.70
 
 
 def _fitz_path_skip_for_strike_inference(path: dict) -> bool:
@@ -1194,6 +1197,11 @@ def _fitz_horizontal_rule_is_strikethrough_in_box(
     if rel < _FITZ_STRIKE_REL_LO or rel > _FITZ_STRIKE_REL_HI:
         return False
     if gap_below < _FITZ_STRIKE_MIN_GAP_BELOW:
+        return False
+    # Reject underline bleed-up: the underline of span N sits at the very top
+    # of span N+1, giving a very large gap_below (≈0.86).  Real strikethroughs
+    # cross the glyph body and have moderate gap_below (≈0.35–0.55).
+    if gap_below > _FITZ_STRIKE_MAX_GAP_BELOW:
         return False
     return True
 
