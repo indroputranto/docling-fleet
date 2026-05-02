@@ -75,9 +75,17 @@ cms_bp = Blueprint(
 @cms_bp.context_processor
 def inject_cms_context():
     """Make cms_user and is_platform_admin available in every CMS template."""
+    try:
+        from da import settings as _da_settings
+
+        da_desk_available = _da_settings.da_proxy_enabled()
+    except Exception:
+        da_desk_available = False
+
     return dict(
         cms_user=getattr(g, "cms_user", None),
         is_platform_admin=getattr(g, "is_platform_admin", False),
+        da_desk_available=da_desk_available,
     )
 
 
@@ -927,3 +935,127 @@ def vessel_delete(vessel_id: int):
     db.session.commit()
     flash(f"Vessel '{name}' removed from the library.", "success")
     return redirect(url_for("cms.vessel_library", client=client_id))
+
+
+# ---------------------------------------------------------------------------
+# DA Desk (Langdock-style assistant UI — server-side Marcura proxy)
+# ---------------------------------------------------------------------------
+
+
+@cms_bp.route("/da-desk")
+@cms_required
+def da_desk():
+    """Maritime DA lookup — same backend paths as `/api/*` but gated by CMS login."""
+    from da import settings as da_settings
+
+    chat_ok = da_settings.da_proxy_enabled() and bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    return render_template("cms/da_desk.html", da_chat_available=chat_ok)
+
+
+@cms_bp.route("/da-desk/api/run", methods=["POST"])
+@cms_required
+def da_desk_run():
+    """Run a DA Desk action using env credentials (no Bearer token in browser)."""
+    from da import handlers as da_handlers
+    from da import settings as da_settings
+
+    if not da_settings.da_proxy_enabled():
+        return jsonify({"ok": False, "error": "DA Desk is not configured on this server."}), 503
+
+    data = request.get_json(silent=True) or {}
+    req_type = (data.get("request_type") or "").strip().lower()
+    port = (data.get("port") or "").strip()
+    year_raw = data.get("year")
+    ref_a = (data.get("reference_a") or "").strip()
+    ref_b = (data.get("reference_b") or "").strip()
+
+    from_year = None
+    if year_raw not in (None, "",):
+        try:
+            y = int(year_raw)
+            if 1990 <= y <= 2100:
+                from_year = str(y)
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        if req_type == "compare":
+            if not ref_a or not ref_b:
+                return jsonify(
+                    {"ok": False, "error": "Enter both reference numbers to compare."}
+                ), 400
+            left, code_a = da_handlers.api_vessel_cost(ref_a)
+            right, code_b = da_handlers.api_vessel_cost(ref_b)
+            return jsonify(
+                {
+                    "ok": True,
+                    "kind": "compare",
+                    "a": {"label": ref_a, "payload": left, "http_status": code_a},
+                    "b": {"label": ref_b, "payload": right, "http_status": code_b},
+                }
+            )
+
+        if not port:
+            return jsonify({"ok": False, "error": "Port is required."}), 400
+
+        if req_type in ("port_list", "da", "d/a"):
+            payload, _code = da_handlers.api_port_vessels(port, from_year, None, True)
+            return jsonify(
+                {
+                    "ok": payload.get("success") is not False,
+                    "kind": "port_vessels",
+                    "data": payload,
+                }
+            )
+
+        if req_type == "stevedoring":
+            query = f"Stevedoring disbursement accounts for port {port}"
+            payload, code = da_handlers.api_da_search(query)
+            return jsonify({"ok": code == 200, "kind": "da_search", "data": payload}), code
+
+        if req_type in ("agency_fee", "agency"):
+            query = f"Agency fees for port {port}"
+            payload, code = da_handlers.api_da_search(query)
+            return jsonify({"ok": code == 200, "kind": "da_search", "data": payload}), code
+
+        return jsonify({"ok": False, "error": "Unknown request type."}), 400
+
+    except Exception as e:
+        logger.exception("[CMS] da_desk_run failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@cms_bp.route("/da-desk/api/chat", methods=["POST"])
+@cms_required
+def da_desk_chat():
+    """Anthropic assistant with Langdock-equivalent system prompt + DA tools."""
+    from da import assistant as da_assistant
+    from da import settings as da_settings
+
+    if not da_settings.da_proxy_enabled():
+        return jsonify({"error": "DA Desk is not configured on this server."}), 503
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return jsonify({"error": "ANTHROPIC_API_KEY is not set; assistant disabled."}), 503
+
+    body = request.get_json(silent=True) or {}
+    message = (body.get("message") or "").strip()
+    history = body.get("history") or []
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+    if not isinstance(history, list):
+        return jsonify({"error": "history must be a list"}), 400
+
+    base = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if not base:
+        base = request.url_root.rstrip("/")
+
+    try:
+        reply = da_assistant.run_chat_turn(
+            message=message,
+            history=history,
+            api_base_url=base,
+        )
+        return jsonify({"reply": reply})
+    except Exception as e:
+        logger.exception("[CMS] da_desk_chat failed")
+        return jsonify({"error": str(e)}), 500

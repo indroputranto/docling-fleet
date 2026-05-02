@@ -316,6 +316,14 @@
     Analytics
   </a>
 
+  <a href="{{ url_for('cms.da_desk') }}"
+     class="nav-item {% if request.endpoint == 'cms.da_desk' %}active{% endif %}">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+    </svg>
+    DA Desk{% if not da_desk_available %} <span style="opacity:.5;font-size:10px;">(off)</span>{% endif %}
+  </a>
+
   <div class="sidebar-section" style="margin-top:12px;">App</div>
   <a href="/{% if cms_user and cms_user.client_id %}?client={{ cms_user.client_id }}{% endif %}"
      target="_blank" class="nav-item">

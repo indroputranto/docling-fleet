@@ -58,6 +58,10 @@ check("documents.embedder importable",
       lambda: __import__("documents.embedder", fromlist=["embed_and_upsert"]))
 check("documents.object_storage importable",
       lambda: __import__("documents.object_storage", fromlist=["is_configured"]))
+check("da.routes importable",
+      lambda: __import__("da.routes", fromlist=["da_bp"]))
+check("da.assistant importable",
+      lambda: __import__("da.assistant", fromlist=["run_chat_turn"]))
 
 # ── 4. Model class presence ───────────────────────────────────────────────────
 print("\n[4] Model class checks")

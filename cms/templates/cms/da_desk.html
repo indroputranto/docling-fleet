@@ -1,0 +1,609 @@
+{% extends "cms/base.html" %}
+
+{% block title %}DA Desk{% endblock %}
+{% block topbar_title %}DA Desk{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .da-shell {
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+  @media (max-width: 960px) {
+    .da-shell { grid-template-columns: 1fr; }
+  }
+
+  .da-hero {
+    margin-bottom: 8px;
+  }
+  .da-hero h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    margin-bottom: 6px;
+  }
+  .da-hero p {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.45;
+    max-width: 52ch;
+  }
+
+  .da-panel-body { padding: 20px 22px 22px; }
+  .da-field { margin-bottom: 18px; }
+  .da-field:last-of-type { margin-bottom: 0; }
+
+  .da-run-btn {
+    width: 100%;
+    margin-top: 8px;
+    padding: 11px 16px;
+    border-radius: 8px;
+    border: none;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #111;
+    color: #fff;
+    transition: opacity .15s, transform .1s;
+  }
+  .da-run-btn:hover:not(:disabled) { opacity: .88; }
+  .da-run-btn:active:not(:disabled) { transform: scale(0.99); }
+  .da-run-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  [data-theme="light"] .da-run-btn {
+    background: #0f172a;
+    color: #fff;
+  }
+
+  .da-results-inner {
+    padding: 20px 22px 24px;
+    min-height: 280px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .da-results-inner.da-empty {
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 48px 24px;
+  }
+
+  .da-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .da-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 12px;
+  }
+  .da-table-wrap table {
+    font-size: 12px;
+    margin: 0;
+  }
+  .da-table-wrap th, .da-table-wrap td {
+    white-space: nowrap;
+    padding: 10px 12px;
+  }
+  .da-table-wrap td:nth-child(1) { white-space: normal; max-width: 200px; }
+
+  .da-compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 800px) {
+    .da-compare-grid { grid-template-columns: 1fr; }
+  }
+
+  .da-mini-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .da-meta {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .da-alert {
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    background: rgba(210,153,34,.12);
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+  .da-alert.err {
+    background: rgba(218,54,51,.12);
+    border-color: rgba(218,54,51,.35);
+  }
+
+  .da-spinner {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: da-spin .7s linear infinite;
+    margin: 0 auto 10px;
+  }
+  @keyframes da-spin { to { transform: rotate(360deg); } }
+
+  .da-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .da-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: var(--bg);
+  }
+  .da-card strong { font-size: 13px; }
+  .da-card .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .da-tabs-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .da-tab {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background .15s, border-color .15s;
+  }
+  .da-tab:hover { border-color: rgba(255,255,255,.18); }
+  [data-theme="light"] .da-tab:hover { border-color: rgba(0,0,0,.15); }
+  .da-tab.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: transparent;
+  }
+
+  .da-tab-panel[hidden] { display: none !important; }
+
+  .da-chat-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 440px;
+    max-height: min(72vh, 680px);
+  }
+  .da-chat-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    margin-bottom: 12px;
+  }
+  .da-msg { margin-bottom: 16px; font-size: 13px; line-height: 1.55; }
+  .da-msg-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .da-msg.user .da-msg-label { text-align: right; }
+  .da-msg.user .bubble {
+    margin-left: auto;
+    max-width: min(92%, 560px);
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: rgba(15, 52, 96, 0.45);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  [data-theme="light"] .da-msg.user .bubble {
+    background: rgba(37, 99, 235, 0.14);
+    color: var(--text);
+  }
+  .da-msg.assistant .bubble {
+    max-width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    word-break: break-word;
+  }
+  .da-msg.assistant .bubble :where(table) {
+    font-size: 12px;
+    border-collapse: collapse;
+    width: 100%;
+    margin: 10px 0;
+  }
+  .da-msg.assistant .bubble :where(th, td) {
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    vertical-align: top;
+  }
+  .da-msg.assistant .bubble :where(pre, code) {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+  }
+  .da-chat-input-row { display: flex; gap: 10px; align-items: flex-end; }
+  .da-chat-input-row textarea {
+    flex: 1;
+    min-height: 48px;
+    max-height: 200px;
+    resize: vertical;
+    margin: 0;
+  }
+  .da-chat-send {
+    flex-shrink: 0;
+    padding: 11px 18px;
+    border-radius: 8px;
+    border: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #111;
+    color: #fff;
+  }
+  .da-chat-send:hover:not(:disabled) { opacity: .88; }
+  .da-chat-send:disabled { opacity: .45; cursor: not-allowed; }
+  [data-theme="light"] .da-chat-send { background: #0f172a; color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="da-hero">
+  <h1>DA Desk assistant</h1>
+  <p>Structured queries using the same Marcura DA Desk API calls.</p>
+</div>
+
+{% if not da_desk_available %}
+<div class="da-alert err">
+  DA Desk is not configured. Add <span class="font-mono">DA_DESK_API_KEY</span> and Marcura variables to the server environment, then restart the app.
+</div>
+{% endif %}
+
+<!-- <div class="da-tabs-bar" role="tablist">
+  <button type="button" class="da-tab active" role="tab" aria-selected="true" id="da-tab-form" data-panel="da-panel-form">Form</button>
+   <button type="button" class="da-tab" role="tab" aria-selected="false" id="da-tab-assistant" data-panel="da-panel-assistant">Assistant</button>
+</div> -->
+
+<div id="da-panel-form" class="da-tab-panel" role="tabpanel">
+<div class="da-shell">
+  <div class="card">
+    <div class="card-header">Query</div>
+    <div class="da-panel-body">
+      <form id="da-form" autocomplete="off">
+        <div class="da-field form-group" id="da-row-port">
+          <label for="da-port">Port</label>
+          <input type="text" id="da-port" name="port" placeholder="e.g. Singapore, Houston TX" {% if not da_desk_available %}disabled{% endif %} />
+        </div>
+        <div class="da-field form-group" id="da-row-year">
+          <label for="da-year">Year filter (optional)</label>
+          <input type="number" id="da-year" name="year" placeholder="" min="1990" max="2100" step="1" {% if not da_desk_available %}disabled{% endif %} />
+          <span class="form-hint">Used for “D/A” vessel lists (updated-from range).</span>
+        </div>
+        <div class="da-field form-group">
+          <label for="da-request-type">What is required?</label>
+          <select id="da-request-type" name="request_type" {% if not da_desk_available %}disabled{% endif %}>
+            <option value="" disabled selected>Select an option</option>
+            <option value="port_list">D/A — vessels in port (PDA/FDA)</option>
+            <option value="stevedoring">Stevedoring</option>
+            <option value="agency_fee">Agency fee</option>
+            <option value="compare">Compare my D/A (two references)</option>
+          </select>
+        </div>
+        <div class="da-field" id="da-row-compare" style="display:none;">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label for="da-ref-a">Reference A</label>
+            <input type="text" id="da-ref-a" class="font-mono" placeholder="e.g. OCS-252947-1" {% if not da_desk_available %}disabled{% endif %} />
+          </div>
+          <div class="form-group">
+            <label for="da-ref-b">Reference B</label>
+            <input type="text" id="da-ref-b" class="font-mono" placeholder="e.g. OCS-261117-1" {% if not da_desk_available %}disabled{% endif %} />
+          </div>
+        </div>
+        <button type="submit" class="da-run-btn" id="da-submit" {% if not da_desk_available %}disabled{% endif %}>Run query</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Results</div>
+    <div class="da-results-inner da-empty" id="da-results">
+      Choose a request type and run a query. Structured tables and summaries will show here.
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="da-panel-assistant" class="da-tab-panel" role="tabpanel" hidden>
+  <div class="card">
+    <div class="card-header">Port bill assistant</div>
+    <div style="padding:20px 22px 22px;">
+      {% if not da_chat_available %}
+      <div class="da-alert err">
+        Assistant needs both DA Desk env vars and <span class="font-mono">ANTHROPIC_API_KEY</span>.
+        Optional: <span class="font-mono">PUBLIC_BASE_URL</span> for URLs shown in the system prompt, <span class="font-mono">DA_DESK_ASSISTANT_MODEL</span> for the Claude model.
+      </div>
+      {% else %}
+      <p class="da-meta" style="margin-bottom:14px;">
+        Uses the Langdock-style instructions in <span class="font-mono">da/prompts/port_bill_assistant.md</span> plus server-side tools (no API key in the browser).
+      </p>
+      <div class="da-chat-shell">
+        <div class="da-chat-log" id="da-chat-log"></div>
+        <div class="da-chat-input-row">
+          <textarea id="da-chat-input" placeholder="e.g. Show vessels in Singapore port for 2024, or Get costs for OCS-261117-1" rows="2"></textarea>
+          <button type="button" class="da-chat-send" id="da-chat-send">Send</button>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+(function () {
+  var form = document.getElementById('da-form');
+  var typeSel = document.getElementById('da-request-type');
+  var rowPort = document.getElementById('da-row-port');
+  var rowYear = document.getElementById('da-row-year');
+  var rowCompare = document.getElementById('da-row-compare');
+  var resultsEl = document.getElementById('da-results');
+  var submitBtn = document.getElementById('da-submit');
+  var runUrl = {{ url_for('cms.da_desk_run') | tojson }};
+
+  function escapeHtml(s) {
+    if (s == null || s === '') return '';
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function syncFormMode() {
+    var t = typeSel.value;
+    var isCompare = t === 'compare';
+    rowPort.style.display = isCompare ? 'none' : '';
+    rowYear.style.display = isCompare ? 'none' : '';
+    rowCompare.style.display = isCompare ? 'block' : 'none';
+  }
+  typeSel.addEventListener('change', syncFormMode);
+
+  function costTableHtml(payload) {
+    if (!payload || !payload.found) {
+      return '<p class="text-muted">' + escapeHtml(payload && payload.message ? payload.message : 'No cost data.') + '</p>';
+    }
+    var rows = (payload.cost_breakdown || []).map(function (row) {
+      return '<tr><td>' + escapeHtml(row.category) + '</td><td>' + escapeHtml(row.item) + '</td><td>' +
+        escapeHtml(String(row.amount)) + ' ' + escapeHtml(row.currency || '') + '</td></tr>';
+    }).join('');
+    var head = '<thead><tr><th>Category</th><th>Item</th><th>Amount</th></tr></thead>';
+    return '<p><strong>' + escapeHtml(payload.vessel_name || '') + '</strong> · ' + escapeHtml(payload.port || '') + '</p>' +
+      '<p class="da-meta">Total: ' + escapeHtml(String(payload.total_amount != null ? payload.total_amount : '')) + ' ' +
+      escapeHtml(payload.currency || '') + '</p>' +
+      '<div class="da-table-wrap"><table>' + head + '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderPortVessels(data) {
+    var vessels = data.vessels || [];
+    var meta = [];
+    if (data.port_name) meta.push('Port: ' + data.port_name);
+    if (data.date_from) meta.push('From ' + data.date_from + (data.date_to ? ' to ' + data.date_to : ''));
+    if (typeof data.total_vessels === 'number') meta.push('Total: ' + data.total_vessels);
+    var rows = vessels.map(function (v) {
+      var act = v.main_activity || '—';
+      return '<tr><td>' + escapeHtml(v.vessel_name) + '</td><td class="font-mono">' + escapeHtml(v.reference_number) +
+        '</td><td>' + escapeHtml(v.port_name) + '</td><td>' + escapeHtml(v.eta_ata) + '</td><td>' +
+        escapeHtml(v.state) + '</td><td>' + escapeHtml(act) + '</td></tr>';
+    }).join('');
+    var thead = '<thead><tr><th>Vessel</th><th>Reference</th><th>Port</th><th>ETA/ATA</th><th>State</th><th>Activity</th></tr></thead>';
+    return '<div class="da-badge">Port vessel list</div><div class="da-meta">' + escapeHtml(meta.join(' · ')) + '</div>' +
+      '<div class="da-table-wrap"><table>' + thead + '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderDaSearch(data) {
+    var q = data.query || '';
+    var list = data.results || [];
+    var cards = list.map(function (r, i) {
+      var d = r.details || {};
+      var vname = (d.vessel && d.vessel.name) || '—';
+      var pname = (d.port && d.port.name) || '—';
+      var ref = d.referenceNumber || '—';
+      return '<div class="da-card"><strong>' + escapeHtml(vname) + '</strong><div class="sub">DA ID ' +
+        escapeHtml(r.da_id) + ' · ' + escapeHtml(pname) + ' · Ref ' + escapeHtml(ref) + '</div></div>';
+    }).join('');
+    return '<div class="da-badge">DA search</div><div class="da-meta">Query: ' + escapeHtml(q) +
+      ' · Showing ' + list.length + ' detail snapshot(s)</div><div class="da-cards">' + cards + '</div>';
+  }
+
+  function renderCompare(payload) {
+    var a = payload.a || {};
+    var b = payload.b || {};
+    return '<div class="da-badge">Compare</div><div class="da-compare-grid">' +
+      '<div><div class="da-mini-title">' + escapeHtml(a.label || 'A') + '</div>' + costTableHtml(a.payload) + '</div>' +
+      '<div><div class="da-mini-title">' + escapeHtml(b.label || 'B') + '</div>' + costTableHtml(b.payload) + '</div>' +
+      '</div>';
+  }
+
+  form.addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    var reqType = typeSel.value;
+    if (!reqType) {
+      resultsEl.className = 'da-results-inner';
+      resultsEl.innerHTML = '<div class="da-alert err">Select what is required first.</div>';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    resultsEl.className = 'da-results-inner';
+    resultsEl.innerHTML = '<div class="da-spinner"></div><div class="text-muted" style="text-align:center;">Calling Marcura…</div>';
+
+    var body = { request_type: reqType };
+    if (reqType === 'compare') {
+      body.reference_a = document.getElementById('da-ref-a').value.trim();
+      body.reference_b = document.getElementById('da-ref-b').value.trim();
+    } else {
+      body.port = document.getElementById('da-port').value.trim();
+      var yr = document.getElementById('da-year').value.trim();
+      if (yr) body.year = parseInt(yr, 10);
+    }
+
+    try {
+      var res = await fetch(runUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      var data = await res.json().catch(function () { return {}; });
+
+      resultsEl.className = 'da-results-inner';
+      if (!res.ok || data.ok === false) {
+        resultsEl.innerHTML = '<div class="da-alert err">' + escapeHtml(data.error || ('HTTP ' + res.status)) + '</div>';
+        return;
+      }
+
+      if (data.kind === 'port_vessels') {
+        resultsEl.innerHTML = renderPortVessels(data.data || {});
+      } else if (data.kind === 'da_search') {
+        resultsEl.innerHTML = renderDaSearch(data.data || {});
+      } else if (data.kind === 'compare') {
+        resultsEl.innerHTML = renderCompare(data);
+      } else {
+        resultsEl.innerHTML = '<pre class="font-mono" style="white-space:pre-wrap;font-size:11px;">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+      }
+    } catch (e) {
+      resultsEl.className = 'da-results-inner';
+      resultsEl.innerHTML = '<div class="da-alert err">' + escapeHtml(String(e.message || e)) + '</div>';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+})();
+
+(function () {
+  var tabs = document.querySelectorAll('.da-tab');
+  function activate(panelId) {
+    tabs.forEach(function (btn) {
+      var id = btn.getAttribute('data-panel');
+      var on = id === panelId;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      var p = document.getElementById(id);
+      if (p) p.hidden = !on;
+    });
+  }
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activate(btn.getAttribute('data-panel'));
+    });
+  });
+
+  var chatEnabled = {{ da_chat_available | default(false) | tojson }};
+  if (!chatEnabled) return;
+
+  var chatUrl = {{ url_for('cms.da_desk_chat') | tojson }};
+  var logEl = document.getElementById('da-chat-log');
+  var inputEl = document.getElementById('da-chat-input');
+  var sendBtn = document.getElementById('da-chat-send');
+  var history = [];
+
+  function escapeHtmlChat(s) {
+    var d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function appendMsg(role, displayHtml) {
+    var wrap = document.createElement('div');
+    wrap.className = 'da-msg ' + role;
+    var lab = document.createElement('div');
+    lab.className = 'da-msg-label';
+    lab.textContent = role === 'user' ? 'You' : 'Assistant';
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = displayHtml;
+    wrap.appendChild(lab);
+    wrap.appendChild(bubble);
+    logEl.appendChild(wrap);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  async function sendChat() {
+    var msg = (inputEl.value || '').trim();
+    if (!msg || sendBtn.disabled) return;
+    inputEl.value = '';
+    appendMsg('user', escapeHtmlChat(msg));
+    sendBtn.disabled = true;
+    try {
+      var res = await fetch(chatUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ message: msg, history: history }),
+      });
+      var data = await res.json().catch(function () {
+        return {};
+      });
+      var reply = data.reply;
+      if (!res.ok || reply == null) {
+        reply = data.error ? String(data.error) : 'Request failed (HTTP ' + res.status + ').';
+      }
+      var html =
+        typeof marked !== 'undefined'
+          ? marked.parse(reply, { breaks: true })
+          : '<pre style="white-space:pre-wrap;margin:0;">' + escapeHtmlChat(reply) + '</pre>';
+      appendMsg('assistant', html);
+      history.push({ role: 'user', content: msg });
+      history.push({ role: 'assistant', content: reply });
+      if (history.length > 40) history = history.slice(-40);
+    } catch (e) {
+      appendMsg('assistant', '<pre style="white-space:pre-wrap;margin:0;">' + escapeHtmlChat(e.message || e) + '</pre>');
+    } finally {
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', sendChat);
+  inputEl.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault();
+      sendChat();
+    }
+  });
+})();
+</script>
+{% endblock %}

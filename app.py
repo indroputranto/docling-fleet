@@ -148,11 +148,13 @@ from chat_routes import chat_bp
 from auth import auth_bp
 from cms.routes import cms_bp
 from documents.routes import documents_bp
+from da.routes import da_bp
 
 app.register_blueprint(chat_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(cms_bp)
 app.register_blueprint(documents_bp)
+app.register_blueprint(da_bp)
 
 # ── Site-wide security headers ────────────────────────────────────────────────
 
