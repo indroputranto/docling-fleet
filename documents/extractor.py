@@ -1097,7 +1097,16 @@ def _fitz_span_y_bounds_from_blocks(blocks: list) -> List[Tuple[float, float]]:
 
 
 def _fitz_span_bboxes_from_blocks(blocks: list) -> List[Tuple[float, float, float, float]]:
-    """Collect (x0, y0, x1, y1) for every text span — underline vs strike filtering."""
+    """Collect (x0, y0, x1, y1) for every text span — underline vs strike filtering.
+
+    Spans taller than _MAX_SPAN_H are excluded.  In BIMCO SmartCon PDFs the
+    "WORKING COPY" watermark is rendered as a single span whose bbox covers
+    almost the entire page height (~490 pt).  Every underline on the page falls
+    within that bbox at a small rel-value (0.10–0.40) and is therefore
+    falsely "confirmed" as a strikethrough candidate.  Normal text spans in
+    9–12 pt fonts are 12–18 pt tall; 40 pt is a safe upper limit.
+    """
+    _MAX_SPAN_H = 40.0   # pt — exclude watermark / decoration spans
     out: List[Tuple[float, float, float, float]] = []
     for blk in blocks:
         if blk.get("type") != 0:
@@ -1106,8 +1115,87 @@ def _fitz_span_bboxes_from_blocks(blocks: list) -> List[Tuple[float, float, floa
             for sp in ln.get("spans", []):
                 bb = sp.get("bbox")
                 if bb and len(bb) >= 4 and bb[3] > bb[1] and bb[2] > bb[0]:
-                    out.append((bb[0], bb[1], bb[2], bb[3]))
+                    if (bb[3] - bb[1]) <= _MAX_SPAN_H:
+                        out.append((bb[0], bb[1], bb[2], bb[3]))
     return out
+
+
+# Shared strike-vs-underline vertical geometry (relative to a text box).
+# Underlines sit just above the baseline → small (y1 - y_mid) vs box height.
+# Strikethrough crosses the glyph body → more “air” below the rule.
+_FITZ_STRIKE_REL_LO = 0.25   # raised from 0.10: underline bands that bleed into
+                              # the TOP of the next line's bbox sit at rel≈0.14
+                              # (line-spacing overlap) — raising the floor to 0.25
+                              # excludes all "underline bleed-up" false positives
+                              # while preserving real strikethroughs (rel≈0.40–0.50)
+# Keep ceiling tight: underlines / bottom decoration often land rel≈0.55–0.75
+# in a full-line bbox; watermarks can sit near mid-glyph with similar rel+gap.
+_FITZ_STRIKE_REL_HI = 0.50
+_FITZ_STRIKE_MIN_GAP_BELOW = 0.22   # fraction of box height; underlines are < ~0.18
+
+
+def _fitz_path_skip_for_strike_inference(path: dict) -> bool:
+    """
+    Omit vector paths that are very unlikely to be manuscript strikethrough.
+
+    ``WORKING COPY``-style watermarks and other faint gray line-art otherwise
+    yield horizontal bands that bisect glyph boxes (per-char ~~splitting~~).
+    """
+    fo = path.get("fill_opacity")
+    so = path.get("stroke_opacity")
+    # Very transparent strokes/fills — typical for background watermarks.
+    if so is not None and so < 0.38:
+        return True
+    if fo is not None and fo < 0.38 and path.get("type") in (None, "f", "fs"):
+        return True
+
+    def _rgb_min(comp) -> Optional[float]:
+        if comp is None:
+            return None
+        if isinstance(comp, (tuple, list)) and len(comp) >= 3:
+            return min(float(comp[0]), float(comp[1]), float(comp[2]))
+        return None
+
+    # Light gray (or near-white) strokes/fills — not manuscript strike ink.
+    _GRAY_CUT = 0.51
+    for key in ("color", "fill"):
+        m = _rgb_min(path.get(key))
+        if m is not None and m >= _GRAY_CUT:
+            return True
+    return False
+
+
+def _fitz_horizontal_rule_is_strikethrough_in_box(
+    x0: float,
+    x1: float,
+    y_mid: float,
+    bx0: float,
+    by0: float,
+    bx1: float,
+    by1: float,
+    *,
+    min_overlap_pt: float,
+    min_overlap_frac: Optional[float] = None,
+) -> bool:
+    """True if a near-horizontal drawing rule crosses the mid-body of *box*, not underline zone."""
+    if not (by0 <= y_mid <= by1):
+        return False
+    overlap_w = min(x1, bx1) - max(x0, bx0)
+    bw, bh = bx1 - bx0, by1 - by0
+    if bw <= 0 or bh <= 0:
+        return False
+    if min_overlap_frac is not None:
+        if overlap_w < min_overlap_frac * bw:
+            return False
+    elif overlap_w < min_overlap_pt:
+        return False
+    rel = (y_mid - by0) / bh
+    gap_below = (by1 - y_mid) / bh
+    if rel < _FITZ_STRIKE_REL_LO or rel > _FITZ_STRIKE_REL_HI:
+        return False
+    if gap_below < _FITZ_STRIKE_MIN_GAP_BELOW:
+        return False
+    return True
 
 
 def _fitz_page_span_ybounds(page) -> List[Tuple[float, float]]:
@@ -1146,13 +1234,11 @@ def _fitz_collect_strike_bands(
     _MAX_BAND_H = 4.5
     _MIN_BAND_W = 8.0
     _MAX_LINE_DY = 2.8   # pt — nearly horizontal
-    # Strikethrough crosses x-height; underlines sit near baseline (bottom of
-    # span bbox).  rel = (y_mid - sy0) / span_h within [LO, HI] only.
-    _STRIKE_REL_LO = 0.08
-    _STRIKE_REL_HI = 0.74
 
     candidates: List[Tuple[float, float, float]] = []
     for d in page.get_drawings():
+        if _fitz_path_skip_for_strike_inference(d):
+            continue
         rect = d.get("rect")
         if rect is not None:
             band_h = rect.y1 - rect.y0
@@ -1184,16 +1270,9 @@ def _fitz_collect_strike_bands(
     for x0, x1, y_mid in candidates:
         ok = False
         for sx0, sy0, sx1, sy1 in span_bboxes:
-            if not (sy0 <= y_mid <= sy1):
-                continue
-            overlap_w = min(x1, sx1) - max(x0, sx0)
-            if overlap_w < 4.0:
-                continue
-            span_h = sy1 - sy0
-            if span_h <= 0:
-                continue
-            rel = (y_mid - sy0) / span_h
-            if _STRIKE_REL_LO <= rel <= _STRIKE_REL_HI:
+            if _fitz_horizontal_rule_is_strikethrough_in_box(
+                x0, x1, y_mid, sx0, sy0, sx1, sy1, min_overlap_pt=4.0
+            ):
                 ok = True
                 break
         if ok:
@@ -1209,12 +1288,11 @@ def _fitz_char_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -
     if cw <= 0 or ch <= 0:
         return False
     for bx0, bx1, by_mid in strike_bands:
-        overlap_w = min(sx1, bx1) - max(sx0, bx0)
-        if overlap_w < 0.40 * cw:
-            continue
-        rel = (by_mid - sy0) / ch
-        # Match _fitz_collect_strike_bands: mid-glyph only, not underline belt.
-        if 0.10 <= rel <= 0.74:
+        if _fitz_horizontal_rule_is_strikethrough_in_box(
+            bx0, bx1, by_mid, sx0, sy0, sx1, sy1,
+            min_overlap_pt=0.0,
+            min_overlap_frac=0.52,
+        ):
             return True
     return False
 
@@ -1242,8 +1320,9 @@ def _fitz_span_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -
         band_w = bx1 - bx0
         if band_w <= 0:
             continue
-        rel = (by_mid - sy0) / span_h
-        if not (0.10 <= rel <= 0.74):
+        if not _fitz_horizontal_rule_is_strikethrough_in_box(
+            bx0, bx1, by_mid, sx0, sy0, sx1, sy1, min_overlap_pt=1.5
+        ):
             continue
         # Strike sits across most of this span's width.
         if overlap_w >= 0.42 * span_w:
