@@ -291,7 +291,6 @@ def replace(doc_id: int):
     preview page so the user can review before re-publishing.
     """
     from documents.embedder import delete_document_vectors
-    from documents.extractor import extract
     import json as _json
 
     doc = Document.query.get_or_404(doc_id)
@@ -334,8 +333,48 @@ def replace(doc_id: int):
     DocumentChunk.query.filter_by(document_id=doc.id).delete()
     db.session.flush()
 
-    # ── 3. Extract new file ───────────────────────────────────────────────────
+    # ── 3. New file: defer processing when object storage is available ────────
     ext = filename.rsplit(".", 1)[1].lower()
+    from documents.object_storage import is_configured, upload_file, build_storage_key
+    import mimetypes as _mimetypes
+
+    if is_configured():
+        doc.filename       = filename
+        doc.file_type      = ext
+        doc.status         = "pending_upload"
+        doc.chunk_count    = 0
+        doc.storage_key    = None
+        doc.coverage_pct   = None
+        doc.coverage_notes = None
+        doc.error_message  = None
+        doc.skip_ai_enrichment = skip_enrichment
+        db.session.commit()
+        try:
+            storage_key = build_storage_key(doc.client_id, filename)
+            content_type = (
+                _mimetypes.guess_type(filename)[0]
+                or "application/octet-stream"
+            )
+            file.stream.seek(0)
+            upload_file(file.stream, storage_key, content_type=content_type)
+            doc.storage_key = storage_key
+            db.session.commit()
+        except Exception as e:
+            doc.status         = "error"
+            doc.error_message  = str(e)
+            db.session.commit()
+            flash(f"Could not store replacement '{filename}': {e}", "error")
+            return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
+
+        logger.info(
+            f"[documents] Replace doc {doc_id} deferred → '{filename}' (pending_upload)"
+        )
+        rkwargs = dict(doc_id=doc.id, total=1, from_vessel=from_vessel or None)
+        rkwargs = {k: v for k, v in rkwargs.items() if v is not None}
+        return redirect(url_for("documents.preview", **rkwargs))
+
+    # ── 3b. No object storage — full inline extract (local dev) ──────────────
+    from documents.extractor import extract
     try:
         raw_chunks = extract(file.stream, filename, document_category=doc.document_category)
     except Exception as e:
@@ -466,8 +505,19 @@ def upload():
     Accept one or more file uploads, extract text from each, and redirect to
     the preview of the first file.  Remaining files are passed as a comma-
     separated ?queue= of doc IDs so the user reviews them sequentially.
+
+    When DigitalOcean Spaces is configured (staging / production), this route
+    only stores the raw bytes and creates ``pending_upload`` rows — extract,
+    enrichment, and coverage run in a **second** HTTP request
+    (``POST …/process-from-storage``) triggered from the preview page.  That
+    splits wall-clock work across two Vercel serverless invocations so each
+    stays under the platform time limit; locally, behaviour is unchanged when
+    object storage is disabled (single-request inline pipeline).
     """
-    from documents.extractor import extract
+    from documents.object_storage import is_configured, upload_file, build_storage_key
+    import mimetypes
+
+    storage_ok = is_configured()
 
     # ── SSE task registration ────────────────────────────────────────────────
     task_id = request.form.get("task_id", "").strip() or None
@@ -537,6 +587,61 @@ def upload():
             continue
 
         ext = filename.rsplit(".", 1)[1].lower()
+
+        # ── Fast path: persist to object storage only (two-phase pipeline) ─
+        if storage_ok:
+            _pq_emit(
+                task_id, "stage",
+                f"Saving {filename} to object storage…",
+            )
+            _pq_emit(
+                task_id, "info",
+                "Heavy processing runs in a follow-up request (avoids Vercel timeout).",
+                pct=30,
+            )
+            doc = Document(
+                client_id=client_id,
+                filename=filename,
+                file_type=ext,
+                status="pending_upload",
+                uploaded_by=g.cms_user.email,
+                chunk_count=0,
+                vessel_id=int(vessel_id) if vessel_id else None,
+                group_name=group_name,
+                document_category=document_category,
+                skip_ai_enrichment=skip_enrichment,
+            )
+            db.session.add(doc)
+            db.session.flush()
+            new_doc_id = doc.id
+            try:
+                storage_key = build_storage_key(client_id, filename)
+                content_type = (
+                    mimetypes.guess_type(filename)[0]
+                    or "application/octet-stream"
+                )
+                file.stream.seek(0)
+                upload_file(file.stream, storage_key, content_type=content_type)
+                doc.storage_key = storage_key
+                db.session.commit()
+                doc_ids.append(doc.id)
+                logger.info(
+                    f"[documents] Stored '{filename}' for deferred processing → doc {doc.id} "
+                    f"(client '{client_id}')"
+                    + (f" vessel='{group_name}'" if group_name else "")
+                )
+                _pq_emit(task_id, "ok", f"Stored {filename} — will extract on next step ✓", pct=88)
+            except Exception as e:
+                db.session.rollback()
+                Document.query.filter_by(id=new_doc_id).delete()
+                db.session.commit()
+                flash(f"'{filename}' skipped — could not save to storage: {e}", "error")
+                logger.error(f"[documents] Storage upload failed for {filename}: {e}", exc_info=True)
+                _pq_emit(task_id, "warn", f"Storage failed for '{filename}': {e}")
+            continue
+
+        # ── Local / no-storage path: full inline pipeline ───────────────────
+        from documents.extractor import extract
 
         # ── Extraction ───────────────────────────────────────────────────────
         _pq_emit(task_id, "stage", "Extracting document content…")
@@ -679,11 +784,7 @@ def upload():
         # ── Object storage: save original file ───────────────────────────────
         _pq_emit(task_id, "info", "Uploading original file to object storage…", pct=94)
         try:
-            from documents.object_storage import (
-                is_configured, upload_file, build_storage_key
-            )
             if is_configured():
-                import mimetypes
                 storage_key = build_storage_key(client_id, filename)
                 content_type = (
                     mimetypes.guess_type(filename)[0]
@@ -726,13 +827,14 @@ def upload():
     first_id  = doc_ids[0]
     queue     = ",".join(str(i) for i in doc_ids[1:])
     total     = len(doc_ids)
-    redir = url_for(
-        "documents.preview",
+    preview_kwargs = dict(
         doc_id=first_id,
         queue=queue or None,
         total=total,
         from_vessel=from_vessel or None,
     )
+    preview_kwargs = {k: v for k, v in preview_kwargs.items() if v is not None}
+    redir = url_for("documents.preview", **preview_kwargs)
     _pq_emit(task_id, "ok", "Processing complete — loading chunk review…", pct=99)
     _pq_done(task_id, redir)
     return redirect(redir)
@@ -811,18 +913,19 @@ def presign():
             group_name = vessel_obj.name
 
     # Create a placeholder Document so we have a stable doc_id to track progress.
-    doc = Document(
-        client_id=client_id,
-        filename=filename,
-        file_type=ext,
-        status="pending_upload",
-        uploaded_by=g.cms_user.email,
-        chunk_count=0,
-        vessel_id=int(vessel_id) if vessel_id else None,
-        group_name=group_name,
-        document_category=document_category,
-        storage_key=storage_key,
-    )
+        doc = Document(
+            client_id=client_id,
+            filename=filename,
+            file_type=ext,
+            status="pending_upload",
+            uploaded_by=g.cms_user.email,
+            chunk_count=0,
+            vessel_id=int(vessel_id) if vessel_id else None,
+            group_name=group_name,
+            document_category=document_category,
+            storage_key=storage_key,
+            skip_ai_enrichment=skip_enrichment,
+        )
     db.session.add(doc)
     db.session.commit()
 
@@ -873,13 +976,30 @@ def process_from_storage(doc_id: int):
     doc = Document.query.get_or_404(doc_id)
     _assert_doc_access(doc)
 
+    if doc.status == "pending_upload":
+        existing_chunks = DocumentChunk.query.filter_by(document_id=doc.id).count()
+        if existing_chunks:
+            logger.info(
+                "[documents] process-from-storage: doc %s already has %d chunk(s); "
+                "recovery — marking draft",
+                doc_id,
+                existing_chunks,
+            )
+            doc.status      = "draft"
+            doc.chunk_count = existing_chunks
+            db.session.commit()
+            return redirect(url_for("documents.preview", doc_id=doc_id))
+
     # Guard against accidental double-processing
     if doc.status not in ("pending_upload", "error"):
         return redirect(url_for("documents.preview", doc_id=doc_id))
 
     task_id         = request.form.get("task_id", "").strip() or None
     from_vessel     = request.form.get("from_vessel", "").strip() or None
-    skip_enrichment = request.form.get("skip_enrichment", "") == "on"
+    skip_enrichment = (
+        request.form.get("skip_enrichment", "") == "on"
+        or bool(getattr(doc, "skip_ai_enrichment", False))
+    )
 
     if task_id:
         _pq_create(task_id)
@@ -1098,6 +1218,12 @@ def preview(doc_id: int):
         except Exception:
             pass
 
+    pending_storage_processing = doc.status == "pending_upload"
+    skip_enrich_process = bool(
+        getattr(doc, "skip_ai_enrichment", False)
+        or request.args.get("skip_enrich") == "1"
+    )
+
     return render_template(
         "documents/preview.html",
         doc=doc,
@@ -1108,6 +1234,8 @@ def preview(doc_id: int):
         from_vessel=from_vessel,
         coverage=coverage,
         is_live=(doc.status == "active"),
+        pending_storage_processing=pending_storage_processing,
+        skip_enrich_process=skip_enrich_process,
     )
 
 

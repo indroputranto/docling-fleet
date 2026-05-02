@@ -229,6 +229,15 @@ def run():
         cur.execute("ALTER TABLE documents ADD COLUMN storage_key VARCHAR(1000)")
         print("  [+] documents.storage_key (VARCHAR(1000))")
 
+    # ── documents: skip_ai_enrichment ─────────────────────────────────────────
+    if col_exists(cur, "documents", "skip_ai_enrichment"):
+        print("  [skip] documents.skip_ai_enrichment already exists")
+    else:
+        cur.execute(
+            "ALTER TABLE documents ADD COLUMN skip_ai_enrichment BOOLEAN NOT NULL DEFAULT 0"
+        )
+        print("  [+] documents.skip_ai_enrichment (BOOLEAN NOT NULL DEFAULT 0)")
+
     # ── chat_sessions table ───────────────────────────────────────────────────
     if table_exists(cur, "chat_sessions"):
         print("  [skip] chat_sessions table already exists")

@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vesfleet — Cargo Hold Visualizer</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2230;
+    --border: #2d3748;
+    --accent: #3b82f6;
+    --accent2: #10b981;
+    --text: #e2e8f0;
+    --text-muted: #718096;
+    --hold1: #3b82f6;
+    --hold2: #10b981;
+    --hold3: #f59e0b;
+    --hold4: #ec4899;
+    --hull: #334155;
+    --deck: #475569;
+    --waterline: #1e3a5f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+  
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+  .logo span { color: var(--text-muted); font-weight: 400; }
+  .badge { background: var(--accent); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+  
+  .app { display: flex; flex: 1; overflow: hidden; }
+  
+  /* LEFT PANEL */
+  .sidebar { width: 280px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h2 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .search-box { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; color: var(--text); font-size: 13px; outline: none; }
+  .search-box:focus { border-color: var(--accent); }
+  .vessel-list { flex: 1; overflow-y: auto; padding: 6px; }
+  .vessel-list::-webkit-scrollbar { width: 4px; }
+  .vessel-list::-webkit-scrollbar-track { background: transparent; }
+  .vessel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .vessel-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: background 0.15s; border: 1px solid transparent; margin-bottom: 3px; }
+  .vessel-item:hover { background: var(--surface2); }
+  .vessel-item.active { background: #1d2d44; border-color: var(--accent); }
+  .vessel-item .vname { font-size: 13px; font-weight: 600; color: var(--text); }
+  .vessel-item .vmeta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .vessel-item .holds-badge { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; padding: 1px 5px; margin-top: 4px; color: var(--text-muted); }
+  .vessel-item.active .holds-badge { border-color: var(--accent); color: var(--accent); }
+  
+  /* RIGHT PANEL */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .canvas-area { flex: 1; position: relative; }
+  #three-canvas { width: 100%; height: 100%; display: block; }
+  
+  /* HUD overlay */
+  .hud { position: absolute; top: 12px; left: 12px; pointer-events: none; }
+  .vessel-title { font-size: 20px; font-weight: 700; color: var(--text); text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+  .vessel-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  
+  .controls-hint { position: absolute; bottom: 12px; right: 12px; font-size: 11px; color: var(--text-muted); text-align: right; pointer-events: none; line-height: 1.6; }
+  
+  /* STATS BAR */
+  .stats-bar { background: var(--surface); border-top: 1px solid var(--border); padding: 12px 20px; display: flex; gap: 24px; align-items: center; flex-shrink: 0; overflow-x: auto; }
+  .stat { flex-shrink: 0; }
+  .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; }
+  .stat-value { font-size: 16px; font-weight: 700; color: var(--text); margin-top: 1px; }
+  .stat-value span { font-size: 11px; font-weight: 400; color: var(--text-muted); }
+  .stat-divider { width: 1px; height: 32px; background: var(--border); flex-shrink: 0; }
+  
+  /* HOLD LEGEND */
+  .hold-legend { position: absolute; top: 12px; right: 12px; background: rgba(22,27,34,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; min-width: 180px; }
+  .hold-legend h4 { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 8px; }
+  .hold-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .hold-color { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .hold-info { color: var(--text); }
+  .hold-dim { color: var(--text-muted); font-size: 11px; }
+  
+  .no-vessel { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: 14px; }
+
+  /* VIEW BUTTONS */
+  .view-btns { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 6px; }
+  .view-btn { background: rgba(22,27,34,0.9); border: 1px solid var(--border); color: var(--text-muted); border-radius: 5px; padding: 5px 10px; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+  .view-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .view-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,0.1); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Vesfleet <span>/ Cargo</span></div>
+  <div class="badge">3D Hold Visualizer</div>
+</header>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>Vessels</h2>
+      <input class="search-box" type="text" placeholder="Search vessel…" id="searchInput" />
+    </div>
+    <div class="vessel-list" id="vesselList"></div>
+  </div>
+  
+  <div class="main">
+    <div class="canvas-area">
+      <canvas id="three-canvas"></canvas>
+      <div class="hud" id="hud" style="display:none">
+        <div class="vessel-title" id="hudTitle"></div>
+        <div class="vessel-subtitle" id="hudSub"></div>
+      </div>
+      <div class="hold-legend" id="holdLegend" style="display:none">
+        <h4>Cargo Holds</h4>
+        <div id="holdRows"></div>
+      </div>
+      <div class="view-btns" id="viewBtns" style="display:none">
+        <button class="view-btn active" onclick="setView('perspective')">3D</button>
+        <button class="view-btn" onclick="setView('top')">Top</button>
+        <button class="view-btn" onclick="setView('side')">Side</button>
+        <button class="view-btn" onclick="setView('front')">Front</button>
+      </div>
+      <div class="controls-hint" id="controlsHint" style="display:none">
+        Drag to rotate · Scroll to zoom · Right-drag to pan
+      </div>
+      <div class="no-vessel" id="noVessel">← Select a vessel to visualise its cargo holds</div>
+    </div>
+    <div class="stats-bar" id="statsBar" style="display:none">
+      <div class="stat">
+        <div class="stat-label">Length Overall</div>
+        <div class="stat-value" id="statLOA">—</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-label">Breadth</div>
+        <div class="stat-value" id="statB">—</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-label">Depth</div>
+        <div class="stat-value" id="statD">—</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-label">Draft</div>
+        <div class="stat-value" id="statDraft">—</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-label">Cargo Holds</div>
+        <div class="stat-value" id="statHolds">—</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-label">Hold Capacity</div>
+        <div class="stat-value" id="statCap">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+const VESSELS = [{"id":"AI_BALTIC_TIMBER","name":"Ai Baltic Timber","loa":89.7,"breadth":11.7,"depth":8.1,"draft":5.49,"holds_count":1,"hold_capacity_m3":5250.0,"holds":[{"id":1,"length":62.5,"breadth":10.1,"height":8.4}]},{"id":"AI_BALTIC_TIMBER_FINAL","name":"Ai Baltic Timber Final","loa":89.7,"breadth":11.7,"depth":8.1,"draft":5.49,"holds_count":1,"hold_capacity_m3":5250.0,"holds":[{"id":1,"length":62.5,"breadth":10.1,"height":8.4}]},{"id":"AI_VEGA_ELISE","name":"Ai Vega Elise","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.2,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"AI_VEGA_LUISE","name":"Ai Vega Luise","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.2,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"AI_VEGA_PETRA","name":"Ai Vega Petra","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.2,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"BELTMAR","name":"Beltmar","loa":99.78,"breadth":13.0,"depth":9.0,"draft":null,"holds_count":1,"hold_capacity_m3":null,"holds":[]},{"id":"BOTHNIAMAR","name":"Bothniamar","loa":99.78,"breadth":13.0,"depth":9.0,"draft":null,"holds_count":1,"hold_capacity_m3":null,"holds":[]},{"id":"HEINZ","name":"Heinz","loa":109.95,"breadth":16.5,"depth":9.9,"draft":null,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":66.0,"breadth":14.0,"height":9.9,"estimated":true}]},{"id":"JESPER","name":"Jesper","loa":130.25,"breadth":16.5,"depth":11.5,"draft":7.0,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":78.1,"breadth":14.0,"height":11.5,"estimated":true}]},{"id":"MV ADRIATIC","name":"Mv Adriatic","loa":107.88,"breadth":16.0,"depth":10.0,"draft":5.52,"holds_count":1,"hold_capacity_m3":6438.0,"holds":[{"id":1,"length":58.1,"breadth":12.0,"height":10.0}]},{"id":"MV ARA ROTTERDAM","name":"Mv Ara Rotterdam","loa":146.25,"breadth":20.1,"depth":11.45,"draft":8.25,"holds_count":2,"hold_capacity_m3":17242.0,"holds":[{"id":1,"length":39.5,"breadth":17.1,"height":11.4},{"id":2,"length":39.5,"breadth":17.1,"height":11.4}]},{"id":"MV ATLANTIC","name":"Mv Atlantic","loa":105.1,"breadth":15.6,"depth":7.4,"draft":null,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":31.4,"breadth":11.0,"height":7.4}]},{"id":"MV ATLANTIC DAWN","name":"Mv Atlantic Dawn","loa":111.6,"breadth":16.94,"depth":9.3,"draft":5.95,"holds_count":1,"hold_capacity_m3":6770.0,"holds":[{"id":1,"length":67.0,"breadth":14.4,"height":9.3,"estimated":true}]},{"id":"MV BALTIC IRON","name":"Mv Baltic Iron","loa":89.7,"breadth":11.7,"depth":8.1,"draft":5.49,"holds_count":1,"hold_capacity_m3":5250.0,"holds":[{"id":1,"length":62.5,"breadth":10.1,"height":8.4}]},{"id":"MV CELTIC","name":"Mv Celtic","loa":108.25,"breadth":16.0,"depth":10.0,"draft":null,"holds_count":1,"hold_capacity_m3":6475.0,"holds":[{"id":1,"length":65.0,"breadth":13.6,"height":10.0,"estimated":true}]},{"id":"MV CORSICA","name":"Mv Corsica","loa":121.16,"breadth":18.5,"depth":8.4,"draft":6.37,"holds_count":2,"hold_capacity_m3":9836.0,"holds":[{"id":1,"length":32.7,"breadth":15.7,"height":8.4},{"id":2,"length":32.7,"breadth":15.7,"height":8.4}]},{"id":"MV EENDRACHT","name":"Mv Eendracht","loa":105.1,"breadth":15.6,"depth":7.4,"draft":5.85,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":31.5,"breadth":11.0,"height":7.4}]},{"id":"MV FRANZISKA","name":"Mv Franziska","loa":145.63,"breadth":18.25,"depth":10.3,"draft":7.4,"holds_count":1,"hold_capacity_m3":14800.0,"holds":[{"id":1,"length":87.4,"breadth":15.5,"height":10.3,"estimated":true}]},{"id":"MV FREDENSBORG","name":"Mv Fredensborg","loa":138.5,"breadth":21.0,"depth":11.0,"draft":8.0,"holds_count":1,"hold_capacity_m3":15953.0,"holds":[{"id":1,"length":83.1,"breadth":17.8,"height":11.0,"estimated":true}]},{"id":"MV FWN SEA","name":"Mv Fwn Sea","loa":122.5,"breadth":17.0,"depth":10.7,"draft":7.81,"holds_count":1,"hold_capacity_m3":11417.0,"holds":[{"id":1,"length":79.04,"breadth":13.5,"height":10.7}]},{"id":"MV GERD SIBUM","name":"Mv Gerd Sibum","loa":89.7,"breadth":11.7,"depth":8.1,"draft":5.49,"holds_count":1,"hold_capacity_m3":5250.0,"holds":[{"id":1,"length":62.5,"breadth":10.1,"height":8.4}]},{"id":"MV HAMMARLAND","name":"Mv Hammarland","loa":129.4,"breadth":17.3,"depth":10.0,"draft":7.2,"holds_count":1,"hold_capacity_m3":11070.0,"holds":[{"id":1,"length":77.6,"breadth":14.7,"height":10.0,"estimated":true}]},{"id":"MV HAV CORAL","name":"Mv Hav Coral","loa":89.98,"breadth":15.55,"depth":7.4,"draft":6.21,"holds_count":1,"hold_capacity_m3":7645.0,"holds":[{"id":1,"length":54.0,"breadth":13.2,"height":7.4,"estimated":true}]},{"id":"MV HAV ECOTRADER 1","name":"Mv Hav Ecotrader 1","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.24,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"MV HAV ECOTRADER 2","name":"Mv Hav Ecotrader 2","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.24,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"MV HAV ECOTRADER 3","name":"Mv Hav Ecotrader 3","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.24,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"MV HAV ECOTRADER 4","name":"Mv Hav Ecotrader 4","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.24,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"MV HAV SARDIS","name":"Mv Hav Sardis","loa":89.98,"breadth":15.55,"depth":7.4,"draft":6.21,"holds_count":1,"hold_capacity_m3":7645.0,"holds":[{"id":1,"length":54.0,"breadth":13.2,"height":7.4,"estimated":true}]},{"id":"MV INDUSTRIAL RUBY","name":"Mv Industrial Ruby","loa":134.52,"breadth":21.5,"depth":9.3,"draft":7.95,"holds_count":1,"hold_capacity_m3":13875.0,"holds":[{"id":1,"length":80.7,"breadth":18.3,"height":9.3,"estimated":true}]},{"id":"MV JSP VENTO","name":"Mv Jsp Vento","loa":130.25,"breadth":16.5,"depth":11.5,"draft":7.0,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":78.1,"breadth":14.0,"height":11.5,"estimated":true}]},{"id":"MV KLAUS","name":"Mv Klaus","loa":130.25,"breadth":16.5,"depth":11.5,"draft":7.0,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":78.1,"breadth":14.0,"height":11.5,"estimated":true}]},{"id":"MV KOGA RANGER","name":"Mv Koga Ranger","loa":134.52,"breadth":21.5,"depth":9.3,"draft":7.95,"holds_count":1,"hold_capacity_m3":13875.0,"holds":[{"id":1,"length":80.7,"breadth":18.3,"height":9.3,"estimated":true}]},{"id":"MV LUCA","name":"Mv Luca","loa":130.25,"breadth":16.5,"depth":11.5,"draft":7.0,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":78.1,"breadth":14.0,"height":11.5,"estimated":true}]},{"id":"MV M V MARLON","name":"Mv M V Marlon","loa":130.25,"breadth":16.5,"depth":11.5,"draft":7.97,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":87.0,"breadth":16.5,"height":4.6000000000000005,"level":"lower"},{"id":2,"length":87.0,"breadth":16.5,"height":6.8999999999999995,"level":"tween"}]},{"id":"MV MARIA SIBUM","name":"Mv Maria Sibum","loa":89.7,"breadth":11.7,"depth":8.1,"draft":5.49,"holds_count":1,"hold_capacity_m3":5250.0,"holds":[{"id":1,"length":62.5,"breadth":10.1,"height":8.4}]},{"id":"MV MORGENSTOND II","name":"Mv Morgenstond Ii","loa":142.95,"breadth":18.9,"depth":10.95,"draft":7.93,"holds_count":1,"hold_capacity_m3":17272.0,"holds":[{"id":1,"length":85.8,"breadth":16.1,"height":10.9,"estimated":true}]},{"id":"MV NORDIC","name":"Mv Nordic","loa":92.9,"breadth":15.0,"depth":8.4,"draft":5.0,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":55.7,"breadth":12.8,"height":8.4,"estimated":true}]},{"id":"MV NORDIC FELICIA","name":"Mv Nordic Felicia","loa":89.98,"breadth":15.55,"depth":7.4,"draft":6.21,"holds_count":1,"hold_capacity_m3":7645.0,"holds":[{"id":1,"length":54.0,"breadth":13.2,"height":7.4,"estimated":true}]},{"id":"MV O7 LAFITE","name":"Mv O7 Lafite","loa":116.26,"breadth":17.8,"depth":10.5,"draft":7.82,"holds_count":1,"hold_capacity_m3":12415.0,"holds":[{"id":1,"length":69.8,"breadth":15.1,"height":10.5,"estimated":true}]},{"id":"MV OCEAN7 ALGORA","name":"Mv Ocean7 Algora","loa":138.93,"breadth":21.0,"depth":11.0,"draft":8.0,"holds_count":3,"hold_capacity_m3":15953.0,"holds":[{"id":1,"length":18.75,"breadth":15.02,"height":11.0},{"id":2,"length":42.0,"breadth":17.5,"height":11.0}]},{"id":"MV OCEAN7 MUGA","name":"Mv Ocean7 Muga","loa":116.26,"breadth":17.8,"depth":10.5,"draft":7.8,"holds_count":1,"hold_capacity_m3":12415.0,"holds":[{"id":1,"length":69.8,"breadth":15.1,"height":10.5,"estimated":true}]},{"id":"MV OCEANIC","name":"Mv Oceanic","loa":92.9,"breadth":15.0,"depth":8.4,"draft":5.0,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":55.7,"breadth":12.8,"height":8.4,"estimated":true}]},{"id":"MV PACIFIC DAWN","name":"Mv Pacific Dawn","loa":105.1,"breadth":15.6,"depth":7.4,"draft":5.82,"holds_count":1,"hold_capacity_m3":null,"holds":[{"id":1,"length":63.1,"breadth":13.3,"height":7.4,"estimated":true}]},{"id":"MV PACIFIC VENTURE","name":"Mv Pacific Venture","loa":122.2,"breadth":19.8,"depth":10.7,"draft":7.3,"holds_count":1,"hold_capacity_m3":13242.0,"holds":[{"id":1,"length":73.3,"breadth":16.8,"height":10.7,"estimated":true}]},{"id":"MV PANTHERA J","name":"Mv Panthera J","loa":117.94,"breadth":19.4,"depth":9.45,"draft":7.25,"holds_count":1,"hold_capacity_m3":9600.0,"holds":[{"id":1,"length":70.8,"breadth":16.5,"height":9.4,"estimated":true}]},{"id":"MV RUDOLF","name":"Mv Rudolf","loa":145.56,"breadth":18.25,"depth":10.3,"draft":7.4,"holds_count":2,"hold_capacity_m3":null,"holds":[{"id":1,"length":39.3,"breadth":15.5,"height":10.3},{"id":2,"length":39.3,"breadth":15.5,"height":10.3}]},{"id":"MV SLOMAN DISCHARGER","name":"Mv Sloman Discharger","loa":138.06,"breadth":21.33,"depth":11.0,"draft":8.06,"holds_count":2,"hold_capacity_m3":15067.0,"holds":[{"id":1,"length":37.3,"breadth":18.1,"height":11.0},{"id":2,"length":37.3,"breadth":18.1,"height":11.0}]},{"id":"MV SLOMAN DISPATCHER","name":"Mv Sloman Dispatcher","loa":138.1,"breadth":18.0,"depth":11.0,"draft":8.0,"holds_count":1,"hold_capacity_m3":14856.0,"holds":[]},{"id":"MV TITUS","name":"Mv Titus","loa":98.9,"breadth":13.8,"depth":7.41,"draft":5.74,"holds_count":1,"hold_capacity_m3":6374.0,"holds":[{"id":1,"length":59.3,"breadth":11.7,"height":7.4,"estimated":true}]},{"id":"MV VEGA CHRISTINA","name":"Mv Vega Christina","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.2,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"MV VEGA CLARA","name":"Mv Vega Clara","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.2,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"MV VEGA PHILIPPA","name":"Mv Vega Philippa","loa":89.42,"breadth":13.2,"depth":7.2,"draft":5.2,"holds_count":1,"hold_capacity_m3":5530.0,"holds":[{"id":1,"length":53.7,"breadth":11.2,"height":7.2,"estimated":true}]},{"id":"O7_ALSACE","name":"O7 Alsace","loa":145.56,"breadth":18.25,"depth":10.3,"draft":7.4,"holds_count":2,"hold_capacity_m3":14807.0,"holds":[{"id":1,"length":39.3,"breadth":15.5,"height":10.3},{"id":2,"length":39.3,"breadth":15.5,"height":10.3}]}];
+
+const HOLD_COLORS = [0x3b82f6, 0x10b981, 0xf59e0b, 0xec4899, 0x8b5cf6, 0xef4444];
+const HOLD_COLORS_HEX = ['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#ef4444'];
+
+// THREE setup
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x0d1117, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0d1117, 200, 600);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+camera.position.set(80, 60, 100);
+camera.lookAt(0, 0, 0);
+
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 20;
+controls.maxDistance = 400;
+controls.maxPolarAngle = Math.PI * 0.85;
+
+// Lights
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2);
+sunLight.position.set(100, 150, 80);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+scene.add(sunLight);
+
+const fillLight = new THREE.DirectionalLight(0x4080ff, 0.3);
+fillLight.position.set(-80, 40, -60);
+scene.add(fillLight);
+
+// Grid
+const grid = new THREE.GridHelper(600, 60, 0x1e2a3a, 0x1a2434);
+grid.position.y = -0.5;
+scene.add(grid);
+
+// Water plane
+const waterGeo = new THREE.PlaneGeometry(600, 600);
+const waterMat = new THREE.MeshStandardMaterial({ color: 0x0a1628, transparent: true, opacity: 0.6, roughness: 0.8 });
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.rotation.x = -Math.PI / 2;
+water.position.y = -0.3;
+scene.add(water);
+
+let vesselGroup = null;
+let currentVessel = null;
+let currentViewMode = 'perspective';
+
+// Resize
+function resize() {
+  const w = canvas.parentElement.clientWidth;
+  const h = canvas.parentElement.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Animate
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ── Build vessel scene ──────────────────────────────────────────────
+function buildVessel(v) {
+  if (vesselGroup) {
+    scene.remove(vesselGroup);
+    vesselGroup = null;
+  }
+
+  const group = new THREE.Group();
+  const scale = 1; // 1 unit = 1 metre
+
+  const loa = v.loa;
+  const B = v.breadth;
+  const D = v.depth;
+  const draft = v.draft || D * 0.65;
+
+  // ── Hull (simplified box with bow cutout) ──
+  // Main hull body
+  const hullMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.3 });
+  const hullTopMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.2 });
+  const deckMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.8, metalness: 0.1 });
+  const bowMat = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.6, metalness: 0.3 });
+
+  // Below waterline hull
+  const hullBelowGeo = new THREE.BoxGeometry(loa * 0.82, draft, B * 0.92);
+  const hullBelow = new THREE.Mesh(hullBelowGeo, hullMat);
+  hullBelow.position.set(0, -draft / 2, 0);
+  hullBelow.castShadow = true;
+  group.add(hullBelow);
+
+  // Above waterline hull sides
+  const sideH = D - draft;
+  const hullAboveGeo = new THREE.BoxGeometry(loa * 0.88, sideH, B);
+  const hullAbove = new THREE.Mesh(hullAboveGeo, hullTopMat);
+  hullAbove.position.set(0, sideH / 2, 0);
+  hullAbove.castShadow = true;
+  group.add(hullAbove);
+
+  // Deck plate
+  const deckGeo = new THREE.BoxGeometry(loa, 0.3, B);
+  const deck = new THREE.Mesh(deckGeo, deckMat);
+  deck.position.set(0, D - draft + 0.15, 0);
+  deck.receiveShadow = true;
+  group.add(deck);
+
+  // Bow shape (tapered)
+  const bowL = loa * 0.09;
+  const bowGeo = new THREE.CylinderGeometry(0, B / 2, bowL, 4, 1);
+  const bow = new THREE.Mesh(bowGeo, bowMat);
+  bow.rotation.z = -Math.PI / 2;
+  bow.position.set(loa / 2 * 0.85 + bowL / 2, sideH / 4, 0);
+  group.add(bow);
+
+  // Stern rounding
+  const sternGeo = new THREE.CylinderGeometry(B / 2, B / 2.5, D, 8, 1, false, 0, Math.PI);
+  const sternMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 });
+  const stern = new THREE.Mesh(sternGeo, sternMat);
+  stern.rotation.y = Math.PI / 2;
+  stern.position.set(-loa / 2 * 0.88, (D - draft) / 2 - draft / 2, 0);
+  group.add(stern);
+
+  // Bridge / superstructure
+  const bridgeW = B * 0.6;
+  const bridgeH = D * 0.7;
+  const bridgeL = loa * 0.10;
+  const bridgeGeo = new THREE.BoxGeometry(bridgeL, bridgeH, bridgeW);
+  const bridgeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, metalness: 0.2 });
+  const bridge = new THREE.Mesh(bridgeGeo, bridgeMat);
+  bridge.position.set(-loa * 0.38, D - draft + bridgeH / 2, 0);
+  bridge.castShadow = true;
+  group.add(bridge);
+
+  // Bridge windows (dark strip)
+  const winGeo = new THREE.BoxGeometry(bridgeL + 0.1, bridgeH * 0.18, bridgeW + 0.1);
+  const winMat = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.1, metalness: 0.8 });
+  const win = new THREE.Mesh(winGeo, winMat);
+  win.position.set(-loa * 0.38, D - draft + bridgeH * 0.72, 0);
+  group.add(win);
+
+  // Funnel
+  const funnelGeo = new THREE.CylinderGeometry(B * 0.06, B * 0.08, D * 0.5, 8);
+  const funnelMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5 });
+  const funnel = new THREE.Mesh(funnelGeo, funnelMat);
+  funnel.position.set(-loa * 0.38, D - draft + bridgeH + D * 0.25, 0);
+  group.add(funnel);
+
+  // ── Cargo Holds ──────────────────────────────────────────────────
+  const deckY = D - draft;
+  const holds = v.holds;
+  const totalHoldL = holds.reduce((s, h) => s + (h.length || 0), 0);
+  const gap = 1.5; // gap between holds in metres
+
+  // Centre the holds within the vessel forward section
+  // Holds typically occupy midship to forward area (excl bridge at stern, bow)
+  const holdZoneStart = -loa * 0.35; // forward of bridge
+  const holdZoneEnd = loa * 0.42;    // not into bow
+  const holdZoneL = holdZoneEnd - holdZoneStart;
+
+  let curX = holdZoneStart;
+  // If we have real holds, distribute; else space evenly
+  const spacing = holds.length > 1 ? (holdZoneL - totalHoldL) / (holds.length + 1) : 0;
+  if (holds.length > 1) curX = holdZoneStart + spacing;
+
+  holds.forEach((h, i) => {
+    const hL = h.length || loa * 0.55;
+    const hB = Math.min(h.breadth || B * 0.82, B * 0.92);
+    const hH = h.height || D;
+    const color = HOLD_COLORS[i % HOLD_COLORS.length];
+
+    // Hold opening (hatch cover frame on deck)
+    const hatchFrameGeo = new THREE.BoxGeometry(hL + 0.6, 0.35, hB + 0.6);
+    const hatchFrameMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.5, metalness: 0.4 });
+    const hatchFrame = new THREE.Mesh(hatchFrameGeo, hatchFrameMat);
+    hatchFrame.position.set(curX + hL / 2, deckY + 0.17, 0);
+    group.add(hatchFrame);
+
+    // Hatch cover (semi-transparent)
+    const hatchGeo = new THREE.BoxGeometry(hL - 0.2, 0.2, hB - 0.2);
+    const hatchMat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.35, roughness: 0.3, metalness: 0.5 });
+    const hatch = new THREE.Mesh(hatchGeo, hatchMat);
+    hatch.position.set(curX + hL / 2, deckY + 0.35, 0);
+    group.add(hatch);
+
+    // Hold walls (transparent glass-like)
+    const holdGeo = new THREE.BoxGeometry(hL, hH, hB);
+    const holdMat = new THREE.MeshStandardMaterial({
+      color,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+      roughness: 0.1,
+      metalness: 0.1,
+      wireframe: false
+    });
+    const holdMesh = new THREE.Mesh(holdGeo, holdMat);
+    holdMesh.position.set(curX + hL / 2, deckY - hH / 2 + 0.1, 0);
+    group.add(holdMesh);
+
+    // Hold wireframe outline
+    const holdEdges = new THREE.EdgesGeometry(holdGeo);
+    const holdLine = new THREE.LineSegments(holdEdges, new THREE.LineBasicMaterial({ color, linewidth: 2 }));
+    holdLine.position.copy(holdMesh.position);
+    group.add(holdLine);
+
+    // Hold floor
+    const floorGeo = new THREE.PlaneGeometry(hL - 0.4, hB - 0.4);
+    const floorMat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, opacity: 0.4, transparent: true });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(curX + hL / 2, deckY - hH + 0.15, 0);
+    group.add(floor);
+
+    // Hold label (volume indicator strip)
+    if (h.height) {
+      // Draw a thin line showing height scale
+      const pts = [
+        new THREE.Vector3(curX + hL / 2, deckY - hH + 0.15, hB / 2 + 0.5),
+        new THREE.Vector3(curX + hL / 2, deckY + 0.1, hB / 2 + 0.5)
+      ];
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const heightLine = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color, linewidth: 1 }));
+      group.add(heightLine);
+    }
+
+    curX += hL + (holds.length > 1 ? spacing : 0) + gap;
+  });
+
+  // Crane(s) — if vessel has cranes mentioned
+  // Simplified: two mast posts
+  const mastMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.4, metalness: 0.6 });
+  const mastGeo = new THREE.CylinderGeometry(0.2, 0.3, D * 0.9, 6);
+  [-loa * 0.05, loa * 0.15].forEach(x => {
+    const mast = new THREE.Mesh(mastGeo, mastMat);
+    mast.position.set(x, deckY + D * 0.45, B * 0.45);
+    group.add(mast);
+    const mast2 = new THREE.Mesh(mastGeo, mastMat);
+    mast2.position.set(x, deckY + D * 0.45, -B * 0.45);
+    group.add(mast2);
+  });
+
+  // Waterline marker
+  const wlPts = [
+    new THREE.Vector3(-loa * 0.5, 0, B * 0.52),
+    new THREE.Vector3(loa * 0.5, 0, B * 0.52)
+  ];
+  const wlGeo = new THREE.BufferGeometry().setFromPoints(wlPts);
+  const wlLine = new THREE.Line(wlGeo, new THREE.LineBasicMaterial({ color: 0x3b82f6, linewidth: 1 }));
+  group.add(wlLine);
+
+  // Centre group so it sits at y=0 at waterline
+  group.position.y = 0;
+  scene.add(group);
+  vesselGroup = group;
+
+  // Fit camera to vessel
+  fitCamera(loa, B, D);
+}
+
+function fitCamera(loa, B, D) {
+  const maxDim = Math.max(loa, B, D);
+  if (currentViewMode === 'perspective') {
+    controls.reset();
+    camera.position.set(loa * 0.7, loa * 0.4, loa * 0.6);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
+  } else {
+    applyView(currentViewMode, loa, B, D);
+  }
+}
+
+function setView(mode) {
+  currentViewMode = mode;
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${mode}'`));
+  });
+  if (!currentVessel) return;
+  const { loa, breadth: B, depth: D } = currentVessel;
+  applyView(mode, loa, B, D);
+}
+
+function applyView(mode, loa, B, D) {
+  controls.enabled = mode === 'perspective';
+  const dist = Math.max(loa, B) * 1.4;
+  if (mode === 'perspective') {
+    controls.enabled = true;
+    camera.position.set(loa * 0.7, loa * 0.4, loa * 0.6);
+  } else if (mode === 'top') {
+    camera.position.set(0, dist * 1.5, 0.01);
+    camera.up.set(0, 0, -1);
+  } else if (mode === 'side') {
+    camera.position.set(0, D, dist);
+    camera.up.set(0, 1, 0);
+  } else if (mode === 'front') {
+    camera.position.set(-dist, D, 0);
+    camera.up.set(0, 1, 0);
+  }
+  camera.lookAt(0, 0, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+// ── UI ──────────────────────────────────────────────────────────────
+function fmt(n, unit='m', decimals=1) {
+  if (n == null) return '<span style="color:var(--text-muted)">—</span>';
+  return `${Number(n).toFixed(decimals)} <span>${unit}</span>`;
+}
+function fmtCap(n) {
+  if (n == null) return '<span style="color:var(--text-muted)">—</span>';
+  return `${Number(n).toLocaleString()} <span>m³</span>`;
+}
+
+function selectVessel(v, el) {
+  currentVessel = v;
+  document.querySelectorAll('.vessel-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+
+  // Build scene
+  buildVessel(v);
+
+  // HUD
+  document.getElementById('hud').style.display = 'block';
+  document.getElementById('hudTitle').textContent = v.name;
+  document.getElementById('hudSub').textContent = `LOA ${v.loa}m · ${v.holds_count} hold${v.holds_count !== 1 ? 's' : ''}`;
+
+  // Stats
+  document.getElementById('statsBar').style.display = 'flex';
+  document.getElementById('statLOA').innerHTML = fmt(v.loa);
+  document.getElementById('statB').innerHTML = fmt(v.breadth);
+  document.getElementById('statD').innerHTML = fmt(v.depth);
+  document.getElementById('statDraft').innerHTML = fmt(v.draft);
+  document.getElementById('statHolds').innerHTML = `${v.holds_count}`;
+  document.getElementById('statCap').innerHTML = fmtCap(v.hold_capacity_m3);
+
+  // Legend
+  const legend = document.getElementById('holdLegend');
+  const rows = document.getElementById('holdRows');
+  legend.style.display = 'block';
+  rows.innerHTML = '';
+  v.holds.forEach((h, i) => {
+    const col = HOLD_COLORS_HEX[i % HOLD_COLORS_HEX.length];
+    const dims = h.length ? `${h.length}×${h.breadth}×${h.height}m` : 'estimated';
+    const vol = h.length ? Math.round(h.length * h.breadth * h.height) : '—';
+    rows.innerHTML += `
+      <div class="hold-row">
+        <div class="hold-color" style="background:${col}"></div>
+        <div>
+          <div class="hold-info">Hold #${h.id}</div>
+          <div class="hold-dim">${dims}${h.estimated ? ' (est.)' : ''}</div>
+          ${vol !== '—' ? `<div class="hold-dim">≈ ${Number(vol).toLocaleString()} m³ gross</div>` : ''}
+        </div>
+      </div>`;
+  });
+
+  document.getElementById('viewBtns').style.display = 'flex';
+  document.getElementById('controlsHint').style.display = 'block';
+  document.getElementById('noVessel').style.display = 'none';
+  currentViewMode = 'perspective';
+  document.querySelectorAll('.view-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+}
+
+// Populate list
+function populateList(filter='') {
+  const list = document.getElementById('vesselList');
+  list.innerHTML = '';
+  const q = filter.toLowerCase();
+  VESSELS
+    .filter(v => !q || v.name.toLowerCase().includes(q))
+    .forEach(v => {
+      const el = document.createElement('div');
+      el.className = 'vessel-item';
+      const capStr = v.hold_capacity_m3 ? `${Number(v.hold_capacity_m3).toLocaleString()} m³` : 'capacity n/a';
+      el.innerHTML = `
+        <div class="vname">${v.name}</div>
+        <div class="vmeta">${v.loa}m × ${v.breadth}m · ${capStr}</div>
+        <div class="holds-badge">${v.holds_count} hold${v.holds_count!==1?'s':''}</div>`;
+      el.addEventListener('click', () => selectVessel(v, el));
+      list.appendChild(el);
+    });
+}
+
+document.getElementById('searchInput').addEventListener('input', e => populateList(e.target.value));
+populateList();
+
+// Auto-select first vessel
+setTimeout(() => {
+  const first = document.querySelector('.vessel-item');
+  if (first) first.click();
+}, 100);
+</script>
+</body>
+</html>

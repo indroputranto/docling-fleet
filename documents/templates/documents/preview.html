@@ -141,6 +141,73 @@
 
 {% block content %}
 
+{% if pending_storage_processing %}
+<div id="deferredProcessOverlay" style="position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;">
+  <div style="max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 24px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.4);">
+    <div style="font-size:15px;font-weight:700;margin-bottom:8px;">Extracting document</div>
+    <p style="font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 16px;">Large files continue in a second request so the upload step does not hit the server time limit. Please keep this tab open.</p>
+    <div style="height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;">
+      <div id="deferredProcessBar" style="height:100%;width:12%;background:var(--accent);border-radius:4px;transition:width .3s ease;"></div>
+    </div>
+    <p id="deferredProcessStage" style="font-size:12px;color:var(--muted);margin:14px 0 0;">Starting…</p>
+  </div>
+</div>
+<script>
+(function() {
+  var bar = document.getElementById('deferredProcessBar');
+  var stageEl = document.getElementById('deferredProcessStage');
+  var taskId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+    : ('t-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  var skipEnrich = {{ 'true' if skip_enrich_process else 'false' }};
+  var fromVessel = {{ (from_vessel or '') | tojson }};
+  var processUrl = {{ url_for('documents.process_from_storage', doc_id=doc.id) | tojson }};
+
+  var es = new EventSource('/documents/upload-progress/' + taskId);
+  es.onmessage = function(e) {
+    var data;
+    try { data = JSON.parse(e.data); } catch (err) { return; }
+    if (data.type === 'done') {
+      es.close();
+      if (bar) bar.style.width = '100%';
+      if (stageEl) stageEl.textContent = 'Complete — loading…';
+      window.location.href = data.url;
+      return;
+    }
+    if (data.type === 'stage' && stageEl) {
+      stageEl.textContent = data.msg;
+      return;
+    }
+    if (data.type === 'error' || data.type === 'timeout') {
+      es.close();
+      if (stageEl) stageEl.textContent = data.msg || 'Connection lost.';
+      return;
+    }
+    if (data.pct !== undefined && bar) {
+      bar.style.width = Math.max(8, Math.min(100, data.pct)) + '%';
+    }
+  };
+
+  var fd = new FormData();
+  fd.set('task_id', taskId);
+  if (fromVessel) fd.set('from_vessel', fromVessel);
+  if (skipEnrich) fd.set('skip_enrichment', 'on');
+
+  fetch(processUrl, {
+    method: 'POST',
+    body: fd,
+    credentials: 'same-origin',
+    redirect: 'follow',
+  }).then(function(resp) {
+    if (resp.redirected && resp.url) {
+      window.location.href = resp.url;
+    }
+  }).catch(function() {
+    if (stageEl) stageEl.textContent = 'Request failed — try refreshing the page.';
+  });
+})();
+</script>
+{% endif %}
+
 {# ── Multi-file progress banner (only shown when total > 1) ── #}
 {% if total > 1 %}
 <div style="display:flex; align-items:center; gap:14px; padding:12px 18px;

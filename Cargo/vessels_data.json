@@ -1,0 +1,1013 @@
+[
+  {
+    "id": "AI_BALTIC_TIMBER",
+    "name": "Ai Baltic Timber",
+    "loa": 89.7,
+    "breadth": 11.7,
+    "depth": 8.1,
+    "draft": 5.49,
+    "holds_count": 1,
+    "hold_capacity_m3": 5250.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 62.5,
+        "breadth": 10.1,
+        "height": 8.4
+      }
+    ]
+  },
+  {
+    "id": "AI_BALTIC_TIMBER_FINAL",
+    "name": "Ai Baltic Timber Final",
+    "loa": 89.7,
+    "breadth": 11.7,
+    "depth": 8.1,
+    "draft": 5.49,
+    "holds_count": 1,
+    "hold_capacity_m3": 5250.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 62.5,
+        "breadth": 10.1,
+        "height": 8.4
+      }
+    ]
+  },
+  {
+    "id": "AI_VEGA_ELISE",
+    "name": "Ai Vega Elise",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "AI_VEGA_LUISE",
+    "name": "Ai Vega Luise",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "AI_VEGA_PETRA",
+    "name": "Ai Vega Petra",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "BELTMAR",
+    "name": "Beltmar",
+    "loa": 99.78,
+    "breadth": 13.0,
+    "depth": 9.0,
+    "draft": null,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": []
+  },
+  {
+    "id": "BOTHNIAMAR",
+    "name": "Bothniamar",
+    "loa": 99.78,
+    "breadth": 13.0,
+    "depth": 9.0,
+    "draft": null,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": []
+  },
+  {
+    "id": "HEINZ",
+    "name": "Heinz",
+    "loa": 109.95,
+    "breadth": 16.5,
+    "depth": 9.9,
+    "draft": null,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 66.0,
+        "breadth": 14.0,
+        "height": 9.9,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "JESPER",
+    "name": "Jesper",
+    "loa": 130.25,
+    "breadth": 16.5,
+    "depth": 11.5,
+    "draft": 7.0,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 78.1,
+        "breadth": 14.0,
+        "height": 11.5,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV ADRIATIC",
+    "name": "Mv Adriatic",
+    "loa": 107.88,
+    "breadth": 16.0,
+    "depth": 10.0,
+    "draft": 5.52,
+    "holds_count": 1,
+    "hold_capacity_m3": 6438.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 58.1,
+        "breadth": 12.0,
+        "height": 10.0
+      }
+    ]
+  },
+  {
+    "id": "MV ARA ROTTERDAM",
+    "name": "Mv Ara Rotterdam",
+    "loa": 146.25,
+    "breadth": 20.1,
+    "depth": 11.45,
+    "draft": 8.25,
+    "holds_count": 2,
+    "hold_capacity_m3": 17242.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 39.5,
+        "breadth": 17.1,
+        "height": 11.4
+      },
+      {
+        "id": 2,
+        "length": 39.5,
+        "breadth": 17.1,
+        "height": 11.4
+      }
+    ]
+  },
+  {
+    "id": "MV ATLANTIC",
+    "name": "Mv Atlantic",
+    "loa": 105.1,
+    "breadth": 15.6,
+    "depth": 7.4,
+    "draft": null,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 31.4,
+        "breadth": 11.0,
+        "height": 7.4
+      }
+    ]
+  },
+  {
+    "id": "MV ATLANTIC DAWN",
+    "name": "Mv Atlantic Dawn",
+    "loa": 111.6,
+    "breadth": 16.94,
+    "depth": 9.3,
+    "draft": 5.95,
+    "holds_count": 1,
+    "hold_capacity_m3": 6770.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 67.0,
+        "breadth": 14.4,
+        "height": 9.3,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV BALTIC IRON",
+    "name": "Mv Baltic Iron",
+    "loa": 89.7,
+    "breadth": 11.7,
+    "depth": 8.1,
+    "draft": 5.49,
+    "holds_count": 1,
+    "hold_capacity_m3": 5250.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 62.5,
+        "breadth": 10.1,
+        "height": 8.4
+      }
+    ]
+  },
+  {
+    "id": "MV CELTIC",
+    "name": "Mv Celtic",
+    "loa": 108.25,
+    "breadth": 16.0,
+    "depth": 10.0,
+    "draft": null,
+    "holds_count": 1,
+    "hold_capacity_m3": 6475.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 65.0,
+        "breadth": 13.6,
+        "height": 10.0,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV CORSICA",
+    "name": "Mv Corsica",
+    "loa": 121.16,
+    "breadth": 18.5,
+    "depth": 8.4,
+    "draft": 6.37,
+    "holds_count": 2,
+    "hold_capacity_m3": 9836.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 32.7,
+        "breadth": 15.7,
+        "height": 8.4
+      },
+      {
+        "id": 2,
+        "length": 32.7,
+        "breadth": 15.7,
+        "height": 8.4
+      }
+    ]
+  },
+  {
+    "id": "MV EENDRACHT",
+    "name": "Mv Eendracht",
+    "loa": 105.1,
+    "breadth": 15.6,
+    "depth": 7.4,
+    "draft": 5.85,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 31.5,
+        "breadth": 11.0,
+        "height": 7.4
+      }
+    ]
+  },
+  {
+    "id": "MV FRANZISKA",
+    "name": "Mv Franziska",
+    "loa": 145.63,
+    "breadth": 18.25,
+    "depth": 10.3,
+    "draft": 7.4,
+    "holds_count": 1,
+    "hold_capacity_m3": 14800.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 87.4,
+        "breadth": 15.5,
+        "height": 10.3,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV FREDENSBORG",
+    "name": "Mv Fredensborg",
+    "loa": 138.5,
+    "breadth": 21.0,
+    "depth": 11.0,
+    "draft": 8.0,
+    "holds_count": 1,
+    "hold_capacity_m3": 15953.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 83.1,
+        "breadth": 17.8,
+        "height": 11.0,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV FWN SEA",
+    "name": "Mv Fwn Sea",
+    "loa": 122.5,
+    "breadth": 17.0,
+    "depth": 10.7,
+    "draft": 7.81,
+    "holds_count": 1,
+    "hold_capacity_m3": 11417.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 79.04,
+        "breadth": 13.5,
+        "height": 10.7
+      }
+    ]
+  },
+  {
+    "id": "MV GERD SIBUM",
+    "name": "Mv Gerd Sibum",
+    "loa": 89.7,
+    "breadth": 11.7,
+    "depth": 8.1,
+    "draft": 5.49,
+    "holds_count": 1,
+    "hold_capacity_m3": 5250.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 62.5,
+        "breadth": 10.1,
+        "height": 8.4
+      }
+    ]
+  },
+  {
+    "id": "MV HAMMARLAND",
+    "name": "Mv Hammarland",
+    "loa": 129.4,
+    "breadth": 17.3,
+    "depth": 10.0,
+    "draft": 7.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 11070.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 77.6,
+        "breadth": 14.7,
+        "height": 10.0,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV HAV CORAL",
+    "name": "Mv Hav Coral",
+    "loa": 89.98,
+    "breadth": 15.55,
+    "depth": 7.4,
+    "draft": 6.21,
+    "holds_count": 1,
+    "hold_capacity_m3": 7645.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 54.0,
+        "breadth": 13.2,
+        "height": 7.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV HAV ECOTRADER 1",
+    "name": "Mv Hav Ecotrader 1",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.24,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV HAV ECOTRADER 2",
+    "name": "Mv Hav Ecotrader 2",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.24,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV HAV ECOTRADER 3",
+    "name": "Mv Hav Ecotrader 3",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.24,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV HAV ECOTRADER 4",
+    "name": "Mv Hav Ecotrader 4",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.24,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV HAV SARDIS",
+    "name": "Mv Hav Sardis",
+    "loa": 89.98,
+    "breadth": 15.55,
+    "depth": 7.4,
+    "draft": 6.21,
+    "holds_count": 1,
+    "hold_capacity_m3": 7645.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 54.0,
+        "breadth": 13.2,
+        "height": 7.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV INDUSTRIAL RUBY",
+    "name": "Mv Industrial Ruby",
+    "loa": 134.52,
+    "breadth": 21.5,
+    "depth": 9.3,
+    "draft": 7.95,
+    "holds_count": 1,
+    "hold_capacity_m3": 13875.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 80.7,
+        "breadth": 18.3,
+        "height": 9.3,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV JSP VENTO",
+    "name": "Mv Jsp Vento",
+    "loa": 130.25,
+    "breadth": 16.5,
+    "depth": 11.5,
+    "draft": 7.0,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 78.1,
+        "breadth": 14.0,
+        "height": 11.5,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV KLAUS",
+    "name": "Mv Klaus",
+    "loa": 130.25,
+    "breadth": 16.5,
+    "depth": 11.5,
+    "draft": 7.0,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 78.1,
+        "breadth": 14.0,
+        "height": 11.5,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV KOGA RANGER",
+    "name": "Mv Koga Ranger",
+    "loa": 134.52,
+    "breadth": 21.5,
+    "depth": 9.3,
+    "draft": 7.95,
+    "holds_count": 1,
+    "hold_capacity_m3": 13875.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 80.7,
+        "breadth": 18.3,
+        "height": 9.3,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV LUCA",
+    "name": "Mv Luca",
+    "loa": 130.25,
+    "breadth": 16.5,
+    "depth": 11.5,
+    "draft": 7.0,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 78.1,
+        "breadth": 14.0,
+        "height": 11.5,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV M V MARLON",
+    "name": "Mv M V Marlon",
+    "loa": 130.25,
+    "breadth": 16.5,
+    "depth": 11.5,
+    "draft": 7.97,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 87.0,
+        "breadth": 16.5,
+        "height": 4.6000000000000005,
+        "level": "lower"
+      },
+      {
+        "id": 2,
+        "length": 87.0,
+        "breadth": 16.5,
+        "height": 6.8999999999999995,
+        "level": "tween"
+      }
+    ]
+  },
+  {
+    "id": "MV MARIA SIBUM",
+    "name": "Mv Maria Sibum",
+    "loa": 89.7,
+    "breadth": 11.7,
+    "depth": 8.1,
+    "draft": 5.49,
+    "holds_count": 1,
+    "hold_capacity_m3": 5250.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 62.5,
+        "breadth": 10.1,
+        "height": 8.4
+      }
+    ]
+  },
+  {
+    "id": "MV MORGENSTOND II",
+    "name": "Mv Morgenstond Ii",
+    "loa": 142.95,
+    "breadth": 18.9,
+    "depth": 10.95,
+    "draft": 7.93,
+    "holds_count": 1,
+    "hold_capacity_m3": 17272.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 85.8,
+        "breadth": 16.1,
+        "height": 10.9,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV NORDIC",
+    "name": "Mv Nordic",
+    "loa": 92.9,
+    "breadth": 15.0,
+    "depth": 8.4,
+    "draft": 5.0,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 55.7,
+        "breadth": 12.8,
+        "height": 8.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV NORDIC FELICIA",
+    "name": "Mv Nordic Felicia",
+    "loa": 89.98,
+    "breadth": 15.55,
+    "depth": 7.4,
+    "draft": 6.21,
+    "holds_count": 1,
+    "hold_capacity_m3": 7645.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 54.0,
+        "breadth": 13.2,
+        "height": 7.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV O7 LAFITE",
+    "name": "Mv O7 Lafite",
+    "loa": 116.26,
+    "breadth": 17.8,
+    "depth": 10.5,
+    "draft": 7.82,
+    "holds_count": 1,
+    "hold_capacity_m3": 12415.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 69.8,
+        "breadth": 15.1,
+        "height": 10.5,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV OCEAN7 ALGORA",
+    "name": "Mv Ocean7 Algora",
+    "loa": 138.93,
+    "breadth": 21.0,
+    "depth": 11.0,
+    "draft": 8.0,
+    "holds_count": 3,
+    "hold_capacity_m3": 15953.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 18.75,
+        "breadth": 15.02,
+        "height": 11.0
+      },
+      {
+        "id": 2,
+        "length": 42.0,
+        "breadth": 17.5,
+        "height": 11.0
+      }
+    ]
+  },
+  {
+    "id": "MV OCEAN7 MUGA",
+    "name": "Mv Ocean7 Muga",
+    "loa": 116.26,
+    "breadth": 17.8,
+    "depth": 10.5,
+    "draft": 7.8,
+    "holds_count": 1,
+    "hold_capacity_m3": 12415.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 69.8,
+        "breadth": 15.1,
+        "height": 10.5,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV OCEANIC",
+    "name": "Mv Oceanic",
+    "loa": 92.9,
+    "breadth": 15.0,
+    "depth": 8.4,
+    "draft": 5.0,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 55.7,
+        "breadth": 12.8,
+        "height": 8.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV PACIFIC DAWN",
+    "name": "Mv Pacific Dawn",
+    "loa": 105.1,
+    "breadth": 15.6,
+    "depth": 7.4,
+    "draft": 5.82,
+    "holds_count": 1,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 63.1,
+        "breadth": 13.3,
+        "height": 7.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV PACIFIC VENTURE",
+    "name": "Mv Pacific Venture",
+    "loa": 122.2,
+    "breadth": 19.8,
+    "depth": 10.7,
+    "draft": 7.3,
+    "holds_count": 1,
+    "hold_capacity_m3": 13242.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 73.3,
+        "breadth": 16.8,
+        "height": 10.7,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV PANTHERA J",
+    "name": "Mv Panthera J",
+    "loa": 117.94,
+    "breadth": 19.4,
+    "depth": 9.45,
+    "draft": 7.25,
+    "holds_count": 1,
+    "hold_capacity_m3": 9600.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 70.8,
+        "breadth": 16.5,
+        "height": 9.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV RUDOLF",
+    "name": "Mv Rudolf",
+    "loa": 145.56,
+    "breadth": 18.25,
+    "depth": 10.3,
+    "draft": 7.4,
+    "holds_count": 2,
+    "hold_capacity_m3": null,
+    "holds": [
+      {
+        "id": 1,
+        "length": 39.3,
+        "breadth": 15.5,
+        "height": 10.3
+      },
+      {
+        "id": 2,
+        "length": 39.3,
+        "breadth": 15.5,
+        "height": 10.3
+      }
+    ]
+  },
+  {
+    "id": "MV SLOMAN DISCHARGER",
+    "name": "Mv Sloman Discharger",
+    "loa": 138.06,
+    "breadth": 21.33,
+    "depth": 11.0,
+    "draft": 8.06,
+    "holds_count": 2,
+    "hold_capacity_m3": 15067.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 37.3,
+        "breadth": 18.1,
+        "height": 11.0
+      },
+      {
+        "id": 2,
+        "length": 37.3,
+        "breadth": 18.1,
+        "height": 11.0
+      }
+    ]
+  },
+  {
+    "id": "MV SLOMAN DISPATCHER",
+    "name": "Mv Sloman Dispatcher",
+    "loa": 138.1,
+    "breadth": 18.0,
+    "depth": 11.0,
+    "draft": 8.0,
+    "holds_count": 1,
+    "hold_capacity_m3": 14856.0,
+    "holds": []
+  },
+  {
+    "id": "MV TITUS",
+    "name": "Mv Titus",
+    "loa": 98.9,
+    "breadth": 13.8,
+    "depth": 7.41,
+    "draft": 5.74,
+    "holds_count": 1,
+    "hold_capacity_m3": 6374.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 59.3,
+        "breadth": 11.7,
+        "height": 7.4,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV VEGA CHRISTINA",
+    "name": "Mv Vega Christina",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV VEGA CLARA",
+    "name": "Mv Vega Clara",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "MV VEGA PHILIPPA",
+    "name": "Mv Vega Philippa",
+    "loa": 89.42,
+    "breadth": 13.2,
+    "depth": 7.2,
+    "draft": 5.2,
+    "holds_count": 1,
+    "hold_capacity_m3": 5530.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 53.7,
+        "breadth": 11.2,
+        "height": 7.2,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "id": "O7_ALSACE",
+    "name": "O7 Alsace",
+    "loa": 145.56,
+    "breadth": 18.25,
+    "depth": 10.3,
+    "draft": 7.4,
+    "holds_count": 2,
+    "hold_capacity_m3": 14807.0,
+    "holds": [
+      {
+        "id": 1,
+        "length": 39.3,
+        "breadth": 15.5,
+        "height": 10.3
+      },
+      {
+        "id": 2,
+        "length": 39.3,
+        "breadth": 15.5,
+        "height": 10.3
+      }
+    ]
+  }
+]

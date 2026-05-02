@@ -69,6 +69,7 @@ def _check_models():
     )
     assert hasattr(User, "email")
     assert hasattr(Document, "storage_key")
+    assert hasattr(Document, "skip_ai_enrichment")
     assert hasattr(ChatSession, "user_email")
     assert hasattr(ChatMessage, "session_id")
 

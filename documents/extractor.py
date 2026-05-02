@@ -11,7 +11,8 @@ Each extractor returns a list of dicts:
   [{"title": str | None, "body": str}, ...]
 
 Chunking strategy for maritime documents:
-  PDFs:  1. Use PyMuPDF get_text("dict") to read font metadata
+  PDFs:  1. Use PyMuPDF get_text("rawdict") for text + per-glyph boxes and
+             get_text("dict")-compatible span metadata (font size, bold flag),
              — lines visually larger or bold → section header boundary
              — regex-based clause detection as secondary signal
          2. Filter "junk" chunks (cargo diagrams, slot-plan labels)
@@ -23,7 +24,7 @@ Chunking strategy for maritime documents:
 import re
 import unicodedata
 import logging
-from typing import IO, List, Dict, Optional
+from typing import IO, List, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -789,6 +790,203 @@ def _strip_text_line_numbers(text: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PDF strikethrough (PyMuPDF vector graphics)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fitz_span_y_bounds_from_blocks(blocks: list) -> List[Tuple[float, float]]:
+    """Collect (y0, y1) for every text span in a ``get_text`` blocks list."""
+    bounds: List[Tuple[float, float]] = []
+    for blk in blocks:
+        if blk.get("type") != 0:
+            continue
+        for ln in blk.get("lines", []):
+            for sp in ln.get("spans", []):
+                bb = sp.get("bbox")
+                if bb and bb[3] > bb[1]:
+                    bounds.append((bb[1], bb[3]))
+    return bounds
+
+
+def _fitz_page_span_ybounds(page) -> List[Tuple[float, float]]:
+    """All text span vertical extents on a page — used to reject non-text horizontal rules."""
+    return _fitz_span_y_bounds_from_blocks(page.get_text("rawdict")["blocks"])
+
+
+def _fitz_collect_strike_bands(
+    page,
+    blocks: Optional[list] = None,
+) -> List[Tuple[float, float, float]]:
+    """
+    Horizontal strike segments as (x0, x1, y_mid) in page coordinates.
+
+    Producers vary: thin filled rects, stroke lines, or both.  PyMuPDF may
+    represent a line as an ``l`` item and/or a thin bounding ``rect``.  We
+    ingest both so stroke-only strikethroughs are not missed when ``rect`` is
+    absent or unhelpful.
+
+    Bands are filtered so y_mid intersects some text span — this excludes
+    separator lines drawn in gaps between paragraph blocks.
+
+    Pass *blocks* from a cached ``page.get_text(\"rawdict\")[\"blocks\"]`` to
+    avoid parsing the page twice when the caller already loads rawdict.
+    """
+    if blocks is None:
+        blocks = page.get_text("rawdict")["blocks"]
+    span_y = _fitz_span_y_bounds_from_blocks(blocks)
+    if not span_y:
+        return []
+
+    # Slightly looser than legacy (3 / 10): accommodates thicker hairlines and
+    # short per-phrase strikes without admitting typical table borders.
+    _MAX_BAND_H = 4.5
+    _MIN_BAND_W = 8.0
+    _MAX_LINE_DY = 2.8   # pt — nearly horizontal
+
+    candidates: List[Tuple[float, float, float]] = []
+    for d in page.get_drawings():
+        rect = d.get("rect")
+        if rect is not None:
+            band_h = rect.y1 - rect.y0
+            band_w = rect.x1 - rect.x0
+            if band_h <= _MAX_BAND_H and band_w >= _MIN_BAND_W:
+                y_mid = (rect.y0 + rect.y1) / 2
+                candidates.append((rect.x0, rect.x1, y_mid))
+
+        for it in d.get("items") or ():
+            if not it:
+                continue
+            op = it[0]
+            if op == "l":
+                p1, p2 = it[1], it[2]
+                x0, x1 = sorted((p1.x, p2.x))
+                y0, y1 = sorted((p1.y, p2.y))
+                dx, dy = x1 - x0, y1 - y0
+                if dx >= _MIN_BAND_W and dy <= _MAX_LINE_DY:
+                    candidates.append((x0, x1, (y0 + y1) / 2))
+            elif op == "re":
+                r2 = it[1]
+                band_h = r2.y1 - r2.y0
+                band_w = r2.x1 - r2.x0
+                if band_h <= _MAX_BAND_H and band_w >= _MIN_BAND_W:
+                    y_mid = (r2.y0 + r2.y1) / 2
+                    candidates.append((r2.x0, r2.x1, y_mid))
+
+    strike_bands: List[Tuple[float, float, float]] = []
+    for x0, x1, y_mid in candidates:
+        if not any(sy0 <= y_mid <= sy1 for sy0, sy1 in span_y):
+            continue
+        strike_bands.append((x0, x1, y_mid))
+    return strike_bands
+
+
+def _fitz_char_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -> bool:
+    """Glyph-level strike test — uses the same vertical band as span-level."""
+    sx0, sy0, sx1, sy1 = bbox
+    cw = sx1 - sx0
+    ch = sy1 - sy0
+    if cw <= 0 or ch <= 0:
+        return False
+    for bx0, bx1, by_mid in strike_bands:
+        overlap_w = min(sx1, bx1) - max(sx0, bx0)
+        if overlap_w < 0.40 * cw:
+            continue
+        rel = (by_mid - sy0) / ch
+        if 0.14 <= rel <= 0.88:
+            return True
+    return False
+
+
+def _fitz_span_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -> bool:
+    """
+    Whole-span fallback when ``rawdict`` glyph boxes are missing.
+
+    A narrow strike that crosses only part of a long merged text run must
+    **not** mark the entire span — that was the bug introduced by the
+    overlap/min(span_w, band_w) heuristic.  We only flag the full span when
+    the strike clearly covers most of the run *or* the decorative line is
+    nearly as wide as the span (full-width clause strike).
+    """
+    sx0, sy0, sx1, sy1 = bbox
+    span_w = sx1 - sx0
+    span_h = sy1 - sy0
+    if span_w <= 0 or span_h <= 0:
+        return False
+
+    for bx0, bx1, by_mid in strike_bands:
+        overlap_w = min(sx1, bx1) - max(sx0, bx0)
+        if overlap_w < 1.5:
+            continue
+        band_w = bx1 - bx0
+        if band_w <= 0:
+            continue
+        rel = (by_mid - sy0) / span_h
+        if not (0.18 <= rel <= 0.85):
+            continue
+        # Strike sits across most of this span's width.
+        if overlap_w >= 0.42 * span_w:
+            return True
+        # Nearly full-width rule / line drawn as wide as the text object.
+        if band_w >= 0.85 * span_w and overlap_w >= 0.82 * band_w:
+            return True
+    return False
+
+
+def _fitz_span_plain_text(span: dict) -> str:
+    """Plain text for a span from ``rawdict`` or ``dict``."""
+    t = span.get("text")
+    if t is not None:
+        return t
+    return "".join(ch.get("c", "") for ch in span.get("chars") or ())
+
+
+def _fitz_span_strike_segments(
+    span: dict,
+    strike_bands: List[Tuple[float, float, float]],
+) -> List[Tuple[str, bool]]:
+    """
+    Split a span into (substring, is_struck) pieces using per-glyph boxes when
+    present (``rawdict``), otherwise one piece with whole-span heuristics.
+    """
+    chars = span.get("chars") or []
+    if not chars:
+        raw = _fitz_span_plain_text(span)
+        if not raw.strip():
+            return []
+        return [(raw, _fitz_span_is_struck(span["bbox"], strike_bands))]
+
+    segments: List[Tuple[str, bool]] = []
+    cur: List[str] = []
+    cur_st: Optional[bool] = None
+
+    for ch in chars:
+        c = ch.get("c") or ""
+        bb = ch.get("bbox")
+        if bb and bb[2] > bb[0] and bb[3] > bb[1]:
+            st = _fitz_char_is_struck(bb, strike_bands)
+        else:
+            st = False
+        if cur_st is None:
+            cur_st = st
+            cur.append(c)
+        elif st == cur_st:
+            cur.append(c)
+        else:
+            segments.append(("".join(cur), cur_st))
+            cur = [c]
+            cur_st = st
+    if cur and cur_st is not None:
+        segments.append(("".join(cur), cur_st))
+
+    if not segments:
+        raw = _fitz_span_plain_text(span)
+        if raw.strip():
+            return [(raw, _fitz_span_is_struck(span["bbox"], strike_bands))]
+        return []
+
+    return [(t, st) for t, st in segments if t]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF extraction — PyMuPDF (primary)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -829,70 +1027,15 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
             page_width  = page.rect.width
             elements: List[Dict] = []
 
-            # ── Per-page strikethrough detection ──────────────────────────────
-            # PyMuPDF does not expose strikethrough as a span flag.  Instead,
-            # struck text is marked by a thin filled rectangle that passes
-            # through the MIDDLE of a text line (25–80 % of text height).
-            # Baseline underlines (≥ 80 %) and layout separator lines are excluded.
-            #
-            # Key insight: a real strikethrough band passes THROUGH text, so its
-            # y-midpoint falls inside a text span's [y0, y1] vertical range.
-            # Layout separators fall in whitespace BETWEEN paragraphs, so their
-            # y-midpoint does not coincide with any text span.
-            #
-            # First pass: collect every text span's vertical bounds on this page.
-            _span_ybounds: List[tuple] = []
-            for _blk in page.get_text("dict")["blocks"]:
-                if _blk.get("type") != 0:
-                    continue
-                for _ln in _blk.get("lines", []):
-                    for _sp in _ln.get("spans", []):
-                        _bb = _sp.get("bbox")
-                        if _bb and _bb[3] > _bb[1]:
-                            _span_ybounds.append((_bb[1], _bb[3]))
+            blocks = page.get_text("rawdict")["blocks"]
+            strike_bands = _fitz_collect_strike_bands(page, blocks=blocks)
 
-            strike_bands: List[tuple] = []   # (x0, x1, y_mid)
-            for d in page.get_drawings():
-                r = d.get("rect")
-                if r is None:
-                    continue
-                band_h = r.y1 - r.y0
-                band_w = r.x1 - r.x0
-                # Must be a thin horizontal bar of meaningful width
-                if band_h > 3.0 or band_w < 10.0:
-                    continue
-                # Reject bands that don't pass through any text span's vertical
-                # range — those are layout separator lines, not strikethroughs.
-                by_mid = (r.y0 + r.y1) / 2
-                if not any(y0 <= by_mid <= y1 for y0, y1 in _span_ybounds):
-                    continue
-                strike_bands.append((r.x0, r.x1, by_mid))
-
-            def _span_is_struck(bbox) -> bool:
-                """True if any strike band passes through the middle of this span."""
-                sx0, sy0, sx1, sy1 = bbox
-                span_h = sy1 - sy0
-                if span_h <= 0:
-                    return False
-                for bx0, bx1, by_mid in strike_bands:
-                    # Horizontal overlap: band must cover at least half the span
-                    overlap_w = min(sx1, bx1) - max(sx0, bx0)
-                    if overlap_w < (sx1 - sx0) * 0.4:
-                        continue
-                    # Vertical position: band y must be in the middle 25–80% of
-                    # the text height (strikethrough zone, not baseline underline)
-                    rel = (by_mid - sy0) / span_h
-                    if 0.25 <= rel <= 0.80:
-                        return True
-                return False
-            # ──────────────────────────────────────────────────────────────────
-
-            for block in page.get_text("dict")["blocks"]:
+            for block in blocks:
                 if block.get("type") != 0:   # skip image blocks
                     continue
                 for line in block.get("lines", []):
                     spans = line.get("spans", [])
-                    text_spans = [s for s in spans if s["text"].strip()]
+                    text_spans = [s for s in spans if _fitz_span_plain_text(s).strip()]
                     if not text_spans:
                         continue
 
@@ -918,14 +1061,22 @@ def _extract_pdf_fitz(raw_bytes: bytes) -> List[Dict]:
                         struck_buf.clear()
 
                     for s in text_spans:
-                        raw = s["text"]
-                        if not raw.strip():
-                            continue
-                        if _span_is_struck(s["bbox"]):
-                            struck_buf.append(raw)
-                        else:
-                            _flush_struck()
-                            parts.append(_clean_pdf_text(raw))
+                        sub_struck: List[str] = []
+                        for piece, is_struck in _fitz_span_strike_segments(s, strike_bands):
+                            if piece == "":
+                                continue
+                            if is_struck:
+                                if not piece.strip():
+                                    continue
+                                sub_struck.append(piece)
+                            else:
+                                if sub_struck:
+                                    struck_buf.append("".join(sub_struck))
+                                    sub_struck = []
+                                _flush_struck()
+                                parts.append(_clean_pdf_text(piece))
+                        if sub_struck:
+                            struck_buf.append("".join(sub_struck))
                     _flush_struck()
 
                     combined = " ".join(parts).strip()
@@ -1347,53 +1498,16 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
 
     with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
         for page in pdf:
-            # ── Strikethrough band detection (same logic as _extract_pdf_fitz) ─
-            _span_ybounds: List[tuple] = []
-            for _blk in page.get_text("dict")["blocks"]:
-                if _blk.get("type") != 0:
-                    continue
-                for _ln in _blk.get("lines", []):
-                    for _sp in _ln.get("spans", []):
-                        _bb = _sp.get("bbox")
-                        if _bb and _bb[3] > _bb[1]:
-                            _span_ybounds.append((_bb[1], _bb[3]))
-
-            strike_bands: List[tuple] = []
-            for d in page.get_drawings():
-                r = d.get("rect")
-                if r is None:
-                    continue
-                band_h = r.y1 - r.y0
-                band_w = r.x1 - r.x0
-                if band_h > 3.0 or band_w < 10.0:
-                    continue
-                by_mid = (r.y0 + r.y1) / 2
-                if not any(y0 <= by_mid <= y1 for y0, y1 in _span_ybounds):
-                    continue
-                strike_bands.append((r.x0, r.x1, by_mid))
-
-            def _span_is_struck(bbox) -> bool:
-                sx0, sy0, sx1, sy1 = bbox
-                span_h = sy1 - sy0
-                if span_h <= 0:
-                    return False
-                for bx0, bx1, by_mid in strike_bands:
-                    overlap_w = min(sx1, bx1) - max(sx0, bx0)
-                    if overlap_w < (sx1 - sx0) * 0.4:
-                        continue
-                    rel = (by_mid - sy0) / span_h
-                    if 0.25 <= rel <= 0.80:
-                        return True
-                return False
-            # ──────────────────────────────────────────────────────────────────
+            blocks = page.get_text("rawdict")["blocks"]
+            strike_bands = _fitz_collect_strike_bands(page, blocks=blocks)
 
             page_lines: List[str] = []
-            for block in page.get_text("dict")["blocks"]:
+            for block in blocks:
                 if block.get("type") != 0:
                     continue
                 for line in block.get("lines", []):
                     spans = line.get("spans", [])
-                    text_spans = [s for s in spans if s["text"].strip()]
+                    text_spans = [s for s in spans if _fitz_span_plain_text(s).strip()]
                     if not text_spans:
                         continue
                     max_size = max(s["size"] for s in text_spans)
@@ -1415,14 +1529,22 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
                         struck_buf.clear()
 
                     for s in text_spans:
-                        raw = s["text"]
-                        if not raw.strip():
-                            continue
-                        if _span_is_struck(s["bbox"]):
-                            struck_buf.append(raw)
-                        else:
-                            _flush_struck_ps()
-                            parts.append(_clean_pdf_text(raw))
+                        sub_struck: List[str] = []
+                        for piece, is_struck in _fitz_span_strike_segments(s, strike_bands):
+                            if piece == "":
+                                continue
+                            if is_struck:
+                                if not piece.strip():
+                                    continue
+                                sub_struck.append(piece)
+                            else:
+                                if sub_struck:
+                                    struck_buf.append("".join(sub_struck))
+                                    sub_struck = []
+                                _flush_struck_ps()
+                                parts.append(_clean_pdf_text(piece))
+                        if sub_struck:
+                            struck_buf.append("".join(sub_struck))
                     _flush_struck_ps()
 
                     combined = " ".join(parts).strip()

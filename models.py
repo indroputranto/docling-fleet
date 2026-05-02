@@ -231,6 +231,11 @@ class Document(db.Model):
     # NULL when object storage is not configured or the upload was skipped.
     storage_key    = db.Column(db.String(1000), nullable=True)
 
+    # When True, the extract → preview pipeline skips the GPT enrichment pass
+    # (set at upload time; required for deferred processing so /preview can
+    # invoke process-from-storage without losing the user preference).
+    skip_ai_enrichment = db.Column(db.Boolean, nullable=False, default=False)
+
     chunks = db.relationship(
         "DocumentChunk",
         backref="document",

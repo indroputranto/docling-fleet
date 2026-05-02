@@ -275,14 +275,13 @@ def _resolve_user_email() -> str | None:
 
     Returns None when the request is unauthenticated.
     """
-    import jwt as _jwt
-    _secret = os.getenv("JWT_SECRET", "change-me-in-production")
+    from auth import _decode_token
 
     # 1. Bearer token
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         try:
-            payload = _jwt.decode(auth_header[7:], _secret, algorithms=["HS256"])
+            payload = _decode_token(auth_header[7:])
             email = payload.get("sub")
             if email:
                 return email
@@ -293,7 +292,6 @@ def _resolve_user_email() -> str | None:
     token = request.cookies.get("cms_token")
     if token:
         try:
-            from auth import _decode_token
             payload = _decode_token(token)
             email = payload.get("sub")
             if email:

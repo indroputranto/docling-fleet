@@ -1013,6 +1013,251 @@ def chat_logout():
     resp.delete_cookie("cms_token")
     return resp
 
+
+# ── Cargo Hold Visualizer ─────────────────────────────────────────────────────
+
+@app.route("/cargo")
+def cargo_visualizer():
+    """3D cargo hold visualizer — requires a valid session cookie."""
+    if not _check_chat_cookie():
+        return redirect(url_for("chat_login", next="/cargo"))
+    client_id = get_client_id_from_request()
+    return render_template("cargo.html", client_id=client_id)
+
+
+@app.route("/cargo/api/vessels")
+def cargo_vessels_api():
+    """Return enriched vessel + hold-layer data for the cargo visualizer."""
+    import re
+
+    if not _check_chat_cookie():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    vessel_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "vessels")
+    if not os.path.isdir(vessel_dir):
+        return jsonify([])
+
+    def fnum(s):
+        if not s:
+            return None
+        s = str(s).strip().replace(",", ".")
+        try:
+            return float(re.sub(r"[^\d.]", "", s.split()[0]))
+        except Exception:
+            return None
+
+    def find(pattern, text, flags=re.IGNORECASE):
+        m = re.search(pattern, text, flags)
+        return m.group(1).strip() if m else None
+
+    vessels = []
+    for name in sorted(os.listdir(vessel_dir)):
+        path = os.path.join(vessel_dir, name)
+        json_file = os.path.join(path, f"{name}_data.json")
+        if not os.path.isfile(json_file):
+            continue
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+        except Exception:
+            continue
+
+        content = "\n".join(
+            data.get("chapters", {}).get("1_vessel_details", {}).get("content", [])
+        )
+
+        # ── Vessel principal dimensions ──────────────────────────────────────
+        loa     = fnum(find(r"Length (?:over ?all|overall)[:\s]+(?:abt\.?\s*)?([\d.,]+)\s*m", content))
+        breadth = fnum(find(r"Breadth (?:moulded|over ?all|[\(]?overall[\s/]+moulded[\)]?)[:\s]+(?:abt\.?\s*)?([\d.,]+)\s*m", content))
+        if not breadth:
+            breadth = fnum(find(r"Breadth[:\s]+(?:abt\.?\s*)?([\d.,]+)\s*m", content))
+        depth   = fnum(find(r"Depth (?:moulded|to main deck|Moulded)[:\s]+(?:abt\.?\s*)?([\d.,]+)\s*m", content))
+        draft   = fnum(find(r"(?:Summer [Dd]raught|Summer draft|Max\.?\s*draft\s*\(SSW\)|max\.?\s*draft)[^:\n]*?[:\s]+(?:abt\.?\s*)?([\d.,]+)\s*m", content))
+
+        if not loa:
+            continue
+
+        # ── Holds count & capacity ───────────────────────────────────────────
+        holds_n = int(find(r"(?:Number of |No\. of )?[Hh]olds/[Hh]atches[:\s]+(\d+)", content) or "1")
+        cap_raw = find(r"Hold [Cc]apacity[:\s]+(?:abt\.?\s*|[Aa]bout\s*)?([\d,]+)\s*m", content)
+        hold_cap = None
+        if cap_raw:
+            c = fnum(cap_raw)
+            if c and c > 100:
+                hold_cap = c
+            elif c:
+                try:
+                    hold_cap = float(cap_raw.replace(",", ""))
+                except Exception:
+                    pass
+
+        # ── Tween deck detection ─────────────────────────────────────────────
+        # Look for actual tween deck structures, not just pontoon hatch cover type
+        has_tween = bool(re.search(
+            r"\btween\s+deck\b|T/D\s+(?:pontoon|dim|height|area|surface)|"
+            r"above\s*T/D|below\s*T/D|Hold below/above|tweendeck",
+            content, re.I
+        ))
+
+        # ── Global tween heights (tank top→tween, tween→deck) ───────────────
+        global_lower_h = None   # lower hold height  (TT → tween deck)
+        global_upper_h = None   # upper hold height  (tween deck → main deck)
+
+        # "Tanktop/Tweendeck/Hatchcover Heights: 3.00 / 4.65 m"
+        m = re.search(r"Tanktop/Tweendeck[^:\n]*:\s*([\d.]+)\s*/\s*([\d.]+)", content, re.I)
+        if m:
+            global_lower_h = fnum(m.group(1))
+            global_upper_h = fnum(m.group(2))
+
+        # "-- Tank top : 4.60 m" + "-- Tween deck : 4.80 m" (height lines, not area)
+        if not global_lower_h:
+            m1 = re.search(r"--\s*Tank\s*top\s*:\s*([\d.]+)\s*m\s*$", content, re.I | re.M)
+            m2 = re.search(r"--\s*Tween\s*deck\s*:\s*([\d.]+)\s*m\s*$", content, re.I | re.M)
+            if m1 and m2:
+                global_lower_h = fnum(m1.group(1))
+                global_upper_h = fnum(m2.group(1))
+
+        # ── Per-hold dims (fixes hold #3 detection for multi-hold vessels) ───
+        # Matches "#N Hold & T/D Dimensions:" AND "#N T/D Dimensions:"
+        hold_dims = {}
+        for blk in re.finditer(
+            r"#(\d+)\s*(?:Hold\s*[&+]\s*)?T/D\s*Dimensions?\s*:(.*?)(?=#\d|\Z)",
+            content, re.S | re.I
+        ):
+            hid = int(blk.group(1))
+            dm = re.search(r"([\d.,]+)\s*x\s*([\d.,]+)", blk.group(2))
+            if dm:
+                hold_dims[hid] = {"length": fnum(dm.group(1)), "breadth": fnum(dm.group(2))}
+
+        # ── Per-hold total heights ───────────────────────────────────────────
+        hold_heights = {}
+        # "#1 / 2 / 3 hold height: 10.53 / 11.19 / 10.77 m"
+        m = re.search(
+            r"#1\s*/\s*2\s*/\s*3\s*hold height\s*:\s*([\d.]+)\s*/\s*([\d.]+)\s*/\s*([\d.]+)",
+            content, re.I
+        )
+        if m:
+            for i, v_str in enumerate([m.group(1), m.group(2), m.group(3)], 1):
+                hold_heights[i] = fnum(v_str)
+        if not hold_heights:
+            m = re.search(r"#?1\s*/\s*2\s*hold height\s*:\s*([\d.]+)\s*/\s*([\d.]+)", content, re.I)
+            if m:
+                hold_heights[1] = fnum(m.group(1))
+                hold_heights[2] = fnum(m.group(2))
+        if not hold_heights:
+            m = re.search(r"[Hh]old height[:\s]+([\d.]+)\s*m", content)
+            if m:
+                hold_heights[1] = fnum(m.group(1))
+
+        # ── Per-hold below/above tween heights ──────────────────────────────
+        # "Hold below/above T/D #1 & #2 & #3: #1: 3.26 / 1.03 or 6.00 / 4.39 m ..."
+        per_hold_tween = {}
+        bab = re.search(r"Hold below/above T/D.*?:(.*?)(?=\n[A-Z#]|\Z)", content, re.S | re.I)
+        if bab:
+            block = bab.group(1)
+            # For each hold ID, collect all "X / Y" pairs, pick the one whose sum ≈ hold height
+            for hm in re.finditer(r"#(\d+)\s*:\s*([\d.]+(?:\s*/\s*[\d.]+(?:\s*or\s*[\d.]+\s*/\s*[\d.]+)*)?)", block):
+                hid = int(hm.group(1))
+                pairs = re.findall(r"([\d.]+)\s*/\s*([\d.]+)", hm.group(2))
+                if pairs:
+                    target = hold_heights.get(hid)
+                    if target:
+                        best = min(pairs, key=lambda p: abs(fnum(p[0]) + fnum(p[1]) - target))
+                    else:
+                        best = pairs[0]
+                    per_hold_tween[hid] = {"lower": fnum(best[0]), "upper": fnum(best[1])}
+
+        # ── Build hold list ──────────────────────────────────────────────────
+        holds = []
+
+        if hold_dims:
+            for hid in sorted(hold_dims.keys()):
+                h = dict(hold_dims[hid])
+                h["id"] = hid
+                h_h = hold_heights.get(hid) or fnum(find(r"[Hh]old height[:\s]+([\d.]+)\s*m", content)) or (depth or 9.0)
+                h["height"] = h_h
+                _apply_tween(h, hid, per_hold_tween, global_lower_h, global_upper_h, has_tween)
+                holds.append(h)
+        else:
+            # Single-hold "Hold dimensions (L x B x H)" pattern
+            raw = find(
+                r"Hold (?:dimension|dim)[s\s]*(?:\([LlBbHh\s/x]+\))?[:\s]+(?:abt\.?\s*)?([\d.,]+\s*x\s*[\d.,]+(?:\s*x\s*[\d.,]+)?)\s*m",
+                content
+            )
+            if raw:
+                parts = [fnum(p) for p in re.split(r"\s*x\s*", raw) if fnum(p)]
+                h_h = parts[2] if len(parts) > 2 else (hold_heights.get(1) or depth or 9.0)
+                h = {"id": 1, "length": parts[0] if parts else None, "breadth": parts[1] if len(parts) > 1 else None, "height": h_h}
+                _apply_tween(h, 1, per_hold_tween, global_lower_h, global_upper_h, has_tween)
+                holds.append(h)
+            else:
+                # Lower hold / tween deck dimension fallback
+                ld = find(r"Lower Hold Dimensions?[:\s]+([\d.,]+)\s*x\s*([\d.,]+)", content)
+                if ld:
+                    pts = [fnum(p) for p in re.split(r"\s*x\s*", ld)]
+                    h_h = hold_heights.get(1) or depth or 9.0
+                    h = {"id": 1, "length": pts[0], "breadth": pts[1] if len(pts) > 1 else breadth, "height": h_h}
+                    _apply_tween(h, 1, per_hold_tween, global_lower_h, global_upper_h, has_tween)
+                    holds.append(h)
+
+        # Proportional fallback if still empty
+        if not holds:
+            h_h = hold_heights.get(1) or (depth or round(loa * 0.09, 1))
+            h = {
+                "id": 1,
+                "length": round(loa * 0.60, 1),
+                "breadth": round((breadth or loa * 0.13) * 0.85, 1),
+                "height": h_h,
+                "estimated": True,
+            }
+            _apply_tween(h, 1, per_hold_tween, global_lower_h, global_upper_h, has_tween)
+            holds.append(h)
+
+        # Multi-hold fallback: split single-hold estimate evenly
+        if holds_n > 1 and len(holds) < holds_n and len(holds) == 1:
+            base = holds[0]
+            seg_L = round(base["length"] / holds_n * 0.90, 1)
+            holds = [dict(base, id=i + 1, length=seg_L) for i in range(holds_n)]
+
+        vessels.append({
+            "id": name,
+            "name": name.replace("_", " ").title(),
+            "loa": loa,
+            "breadth": breadth or round(loa * 0.13, 1),
+            "depth": depth or round(loa * 0.09, 1),
+            "draft": draft,
+            "holds_count": holds_n,
+            "hold_capacity_m3": hold_cap,
+            "has_tween": has_tween,
+            "double_bottom_height": 1.5,
+            "holds": holds,
+        })
+
+    return jsonify(vessels)
+
+
+def _apply_tween(h, hid, per_hold_tween, global_lower_h, global_upper_h, has_tween):
+    """Populate lower_height / upper_height / has_tween on a hold dict in place."""
+    h_h = h.get("height", 9.0)
+    td = per_hold_tween.get(hid)
+    if td and td["lower"] and td["upper"]:
+        h["lower_height"] = td["lower"]
+        h["upper_height"] = td["upper"]
+        h["has_tween"] = True
+    elif global_lower_h and global_upper_h:
+        h["lower_height"] = global_lower_h
+        h["upper_height"] = global_upper_h
+        h["has_tween"] = True
+    elif has_tween:
+        h["lower_height"] = round(h_h * 0.45, 2)
+        h["upper_height"] = round(h_h * 0.55, 2)
+        h["has_tween"] = True
+        h["tween_estimated"] = True
+    else:
+        h["has_tween"] = False
+        h["lower_height"] = h_h
+        h["upper_height"] = 0
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"error": "Endpoint not found"}), 404

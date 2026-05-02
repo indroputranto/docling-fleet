@@ -27,8 +27,11 @@ Usage in other blueprints:
 """
 
 import os
+import hashlib
+import warnings
 import jwt
 import logging
+from jwt.warnings import InsecureKeyLengthWarning
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from flask import Blueprint, request, jsonify, g
@@ -45,11 +48,22 @@ JWT_SECRET      = os.getenv("JWT_SECRET", "change-me-in-production")
 ACCESS_EXPIRES  = timedelta(hours=8)
 REFRESH_EXPIRES = timedelta(days=30)
 ALGORITHM       = "HS256"
+# RFC 7518 recommends HS256 signing keys be at least the hash output size (32 bytes).
+_HS256_MIN_BYTES = 32
 
 
-# ---------------------------------------------------------------------------
-# Token helpers
-# ---------------------------------------------------------------------------
+def _jwt_signing_key(secret: str):
+    """
+    Return signing material for HS256. PyJWT warns (InsecureKeyLengthWarning)
+    when the UTF-8 secret is shorter than 32 bytes; we stretch short secrets
+    deterministically with SHA-256 so existing deployments keep working while
+    new tokens use a full-width key.
+    """
+    raw = secret.encode("utf-8")
+    if len(raw) >= _HS256_MIN_BYTES:
+        return secret
+    return hashlib.sha256(raw).digest()
+
 
 def _make_token(user: User, expires_in: timedelta) -> str:
     payload = {
@@ -60,12 +74,27 @@ def _make_token(user: User, expires_in: timedelta) -> str:
         "iat":       datetime.now(timezone.utc),
         "type":      "access" if expires_in == ACCESS_EXPIRES else "refresh",
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
+    return jwt.encode(payload, _jwt_signing_key(JWT_SECRET), algorithm=ALGORITHM)
 
 
 def _decode_token(token: str) -> dict:
-    """Decode and validate a JWT. Raises jwt.PyJWTError on failure."""
-    return jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+    """
+    Decode and validate a JWT. Raises jwt.PyJWTError on failure.
+
+    Tries the stretched key first (see _jwt_signing_key), then the raw env
+    secret so tokens issued before this change remain valid until they expire.
+    """
+    key = _jwt_signing_key(JWT_SECRET)
+    try:
+        return jwt.decode(token, key, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        if isinstance(key, bytes):
+            # Old tokens were signed with the raw string secret (<32B); verifying
+            # them would trip InsecureKeyLengthWarning — silence for this path only.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=InsecureKeyLengthWarning)
+                return jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+        raise
 
 
 def _token_from_request() -> str | None:

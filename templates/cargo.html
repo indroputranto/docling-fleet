@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Cargo Hold Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font:'Inter',sans-serif; --bg:#0d1117; --surface:#161b22; --surface2:#1c2230;
+      --primary:#1a1a2e; --border:rgba(255,255,255,.07); --text:#f0ede8; --muted:rgba(240,237,232,.42);
+      --accent:#3b82f6;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+
+    /* header */
+    header{display:flex;align-items:center;gap:10px;padding:9px 18px;background:var(--primary);border-bottom:1px solid var(--border);flex-shrink:0;}
+    .nav-back{display:flex;align-items:center;gap:5px;color:var(--muted);text-decoration:none;font-size:13px;padding:3px 7px;border-radius:5px;transition:color .15s,background .15s;}
+    .nav-back:hover{color:var(--text);background:rgba(255,255,255,.06);}
+    .nav-back svg{width:13px;height:13px;}
+    .nav-div{color:var(--border);font-size:16px;}
+    .nav-title{font-size:14px;font-weight:600;}
+    .badge{margin-left:auto;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#60a5fa;font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;letter-spacing:.3px;}
+
+    /* layout */
+    .app{display:flex;flex:1;overflow:hidden;}
+
+    /* sidebar */
+    .sidebar{width:265px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+    .sidebar-top{padding:13px 13px 9px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .sidebar-top h2{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px;}
+    .search-box{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;font-family:var(--font);outline:none;transition:border-color .15s;}
+    .search-box::placeholder{color:var(--muted);}
+    .search-box:focus{border-color:rgba(59,130,246,.5);}
+    .vessel-list{flex:1;overflow-y:auto;padding:5px;}
+    .vessel-list::-webkit-scrollbar{width:3px;}
+    .vessel-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+    .vi{padding:8px 10px;border-radius:7px;cursor:pointer;border:1px solid transparent;margin-bottom:3px;transition:background .12s,border-color .12s;}
+    .vi:hover{background:var(--surface2);}
+    .vi.active{background:rgba(15,52,96,.55);border-color:rgba(59,130,246,.4);}
+    .vi-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .vi-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+    .vi-tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--muted);}
+    .vi.active .vi-tag{border-color:rgba(59,130,246,.4);color:#60a5fa;}
+    .sidebar-foot{padding:7px 13px;font-size:10px;color:var(--muted);border-top:1px solid var(--border);flex-shrink:0;}
+
+    /* main */
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    .canvas-wrap{flex:1;position:relative;overflow:hidden;background:var(--bg);}
+    #cargo-canvas{display:block;width:100%;height:100%;}
+
+    /* CSS2D label styles — picked up by CSS2DRenderer's overlay div */
+    .lbl3d{font-family:var(--font);color:#e2e8f0;font-size:11px;line-height:1.35;text-align:center;
+           white-space:nowrap;pointer-events:none;text-shadow:0 1px 5px rgba(0,0,0,.95);}
+    .lbl3d b{display:block;font-size:12px;font-weight:700;}
+    .lbl3d.chip{background:rgba(13,17,23,.82);border:1px solid rgba(255,255,255,.12);
+                border-radius:5px;padding:3px 7px;}
+    .lbl3d.dim{font-size:10px;color:rgba(226,232,240,.7);}
+    .lbl3d.muted{font-size:10px;color:rgba(240,237,232,.45);}
+    .lbl3d.wl{color:#60a5fa;}
+    .lbl3d.td{color:#94a3b8;}
+    .lbl3d.db{color:#4b5563;}
+
+    /* view buttons */
+    .view-btns{position:absolute;bottom:14px;left:14px;display:flex;gap:5px;}
+    .vbtn{background:rgba(22,27,34,.9);border:1px solid var(--border);color:var(--muted);
+          border-radius:5px;padding:5px 12px;font-size:11px;font-family:var(--font);
+          cursor:pointer;transition:border-color .12s,color .12s,background .12s;backdrop-filter:blur(4px);}
+    .vbtn:hover{border-color:rgba(59,130,246,.5);color:#93c5fd;}
+    .vbtn.active{border-color:rgba(59,130,246,.6);color:#60a5fa;background:rgba(59,130,246,.1);}
+
+    /* scale bar */
+    .scale-bar{position:absolute;bottom:14px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
+    #scaleBarLine{height:3px;background:rgba(226,232,240,.5);border-radius:1px;position:relative;min-width:40px;}
+    #scaleBarLine::before,#scaleBarLine::after{content:'';position:absolute;width:1px;height:8px;background:rgba(226,232,240,.5);top:-3px;}
+    #scaleBarLine::before{left:0;}#scaleBarLine::after{right:0;}
+    #scaleBarLabel{font-size:10px;color:rgba(226,232,240,.5);}
+
+    /* HUD + states */
+    .hud{position:absolute;top:12px;left:14px;pointer-events:none;display:none;}
+    .hud-title{font-size:18px;font-weight:700;text-shadow:0 1px 6px rgba(0,0,0,.8);}
+    .hud-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+    .state-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--muted);}
+    .spinner{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .75s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+
+    /* legend */
+    .legend{position:absolute;top:12px;right:14px;background:rgba(22,27,34,.92);border:1px solid var(--border);
+            border-radius:8px;padding:10px 13px;display:none;backdrop-filter:blur(6px);max-width:220px;}
+    .legend h4{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;}
+    .leg-row{display:flex;align-items:flex-start;gap:7px;margin-bottom:6px;}
+    .leg-sw{width:10px;height:10px;border-radius:2px;flex-shrink:0;margin-top:2px;}
+    .leg-name{font-size:12px;font-weight:500;}
+    .leg-dim{font-size:10px;color:var(--muted);}
+
+    /* stats bar */
+    .stats-bar{background:var(--surface);border-top:1px solid var(--border);padding:10px 18px;
+               display:none;gap:20px;align-items:center;overflow-x:auto;flex-shrink:0;}
+    .stats-bar::-webkit-scrollbar{display:none;}
+    .stat{flex-shrink:0;}
+    .stat-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
+    .stat-val{font-size:15px;font-weight:700;margin-top:1px;}
+    .stat-val .u{font-size:11px;font-weight:400;color:var(--muted);}
+    .sdiv{width:1px;height:26px;background:var(--border);flex-shrink:0;}
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="nav-back" href="/">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 12L6 8l4-4"/>
+    </svg>
+    Fleet Chat
+  </a>
+  <span class="nav-div">/</span>
+  <span class="nav-title">Cargo Hold Visualizer</span>
+  <span class="badge">Beta</span>
+</header>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <h2>Vessels</h2>
+      <input class="search-box" id="search" type="text" placeholder="Search vessel…" autocomplete="off" />
+    </div>
+    <div class="vessel-list" id="vesselList">
+      <div class="state-msg" style="position:relative;height:80px"><div class="spinner"></div></div>
+    </div>
+    <div class="sidebar-foot" id="sideCount"></div>
+  </div>
+
+  <div class="main">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="cargo-canvas"></canvas>
+
+      <div class="state-msg" id="stateMsg">
+        <span style="font-size:32px;opacity:.25">🚢</span>
+        <span style="font-size:13px">Select a vessel to visualise its cargo holds</span>
+      </div>
+
+      <div class="hud" id="hud">
+        <div class="hud-title" id="hudTitle"></div>
+        <div class="hud-sub" id="hudSub"></div>
+      </div>
+
+      <div class="view-btns" id="viewBtns" style="display:none">
+        <button class="vbtn" onclick="setView('3d')">3D</button>
+        <button class="vbtn active" onclick="setView('top')">Top</button>
+        <button class="vbtn" onclick="setView('side')">Side</button>
+      </div>
+
+      <div class="scale-bar" id="scaleBar" style="display:none">
+        <div id="scaleBarLine"></div>
+        <span id="scaleBarLabel"></span>
+      </div>
+
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+      <div class="stat"><div class="stat-lbl">Length Overall</div><div class="stat-val" id="sLOA">—</div></div>
+      <div class="sdiv"></div>
+      <div class="stat"><div class="stat-lbl">Breadth</div><div class="stat-val" id="sB">—</div></div>
+      <div class="sdiv"></div>
+      <div class="stat"><div class="stat-lbl">Depth</div><div class="stat-val" id="sD">—</div></div>
+      <div class="sdiv"></div>
+      <div class="stat"><div class="stat-lbl">Draft</div><div class="stat-val" id="sDraft">—</div></div>
+      <div class="sdiv"></div>
+      <div class="stat"><div class="stat-lbl">Holds</div><div class="stat-val" id="sHolds">—</div></div>
+      <div class="sdiv"></div>
+      <div class="stat"><div class="stat-lbl">Hold Capacity</div><div class="stat-val" id="sCap">—</div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+<script>
+const CLIENT_ID = {{ client_id | tojson }};
+
+// ── Palette ────────────────────────────────────────────────────────
+const HOLD_INT = [0x3b82f6,0x10b981,0xf59e0b,0xec4899,0x8b5cf6,0xef4444];
+const HOLD_HEX = ['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#ef4444'];
+
+// ── Renderers ──────────────────────────────────────────────────────
+const wrap   = document.getElementById('canvasWrap');
+const canvas = document.getElementById('cargo-canvas');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setClearColor(0x0d1117, 1);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+
+// CSS2D renderer for labels — appended on top of the WebGL canvas
+const css2d = new THREE.CSS2DRenderer();
+css2d.domElement.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+wrap.appendChild(css2d.domElement);
+
+// ── Scene ──────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.fog   = new THREE.Fog(0x0d1117, 200, 800);
+
+// Lighting (used by 3D mode)
+scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.2);
+sun.position.set(100, 150, 80);
+sun.castShadow = true;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x4488ff, 0.3);
+fill.position.set(-80, 40, -60);
+scene.add(fill);
+
+// Grid (shown in 3D mode only)
+const gridHelper = new THREE.GridHelper(600, 60, 0x1a2434, 0x131d2a);
+scene.add(gridHelper);
+
+// ── Cameras ────────────────────────────────────────────────────────
+const perspCam = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+perspCam.position.set(80, 55, 100);
+
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
+
+// OrbitControls for 3D mode only
+const controls = new THREE.OrbitControls(perspCam, renderer.domElement);
+controls.enableDamping  = true;
+controls.dampingFactor  = 0.08;
+controls.minDistance    = 15;
+controls.maxDistance    = 500;
+controls.maxPolarAngle  = Math.PI * 0.85;
+controls.enabled        = false;   // off by default (top view)
+
+// Active camera
+let activeCam = orthoCam;
+
+// ── Resize ─────────────────────────────────────────────────────────
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h);
+  css2d.setSize(w, h);
+  perspCam.aspect = w / h;
+  perspCam.updateProjectionMatrix();
+  if (currentVessel) fitCamera(currentVessel);
+}
+window.addEventListener('resize', resize);
+// Delay initial resize to let DOM settle
+setTimeout(resize, 50);
+
+// ── Render loop ────────────────────────────────────────────────────
+(function loop() {
+  requestAnimationFrame(loop);
+  if (controls.enabled) controls.update();
+  renderer.render(scene, activeCam);
+  css2d.render(scene, activeCam);
+})();
+
+// ── State ──────────────────────────────────────────────────────────
+let allVessels    = [];
+let currentVessel = null;
+let currentView   = 'top';
+let vesselGroup   = null;
+
+// ── Geometry helpers ───────────────────────────────────────────────
+function bmat(color, opacity=1, depthWrite=true) {
+  return new THREE.MeshBasicMaterial({color, transparent:opacity<1, opacity, side:THREE.DoubleSide, depthWrite});
+}
+function smat(color, opts={}) {
+  return new THREE.MeshStandardMaterial({color, roughness:.7, metalness:.2, transparent:opts.transparent||false, opacity:opts.opacity||1, side:THREE.DoubleSide});
+}
+function addPlane(g, cx, y, cz, w, d, color, opacity=1) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w,d), bmat(color,opacity));
+  m.rotation.x = -Math.PI/2; m.position.set(cx,y,cz); g.add(m);
+}
+function addSlab(g, cx, cy, w, h, color, opacity=1) {
+  // Thin box for side-view cross-sections
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,0.3), bmat(color,opacity));
+  m.position.set(cx,cy,0); g.add(m);
+}
+function addLine(g, x1,y1,z1, x2,y2,z2, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(x1,y1,z1), new THREE.Vector3(x2,y2,z2)
+  ]);
+  g.add(new THREE.Line(geo, new THREE.LineBasicMaterial({color})));
+}
+function addRect(g, cx,y,cz, w,d, color) {
+  // Wireframe rectangle (horizontal)
+  const hw=w/2, hd=d/2;
+  const pts = [
+    new THREE.Vector3(cx-hw,y,cz-hd), new THREE.Vector3(cx+hw,y,cz-hd),
+    new THREE.Vector3(cx+hw,y,cz+hd), new THREE.Vector3(cx-hw,y,cz+hd),
+    new THREE.Vector3(cx-hw,y,cz-hd)
+  ];
+  g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({color})));
+}
+function addRectV(g, cx,cy, w,h, color) {
+  // Wireframe rectangle (vertical, in XY plane)
+  const hw=w/2, hh=h/2;
+  const pts = [
+    new THREE.Vector3(cx-hw,cy-hh,0), new THREE.Vector3(cx+hw,cy-hh,0),
+    new THREE.Vector3(cx+hw,cy+hh,0), new THREE.Vector3(cx-hw,cy+hh,0),
+    new THREE.Vector3(cx-hw,cy-hh,0)
+  ];
+  g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({color})));
+}
+
+// ── CSS2D label helper ─────────────────────────────────────────────
+function addLabel(group, x, y, z, html, cls='') {
+  const div = document.createElement('div');
+  div.className = 'lbl3d ' + cls;
+  div.innerHTML = html;
+  const obj = new THREE.CSS2DObject(div);
+  obj.position.set(x, y, z);
+  group.add(obj);
+}
+
+// Dim line with end ticks + label (horizontal, along Z axis in top view)
+function addDimZ(g, cx, y, z1, z2, color, text) {
+  addLine(g, cx,y,z1, cx,y,z2, color);
+  addLine(g, cx-0.4,y,z1, cx+0.4,y,z1, color);
+  addLine(g, cx-0.4,y,z2, cx+0.4,y,z2, color);
+  addLabel(g, cx, y+0.5, (z1+z2)/2, text, 'dim');
+}
+// Dim line along X axis in top view
+function addDimX(g, x1, x2, y, cz, color, text) {
+  addLine(g, x1,y,cz, x2,y,cz, color);
+  addLine(g, x1,y,cz-0.4, x1,y,cz+0.4, color);
+  addLine(g, x2,y,cz-0.4, x2,y,cz+0.4, color);
+  addLabel(g, (x1+x2)/2, y+0.5, cz, text, 'dim');
+}
+// Vertical dim line (side view)
+function addDimY(g, x, y1, y2, color, text, side=1) {
+  const ox = side * 1.2;
+  addLine(g, x+ox,y1,0, x+ox,y2,0, color);
+  addLine(g, x,y1,0, x+ox*1.5,y1,0, color);
+  addLine(g, x,y2,0, x+ox*1.5,y2,0, color);
+  addLabel(g, x + ox*2.5, (y1+y2)/2, 0, text, 'dim');
+}
+
+// ── Hold positions along ship ──────────────────────────────────────
+function holdPositions(v) {
+  const loa = v.loa;
+  const zoneStart = -loa * 0.26;
+  const zoneEnd   =  loa * 0.43;
+  const zoneL     = zoneEnd - zoneStart;
+  const totalHL   = v.holds.reduce((s,h) => s + (h.length||0), 0);
+  const gap       = Math.max((zoneL - totalHL) / (v.holds.length + 1), 1.5);
+  let curX = zoneStart + gap;
+  return v.holds.map(h => {
+    const cx = curX + (h.length||0) / 2;
+    curX += (h.length||0) + gap;
+    return { cx };
+  });
+}
+
+// ── Camera fit ─────────────────────────────────────────────────────
+function fitCamera(v) {
+  const W = wrap.clientWidth || 800;
+  const H = wrap.clientHeight || 500;
+  const aspect = W / H;
+  const loa = v.loa, B = v.breadth, D = v.depth;
+  const draft = v.draft || D * 0.65;
+  const deckY = D - draft;
+
+  if (currentView === '3d') {
+    perspCam.aspect = aspect;
+    perspCam.updateProjectionMatrix();
+    perspCam.position.set(loa * 0.72, loa * 0.42, loa * 0.62);
+    perspCam.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
+    controls.update();
+    activeCam = perspCam;
+    gridHelper.visible = true;
+  } else if (currentView === 'top') {
+    activeCam = orthoCam;
+    let w = loa * 1.35;
+    let h = w / aspect;
+    if (h < B * 3.5) { h = B * 3.5; w = h * aspect; }
+    orthoCam.left=-w/2; orthoCam.right=w/2; orthoCam.top=h/2; orthoCam.bottom=-h/2;
+    orthoCam.near=0.1; orthoCam.far=5000;
+    orthoCam.updateProjectionMatrix();
+    orthoCam.position.set(0, 500, 0);
+    orthoCam.up.set(0, 0, -1);
+    orthoCam.lookAt(0, 0, 0);
+    gridHelper.visible = false;
+  } else { // side
+    activeCam = orthoCam;
+    const keelY = -draft;
+    const centerY = (deckY + keelY) / 2;
+    const totalH = D + 6;
+    let h = totalH * 2.0;
+    let w = h * aspect;
+    if (w < loa * 1.3) { w = loa * 1.3; h = w / aspect; }
+    orthoCam.left=-w/2; orthoCam.right=w/2;
+    orthoCam.top=centerY+h/2; orthoCam.bottom=centerY-h/2;
+    orthoCam.near=0.1; orthoCam.far=5000;
+    orthoCam.updateProjectionMatrix();
+    orthoCam.position.set(0, centerY, 500);
+    orthoCam.up.set(0, 1, 0);
+    orthoCam.lookAt(0, centerY, 0);
+    gridHelper.visible = false;
+  }
+  updateScaleBar();
+}
+
+// ── Scale bar ──────────────────────────────────────────────────────
+function updateScaleBar() {
+  if (currentView === '3d') { document.getElementById('scaleBar').style.display='none'; return; }
+  const W = wrap.clientWidth || 800;
+  const frustumW = orthoCam.right - orthoCam.left;
+  if (!frustumW) return;
+  const pxPerM = W / frustumW;
+  const nice = [5,10,25,50,100];
+  const chosen = nice.find(v => pxPerM*v >= 55 && pxPerM*v <= 180) || 25;
+  document.getElementById('scaleBarLine').style.width  = Math.round(pxPerM*chosen)+'px';
+  document.getElementById('scaleBarLabel').textContent = chosen+' m';
+  document.getElementById('scaleBar').style.display = 'flex';
+}
+
+// ── Build scene ────────────────────────────────────────────────────
+function buildScene(v) {
+  if (vesselGroup) { scene.remove(vesselGroup); vesselGroup = null; }
+
+  const g = new THREE.Group();
+  scene.add(g);
+  vesselGroup = g;
+
+  if (currentView === '3d')   build3D(g, v);
+  else if (currentView === 'top')  buildTop(g, v);
+  else                              buildSide(g, v);
+
+  fitCamera(v);
+
+  // Legend
+  updateLegend(v);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  3D VIEW — perspective hull + coloured holds
+// ══════════════════════════════════════════════════════════════════════
+function build3D(g, v) {
+  const loa=v.loa, B=v.breadth, D=v.depth;
+  const draft=v.draft||D*.65;
+  const above=D-draft;
+
+  // Hull
+  const matLow   = new THREE.MeshStandardMaterial({color:0x1e293b,roughness:.7,metalness:.3});
+  const matHigh  = new THREE.MeshStandardMaterial({color:0x2d3f55,roughness:.6,metalness:.2});
+  const matDeck  = new THREE.MeshStandardMaterial({color:0x475569,roughness:.8});
+  const matBow   = new THREE.MeshStandardMaterial({color:0x1e3a5f,roughness:.6,metalness:.3});
+  const matBridge= new THREE.MeshStandardMaterial({color:0xf1f5f9,roughness:.4,metalness:.2});
+  const matFunnel= new THREE.MeshStandardMaterial({color:0xef4444,roughness:.5});
+  const matMast  = new THREE.MeshStandardMaterial({color:0xfbbf24,roughness:.4,metalness:.6});
+
+  const mk = (geo,mat,x,y,z) => { const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); m.castShadow=true; g.add(m); return m; };
+
+  mk(new THREE.BoxGeometry(loa*.82,draft,B*.92), matLow,  0,-draft/2,0);
+  mk(new THREE.BoxGeometry(loa*.88,above,B),     matHigh, 0,above/2,0);
+  mk(new THREE.BoxGeometry(loa,.28,B),           matDeck, 0,above+.14,0);
+
+  // bow
+  const bowL=loa*.09;
+  const bm=mk(new THREE.CylinderGeometry(0,B/2,bowL,4), matBow, loa*.42+bowL/2, above*.35, 0);
+  bm.rotation.z=-Math.PI/2;
+
+  // bridge
+  const bH=D*.70, bL=loa*.10, bW=B*.60;
+  mk(new THREE.BoxGeometry(bL,bH,bW), matBridge, -loa*.37, above+bH/2, 0);
+  const win=mk(new THREE.BoxGeometry(bL+.1,bH*.16,bW+.1),
+    new THREE.MeshStandardMaterial({color:0x0ea5e9,roughness:.05,metalness:.9}),
+    -loa*.37, above+bH*.72, 0);
+
+  // funnel
+  mk(new THREE.CylinderGeometry(B*.06,B*.08,D*.5,8), matFunnel, -loa*.37, above+bH+D*.25, 0);
+
+  // masts
+  const mastGeo=new THREE.CylinderGeometry(.2,.28,D*.85,6);
+  [-loa*.06, loa*.14].forEach(x=>[B*.44,-B*.44].forEach(z=>{
+    mk(mastGeo, matMast, x, above+D*.42, z);
+  }));
+
+  // holds
+  const hPos = holdPositions(v);
+  const deckY = above;
+  v.holds.forEach((h,i)=>{
+    const col=HOLD_INT[i%HOLD_INT.length];
+    const cx=hPos[i].cx, hL=h.length||loa*.5, hB=Math.min(h.breadth||B*.82,B*.9), hH=h.height||D;
+
+    // Hatch frame
+    mk(new THREE.BoxGeometry(hL+.5,.3,hB+.5),
+       new THREE.MeshStandardMaterial({color:0x7f8fa6,roughness:.4,metalness:.5}),
+       cx, deckY+.15, 0);
+
+    // Hatch cover (tinted glass)
+    mk(new THREE.BoxGeometry(hL-.2,.18,hB-.2),
+       new THREE.MeshStandardMaterial({color:col,transparent:true,opacity:.3,roughness:.2,metalness:.6}),
+       cx, deckY+.32, 0);
+
+    // Hold volume (transparent)
+    const holdGeo = new THREE.BoxGeometry(hL,hH,hB);
+    mk(holdGeo,
+       new THREE.MeshStandardMaterial({color:col,transparent:true,opacity:.13,side:THREE.DoubleSide}),
+       cx, deckY-hH/2+.08, 0);
+
+    // Wireframe edges
+    const edges=new THREE.LineSegments(
+      new THREE.EdgesGeometry(holdGeo),
+      new THREE.LineBasicMaterial({color:col,linewidth:2}));
+    edges.position.set(cx, deckY-hH/2+.08, 0);
+    g.add(edges);
+
+    // Floor
+    const floorM=mk(new THREE.PlaneGeometry(hL-.5,hB-.5),
+      new THREE.MeshStandardMaterial({color:col,roughness:.9,transparent:true,opacity:.35}),
+      cx, deckY-hH+.12, 0);
+    floorM.rotation.x=-Math.PI/2;
+
+    // Hold ID label in 3D
+    addLabel(g, cx, deckY+3, 0, `<b>Hold #${h.id}</b><br>${hL}×${hB}m`, 'chip');
+  });
+
+  // Waterline
+  addLine(g, -loa*.5,0,B*.51, loa*.5,0,B*.51, 0x1d4ed8);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  TOP VIEW — orthographic deck plan
+// ══════════════════════════════════════════════════════════════════════
+function buildTop(g, v) {
+  const loa=v.loa, B=v.breadth, D=v.depth;
+  const draft=v.draft||D*.65;
+  const Y=D-draft; // deckY — all top-view geometry lives at this Y height
+  const hPos=holdPositions(v);
+
+  // Deck fill
+  addPlane(g, 0,Y,0, loa*.88,B, 0x243447);
+
+  // Bow triangle
+  const bowSh=new THREE.Shape();
+  bowSh.moveTo(loa*.44,-B/2); bowSh.lineTo(loa/2+loa*.08,0); bowSh.lineTo(loa*.44,B/2); bowSh.closePath();
+  const bowM=new THREE.Mesh(new THREE.ShapeGeometry(bowSh), bmat(0x243447));
+  bowM.rotation.x=-Math.PI/2; bowM.position.y=Y+.01; g.add(bowM);
+
+  // Ship outline
+  addRect(g, 0,Y+.05,0, loa,B, 0x475569);
+
+  // Centreline
+  for(let x=-loa/2;x<loa/2;x+=4)
+    addLine(g, x,Y+.03,0, Math.min(x+2,loa/2),Y+.03,0, 0x1e3a5f);
+
+  // Bridge footprint
+  addPlane(g, -loa*.37,Y+.02,0, loa*.10,B*.60, 0xe2e8f0,.9);
+  addLabel(g, -loa*.37, Y+.5, -B/2-1.5, 'Bridge', 'muted');
+
+  // LOA dimension line (port side)
+  const loaDimZ = -B/2 - 3.5;
+  addDimX(g, -loa*.44, loa*.44+loa*.08, Y+.1, loaDimZ, 0x475569, `LOA: ${v.loa} m`);
+
+  // Beam dimension line (forward of holds)
+  const beamDimX = loa*.46;
+  addDimZ(g, beamDimX, Y+.1, -B/2, B/2, 0x475569, `Beam: ${v.breadth} m`);
+
+  // Holds
+  v.holds.forEach((h,i)=>{
+    const col=HOLD_INT[i%HOLD_INT.length];
+    const cx=hPos[i].cx, hL=h.length||0, hB=h.breadth||0;
+
+    // Shadow / deck opening
+    addPlane(g, cx,Y+.03,0, hL+.8,hB+.8, 0x0d1117);
+    // Hatch coloured fill
+    addPlane(g, cx,Y+.05,0, hL,hB, col, .72);
+    // Hatch outline
+    addRect(g, cx,Y+.1,0, hL,hB, col);
+
+    // Hold centre label
+    addLabel(g, cx, Y+.5, 0,
+      `<b>Hold #${h.id}</b><br>${hL} × ${hB} m`, 'chip');
+
+    // Length dim (above hold, in +Z direction)
+    const dimZ = hB/2 + 2.8;
+    addDimX(g, cx-hL/2, cx+hL/2, Y+.1, dimZ,
+      col|0x222222,  // slightly muted colour
+      `${hL} m`);
+
+    // Breadth dim (beside hold, in +X direction)
+    const dimX = cx + hL/2 + 2.2;
+    addDimZ(g, dimX, Y+.1, -hB/2, hB/2, col|0x222222, `${hB} m`);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SIDE VIEW — orthographic cross-section
+// ══════════════════════════════════════════════════════════════════════
+function buildSide(g, v) {
+  const loa=v.loa, B=v.breadth, D=v.depth;
+  const draft=v.draft||D*.65;
+  const deckY=D-draft;
+  const keelY=-draft;
+  const dbH=v.double_bottom_height||1.5;
+  const ttY=keelY+dbH;   // tank top
+  const hPos=holdPositions(v);
+
+  // ── Hull profile ──────────────────────────────────────────
+  addSlab(g, 0, keelY+draft/2, loa*.88, draft, 0x1a2535, .85);
+  addSlab(g, 0, deckY/2,       loa*.90, deckY, 0x243447, .90);
+
+  // Outline lines
+  addLine(g,-loa*.44,keelY,0, loa*.44,keelY,0, 0x334155); // keel
+  addLine(g,-loa*.44,deckY,0, loa*.44,deckY,0, 0x475569); // deck
+  addLine(g,-loa*.44,keelY,0,-loa*.44,deckY,0, 0x334155); // stern side
+  // Bow taper
+  addLine(g, loa*.44,keelY,0, loa/2+loa*.07,deckY/2,0, 0x334155);
+  addLine(g, loa*.44,deckY,0, loa/2+loa*.07,deckY/2,0, 0x475569);
+
+  // Bridge
+  const bH=D*.70;
+  addSlab(g,-loa*.37, deckY+bH/2, loa*.10, bH, 0xdde1e7,.9);
+
+  // Waterline
+  addLine(g,-loa*.50,0,0, loa*.55,0,0, 0x1d4ed8);
+  addLabel(g, loa*.50,0,0, 'WL', 'wl muted');
+
+  // Tank top line
+  addLine(g,-loa*.44,ttY,0, loa*.44,ttY,0, 0x475569);
+  addLabel(g,-loa*.46,ttY,0, 'Tank Top', 'td muted');
+
+  // Double bottom (under holds)
+  addSlab(g, 0, keelY+dbH/2, loa*.72, dbH, 0x111827,.95);
+  addLabel(g, 0, keelY+dbH/2, 0, `Double Bottom  ${dbH}m`, 'db');
+
+  // Main deck label
+  addLabel(g, loa*.42, deckY, 0, 'Main Deck', 'muted');
+
+  // ── Height scale on left ──────────────────────────────────
+  const scaleX=-loa*.52;
+  addLine(g, scaleX,keelY,0, scaleX,deckY+2,0, 0x2d3f50);
+  for(let y=Math.ceil(keelY);y<=deckY+1;y+=2) {
+    addLine(g, scaleX-.5,y,0, scaleX+.5,y,0, 0x2d3f50);
+    addLabel(g, scaleX-2, y, 0, `${y}m`, 'muted dim');
+  }
+
+  // ── Holds ─────────────────────────────────────────────────
+  v.holds.forEach((h,i)=>{
+    const col=HOLD_INT[i%HOLD_INT.length];
+    const cx=hPos[i].cx;
+    const hL=h.length||loa*.50;
+    const hH=h.height||D;
+    const lowerH=h.lower_height||hH;
+    const upperH=h.upper_height||0;
+    const hasTD=h.has_tween&&upperH>.5;
+    const tdY=ttY+lowerH;
+
+    // Lower hold
+    const lMidY=ttY+lowerH/2;
+    addSlab(g, cx, lMidY, hL-.4, lowerH, col, .55);
+    addRectV(g, cx, lMidY, hL-.4, lowerH, col);
+    addLabel(g, cx, lMidY, 0,
+      `<b>Hold #${h.id}</b>${hasTD?' — Lower':''}<br>${lowerH.toFixed(1)} m`,
+      'chip');
+
+    if(hasTD) {
+      // Tween deck slab
+      addSlab(g, cx, tdY+.175, hL, .35, 0x4b5563,.95);
+      addLine(g, cx-hL/2,tdY,0, cx+hL/2,tdY,0, 0x64748b);
+      if(i===0) addLabel(g, cx-hL/2-1, tdY+.2, 0, 'Tween Deck', 'td muted');
+
+      // Upper hold
+      const uMidY=tdY+.35+upperH/2;
+      addSlab(g, cx, uMidY, hL-.4, upperH, col,.28);
+      addRectV(g, cx, uMidY, hL-.4, upperH, col);
+      addLabel(g, cx, uMidY, 0, `Upper — ${upperH.toFixed(1)} m`, 'dim');
+    }
+
+    // Hatch coaming + cover
+    addSlab(g, cx, deckY+.275, hL+.4, .55, 0x374151,.9);
+    addSlab(g, cx, deckY+.725, hL-.2, .35, col,.85);
+
+    // Dimension lines: lower hold height (right side)
+    addDimY(g, cx+hL/2, ttY, hasTD?tdY:ttY+lowerH, col, `${lowerH.toFixed(1)} m`, 1);
+    if(hasTD)
+      addDimY(g, cx+hL/2+1.5, tdY+.35, deckY, col, `${upperH.toFixed(1)} m`, 1);
+
+    // Dimension lines: hold length (below keel)
+    if(i===0) addDimX(g, cx-hL/2, cx+hL/2, keelY-1.5, 0, col, `${hL} m`);
+  });
+}
+
+// ── Legend ─────────────────────────────────────────────────────────
+function updateLegend(v) {
+  const leg=document.getElementById('legend');
+  leg.innerHTML='';
+  if(currentView==='3d'||currentView==='top') {
+    leg.innerHTML='<h4>Cargo Holds</h4>';
+    v.holds.forEach((h,i)=>{
+      const col=HOLD_HEX[i%HOLD_HEX.length];
+      const vol=h.length&&h.breadth&&h.height?Math.round(h.length*h.breadth*h.height).toLocaleString():null;
+      const div=document.createElement('div'); div.className='leg-row';
+      div.innerHTML=`<div class="leg-sw" style="background:${col}"></div>
+        <div><div class="leg-name">Hold #${h.id}${h.estimated?' <span style="opacity:.5;font-size:10px">(est.)</span>':''}</div>
+        <div class="leg-dim">${h.length}×${h.breadth}×${h.height} m</div>
+        ${vol?`<div class="leg-dim">≈ ${vol} m³ gross</div>`:''}</div>`;
+      leg.appendChild(div);
+    });
+  } else {
+    leg.innerHTML='<h4>Layers</h4>';
+    const rows=[
+      {c:'#111827',n:'Double Bottom',d:'~1.5 m, non-cargo'},
+      {c:'#3b82f6',n:'Lower Hold',d:'Tank top → Tween deck',op:.7},
+    ];
+    if(v.holds.some(h=>h.has_tween)) {
+      rows.push({c:'#4b5563',n:'Tween Deck',d:'~0.35 m slab'});
+      rows.push({c:'#3b82f6',n:'Upper Hold',d:'Tween deck → Main deck',op:.35});
+    }
+    rows.push({c:'#374151',n:'Hatch Coaming',d:'~0.55 m above deck'});
+    rows.push({c:'#3b82f6',n:'Hatch Cover',d:'~0.35 m'});
+    rows.forEach(r=>{
+      const div=document.createElement('div'); div.className='leg-row';
+      div.innerHTML=`<div class="leg-sw" style="background:${r.c};opacity:${r.op||.9}"></div>
+        <div><div class="leg-name">${r.n}</div><div class="leg-dim">${r.d}</div></div>`;
+      leg.appendChild(div);
+    });
+  }
+  leg.style.display='block';
+}
+
+// ── View toggle ────────────────────────────────────────────────────
+function setView(v) {
+  currentView = v;
+  controls.enabled = v === '3d';
+  document.querySelectorAll('.vbtn').forEach(b =>
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(v==='3d'?'3d':v)));
+  document.getElementById('legend').style.display='none';
+  if(currentVessel) buildScene(currentVessel);
+}
+
+// ── Select vessel ──────────────────────────────────────────────────
+function selectVessel(v, el) {
+  currentVessel = v;
+  document.querySelectorAll('.vi').forEach(i=>i.classList.remove('active'));
+  el.classList.add('active');
+
+  document.getElementById('stateMsg').style.display='none';
+  document.getElementById('viewBtns').style.display='flex';
+  document.getElementById('statsBar').style.display='flex';
+  document.getElementById('hud').style.display='block';
+
+  document.getElementById('hudTitle').textContent=v.name;
+  document.getElementById('hudSub').textContent=
+    `LOA ${v.loa} m · ${v.holds_count} hold${v.holds_count!==1?'s':''}`;
+
+  const mu=(n,u='m')=>n!=null?`${n}<span class="u"> ${u}</span>`:'<span class="u">—</span>';
+  document.getElementById('sLOA').innerHTML=mu(v.loa);
+  document.getElementById('sB').innerHTML=mu(v.breadth);
+  document.getElementById('sD').innerHTML=mu(v.depth);
+  document.getElementById('sDraft').innerHTML=mu(v.draft);
+  document.getElementById('sHolds').textContent=v.holds_count;
+  document.getElementById('sCap').innerHTML=v.hold_capacity_m3
+    ?`${Number(v.hold_capacity_m3).toLocaleString()}<span class="u"> m³</span>`
+    :'<span class="u">—</span>';
+
+  buildScene(v);
+}
+
+// ── Sidebar ────────────────────────────────────────────────────────
+function renderList(q='') {
+  const list=document.getElementById('vesselList');
+  list.innerHTML='';
+  const matches=allVessels.filter(v=>!q||v.name.toLowerCase().includes(q.toLowerCase()));
+  if(!matches.length) {
+    list.innerHTML=`<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No results for "${q}"</div>`;
+  }
+  matches.forEach(v=>{
+    const el=document.createElement('div'); el.className='vi';
+    const cap=v.hold_capacity_m3?`${Number(v.hold_capacity_m3).toLocaleString()} m³`:'n/a';
+    el.innerHTML=`<div class="vi-name">${v.name}</div>
+      <div class="vi-meta">${v.loa} m × ${v.breadth} m · ${cap}</div>
+      <span class="vi-tag">${v.holds_count} hold${v.holds_count!==1?'s':''}</span>`;
+    el.addEventListener('click',()=>selectVessel(v,el));
+    list.appendChild(el);
+  });
+  document.getElementById('sideCount').textContent=`${matches.length} of ${allVessels.length} vessels`;
+}
+
+document.getElementById('search').addEventListener('input',e=>renderList(e.target.value));
+
+// ── Load ───────────────────────────────────────────────────────────
+async function loadVessels() {
+  try {
+    const res=await fetch(`/cargo/api/vessels?client=${CLIENT_ID}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    allVessels=await res.json();
+    renderList();
+    setTimeout(()=>{ const first=document.querySelector('.vi'); if(first) first.click(); }, 100);
+  } catch(err) {
+    document.getElementById('stateMsg').innerHTML=
+      `<span style="color:#ef4444;font-size:13px">Failed to load: ${err.message}</span>`;
+  }
+}
+
+loadVessels();
+</script>
+</body>
+</html>
