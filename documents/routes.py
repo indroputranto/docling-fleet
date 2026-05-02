@@ -56,6 +56,19 @@ DOCUMENT_SECTIONS = [
 FULL_DOCUMENT_CATEGORY = "full_document"
 VALID_CATEGORIES = {key for key, _ in DOCUMENT_SECTIONS} | {FULL_DOCUMENT_CATEGORY}
 
+
+def _effective_skip_ai_enrichment(user_requested: bool, document_category: str | None) -> bool:
+    """
+    Charter-party PDFs already use presplit + strikethrough-aware extraction; sending
+    dozens of chunks through GPT enrichment is slow and often exceeds serverless
+    time limits (SSE 'Task not found' after the worker is killed).  Skip unless the
+    user explicitly opted out of enrichment via the checkbox (then user_requested).
+    """
+    if user_requested:
+        return True
+    return document_category == "charter_party"
+
+
 documents_bp = Blueprint(
     "documents",
     __name__,
@@ -307,7 +320,8 @@ def replace(doc_id: int):
         return redirect(url_for("documents.vessel_dossier", vessel_id=doc.vessel_id))
 
     from_vessel     = request.form.get("from_vessel", "").strip() or str(doc.vessel_id or "")
-    skip_enrichment = request.form.get("skip_enrichment") == "on"
+    user_skip_ai    = request.form.get("skip_enrichment") == "on"
+    skip_enrichment = _effective_skip_ai_enrichment(user_skip_ai, doc.document_category)
     client          = ClientConfig.query.filter_by(client_id=doc.client_id).first()
 
     # ── 0. Remove old object from storage ────────────────────────────────────
@@ -403,7 +417,12 @@ def replace(doc_id: int):
         except Exception as ae:
             logger.warning(f"[documents] AI enrichment failed during replace (doc {doc_id}): {ae}")
     else:
-        logger.info(f"[documents] AI enrichment skipped for replace of doc {doc_id}")
+        if doc.document_category == "charter_party" and not user_skip_ai:
+            logger.info(
+                f"[documents] AI enrichment skipped for replace of doc {doc_id} (charter_party policy)"
+            )
+        else:
+            logger.info(f"[documents] AI enrichment skipped for replace of doc {doc_id}")
 
     # ── 5. Section title prefix ───────────────────────────────────────────────
     if doc.document_category and doc.document_category != FULL_DOCUMENT_CATEGORY:
@@ -566,7 +585,9 @@ def upload():
 
     # Allow the caller to bypass AI enrichment (e.g. large structured full-document
     # packages where the extraction is already clean and enrichment would be slow).
-    skip_enrichment = request.form.get("skip_enrichment") == "on"
+    # Charter Party uploads also skip enrichment by default (see _effective_skip_ai_enrichment).
+    user_skip_ai    = request.form.get("skip_enrichment") == "on"
+    skip_enrichment = _effective_skip_ai_enrichment(user_skip_ai, document_category)
 
     files = [f for f in request.files.getlist("files") if f and f.filename]
 
@@ -690,10 +711,20 @@ def upload():
                 )
                 _pq_emit(task_id, "warn", f"AI enrichment failed — using raw extraction: {ae}")
         else:
-            logger.info(
-                f"[documents] AI enrichment skipped for '{filename}' (skip_enrichment=True)"
-            )
-            _pq_emit(task_id, "warn", "AI enrichment skipped (user preference)", pct=62)
+            if document_category == "charter_party" and not user_skip_ai:
+                logger.info(
+                    f"[documents] AI enrichment skipped for '{filename}' (charter_party policy)"
+                )
+                _pq_emit(
+                    task_id, "warn",
+                    "AI enrichment skipped for Charter Party — using clause-aware extraction only (faster)",
+                    pct=62,
+                )
+            else:
+                logger.info(
+                    f"[documents] AI enrichment skipped for '{filename}' (user preference)"
+                )
+                _pq_emit(task_id, "warn", "AI enrichment skipped (user preference)", pct=62)
         # ────────────────────────────────────────────────────────────────────
 
         # ── Section title prefix ──────────────────────────────────────────────
@@ -899,7 +930,10 @@ def presign():
     document_category = data.get("document_category") or None
     if document_category and document_category not in VALID_CATEGORIES:
         document_category = None
-    skip_enrichment   = bool(data.get("skip_enrichment", False))
+    skip_enrichment   = _effective_skip_ai_enrichment(
+        bool(data.get("skip_enrichment", False)),
+        document_category,
+    )
 
     ext         = filename.rsplit(".", 1)[1].lower()
     storage_key = build_storage_key(client_id, filename)
@@ -913,19 +947,19 @@ def presign():
             group_name = vessel_obj.name
 
     # Create a placeholder Document so we have a stable doc_id to track progress.
-        doc = Document(
-            client_id=client_id,
-            filename=filename,
-            file_type=ext,
-            status="pending_upload",
-            uploaded_by=g.cms_user.email,
-            chunk_count=0,
-            vessel_id=int(vessel_id) if vessel_id else None,
-            group_name=group_name,
-            document_category=document_category,
-            storage_key=storage_key,
-            skip_ai_enrichment=skip_enrichment,
-        )
+    doc = Document(
+        client_id=client_id,
+        filename=filename,
+        file_type=ext,
+        status="pending_upload",
+        uploaded_by=g.cms_user.email,
+        chunk_count=0,
+        vessel_id=int(vessel_id) if vessel_id else None,
+        group_name=group_name,
+        document_category=document_category,
+        storage_key=storage_key,
+        skip_ai_enrichment=skip_enrichment,
+    )
     db.session.add(doc)
     db.session.commit()
 
@@ -996,9 +1030,11 @@ def process_from_storage(doc_id: int):
 
     task_id         = request.form.get("task_id", "").strip() or None
     from_vessel     = request.form.get("from_vessel", "").strip() or None
+    user_skip_ai    = request.form.get("skip_enrichment", "") == "on"
     skip_enrichment = (
-        request.form.get("skip_enrichment", "") == "on"
+        user_skip_ai
         or bool(getattr(doc, "skip_ai_enrichment", False))
+        or _effective_skip_ai_enrichment(False, doc.document_category)
     )
 
     if task_id:
@@ -1081,10 +1117,21 @@ def process_from_storage(doc_id: int):
             )
             _pq_emit(task_id, "warn", f"AI enrichment failed — using raw extraction: {ae}")
     else:
-        logger.info(
-            f"[documents] AI enrichment skipped for '{filename}' (skip_enrichment=True)"
-        )
-        _pq_emit(task_id, "warn", "AI enrichment skipped (user preference)", pct=62)
+        if document_category == "charter_party" and not user_skip_ai:
+            logger.info(
+                f"[documents] AI enrichment skipped (from storage) for '{filename}' "
+                "(charter_party policy)"
+            )
+            _pq_emit(
+                task_id, "warn",
+                "AI enrichment skipped for Charter Party — using clause-aware extraction only (faster)",
+                pct=62,
+            )
+        else:
+            logger.info(
+                f"[documents] AI enrichment skipped (from storage) for '{filename}' (user preference)"
+            )
+            _pq_emit(task_id, "warn", "AI enrichment skipped (user preference)", pct=62)
 
     # ── Section title prefix ──────────────────────────────────────────────────
     if document_category and document_category != FULL_DOCUMENT_CATEGORY:

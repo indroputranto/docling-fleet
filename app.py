@@ -104,6 +104,8 @@ if _db_url.startswith('postgresql'):
     }
 
 from models import db
+from sqlalchemy import text as sa_text
+
 db.init_app(app)
 
 # Create tables and seed first admin if needed
@@ -111,17 +113,22 @@ with app.app_context():
     try:
         db.create_all()
 
-        # ── Idempotent column migrations (safe on Postgres + SQLite) ─────────
+        # ── Idempotent column migrations (Postgres + SQLite 3.35+) ──────────
         _pending_cols = [
             "ALTER TABLE documents ADD COLUMN IF NOT EXISTS skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE",
         ]
-        with db.engine.connect() as _conn:
-            for _sql in _pending_cols:
-                try:
-                    _conn.execute(db.text(_sql))
-                    _conn.commit()
-                except Exception as _ce:
-                    logging.warning(f"[boot] column migration skipped ({_ce})")
+        try:
+            with db.engine.begin() as _conn:
+                for _sql in _pending_cols:
+                    _conn.execute(sa_text(_sql))
+            logging.info("[boot] documents.skip_ai_enrichment column migration applied (if needed)")
+        except Exception as _ce:
+            logging.warning(
+                "[boot] documents.skip_ai_enrichment migration failed — "
+                "run manually on Postgres: "
+                "ALTER TABLE documents ADD COLUMN skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE; "
+                f"({_ce})"
+            )
         # ─────────────────────────────────────────────────────────────────────
 
         from models import User
