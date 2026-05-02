@@ -1096,6 +1096,20 @@ def _fitz_span_y_bounds_from_blocks(blocks: list) -> List[Tuple[float, float]]:
     return bounds
 
 
+def _fitz_span_bboxes_from_blocks(blocks: list) -> List[Tuple[float, float, float, float]]:
+    """Collect (x0, y0, x1, y1) for every text span — underline vs strike filtering."""
+    out: List[Tuple[float, float, float, float]] = []
+    for blk in blocks:
+        if blk.get("type") != 0:
+            continue
+        for ln in blk.get("lines", []):
+            for sp in ln.get("spans", []):
+                bb = sp.get("bbox")
+                if bb and len(bb) >= 4 and bb[3] > bb[1] and bb[2] > bb[0]:
+                    out.append((bb[0], bb[1], bb[2], bb[3]))
+    return out
+
+
 def _fitz_page_span_ybounds(page) -> List[Tuple[float, float]]:
     """All text span vertical extents on a page — used to reject non-text horizontal rules."""
     return _fitz_span_y_bounds_from_blocks(page.get_text("rawdict")["blocks"])
@@ -1113,16 +1127,18 @@ def _fitz_collect_strike_bands(
     ingest both so stroke-only strikethroughs are not missed when ``rect`` is
     absent or unhelpful.
 
-    Bands are filtered so y_mid intersects some text span — this excludes
-    separator lines drawn in gaps between paragraph blocks.
+    Bands are filtered so y_mid lies in the **middle** vertical band of at
+    least one overlapping text span (horizontal overlap required).  Lines that
+    sit in the **bottom** band of a span (typical **underlines**) are rejected;
+    only rules that cross the glyph body are kept as strikethrough candidates.
 
     Pass *blocks* from a cached ``page.get_text(\"rawdict\")[\"blocks\"]`` to
     avoid parsing the page twice when the caller already loads rawdict.
     """
     if blocks is None:
         blocks = page.get_text("rawdict")["blocks"]
-    span_y = _fitz_span_y_bounds_from_blocks(blocks)
-    if not span_y:
+    span_bboxes = _fitz_span_bboxes_from_blocks(blocks)
+    if not span_bboxes:
         return []
 
     # Slightly looser than legacy (3 / 10): accommodates thicker hairlines and
@@ -1130,6 +1146,10 @@ def _fitz_collect_strike_bands(
     _MAX_BAND_H = 4.5
     _MIN_BAND_W = 8.0
     _MAX_LINE_DY = 2.8   # pt — nearly horizontal
+    # Strikethrough crosses x-height; underlines sit near baseline (bottom of
+    # span bbox).  rel = (y_mid - sy0) / span_h within [LO, HI] only.
+    _STRIKE_REL_LO = 0.08
+    _STRIKE_REL_HI = 0.74
 
     candidates: List[Tuple[float, float, float]] = []
     for d in page.get_drawings():
@@ -1162,9 +1182,22 @@ def _fitz_collect_strike_bands(
 
     strike_bands: List[Tuple[float, float, float]] = []
     for x0, x1, y_mid in candidates:
-        if not any(sy0 <= y_mid <= sy1 for sy0, sy1 in span_y):
-            continue
-        strike_bands.append((x0, x1, y_mid))
+        ok = False
+        for sx0, sy0, sx1, sy1 in span_bboxes:
+            if not (sy0 <= y_mid <= sy1):
+                continue
+            overlap_w = min(x1, sx1) - max(x0, sx0)
+            if overlap_w < 4.0:
+                continue
+            span_h = sy1 - sy0
+            if span_h <= 0:
+                continue
+            rel = (y_mid - sy0) / span_h
+            if _STRIKE_REL_LO <= rel <= _STRIKE_REL_HI:
+                ok = True
+                break
+        if ok:
+            strike_bands.append((x0, x1, y_mid))
     return strike_bands
 
 
@@ -1180,7 +1213,8 @@ def _fitz_char_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -
         if overlap_w < 0.40 * cw:
             continue
         rel = (by_mid - sy0) / ch
-        if 0.14 <= rel <= 0.88:
+        # Match _fitz_collect_strike_bands: mid-glyph only, not underline belt.
+        if 0.10 <= rel <= 0.74:
             return True
     return False
 
@@ -1209,7 +1243,7 @@ def _fitz_span_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -
         if band_w <= 0:
             continue
         rel = (by_mid - sy0) / span_h
-        if not (0.18 <= rel <= 0.85):
+        if not (0.10 <= rel <= 0.74):
             continue
         # Strike sits across most of this span's width.
         if overlap_w >= 0.42 * span_w:
