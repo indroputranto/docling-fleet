@@ -30,6 +30,7 @@ Login/logout are open (no auth required).
 import os
 import json
 import logging
+from typing import Any
 from datetime import datetime, timezone, date as date_type
 from functools import wraps
 from flask import (
@@ -1022,6 +1023,164 @@ def da_desk_run():
 
     except Exception as e:
         logger.exception("[CMS] da_desk_run failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _filter_owner_da_detail_rows(rows):
+    """Exclude Owner's Costs from DA detail breakdown (Langdock parity)."""
+    out = []
+    for r in rows or []:
+        c = (str(r.get("category") or "")).lower()
+        i = (str(r.get("item_name") or r.get("item") or "")).lower()
+        if "owner" in c or "owner" in i:
+            continue
+        out.append(r)
+    return out
+
+
+@cms_bp.route("/da-desk/api/da-details", methods=["GET"])
+@cms_required
+def da_desk_da_details():
+    """Proxy GET /api/da-details/{id} for the Form tab (no Bearer in browser)."""
+    from da import handlers as da_handlers
+    from da import settings as da_settings
+
+    if not da_settings.da_proxy_enabled():
+        return jsonify({"error": "DA Desk is not configured on this server."}), 503
+
+    da_id = request.args.get("da_id", type=int)
+    if not da_id:
+        return jsonify({"error": "da_id is required"}), 400
+
+    stage = (request.args.get("stage") or "PDA").strip() or "PDA"
+    persona = (request.args.get("persona") or "OPERATOR").strip() or "OPERATOR"
+
+    try:
+        payload, code = da_handlers.api_da_details(da_id, stage, persona)
+        if code != 200:
+            return jsonify(payload if isinstance(payload, dict) else {"error": str(payload)}), code
+
+        fd = payload.get("full_details") or {}
+        port_name = None
+        if isinstance(fd.get("port"), dict):
+            port_name = fd["port"].get("name")
+
+        slim = {k: v for k, v in payload.items() if k != "full_details"}
+        slim["cost_breakdown"] = _filter_owner_da_detail_rows(slim.get("cost_breakdown"))
+        slim["total_cost_items"] = len(slim["cost_breakdown"])
+        slim["stage"] = stage
+        slim["persona"] = persona
+        if port_name:
+            slim["port_name"] = port_name
+
+        return jsonify(slim)
+    except Exception as e:
+        logger.exception("[CMS] da_desk_da_details failed")
+        return jsonify({"error": str(e)}), 500
+
+
+def _da_breakdown_totals(rows):
+    """Sum amounts per category and grand total (skips non-numeric amounts)."""
+    by_cat: dict[str, float] = {}
+    grand = 0.0
+    for r in rows or []:
+        raw = r.get("amount")
+        try:
+            if raw is None:
+                continue
+            amt = float(raw)
+        except (TypeError, ValueError):
+            continue
+        cat = (str(r.get("category") or "")).strip() or "—"
+        by_cat[cat] = by_cat.get(cat, 0.0) + amt
+        grand += amt
+    return by_cat, grand
+
+
+def _compact_breakdown_for_notes(rows, limit: int = 180):
+    """Strip heavy fields; truncate comments for the key-notes prompt."""
+    out: list[dict[str, Any]] = []
+    for r in (rows or [])[:limit]:
+        comments = r.get("comments") or []
+        snippets: list[str] = []
+        if isinstance(comments, list):
+            for c in comments[:6]:
+                if isinstance(c, dict):
+                    t = (
+                        c.get("text")
+                        or c.get("comment")
+                        or c.get("body")
+                        or c.get("content")
+                    )
+                    t = str(t or "").strip()
+                else:
+                    t = str(c).strip()
+                if t:
+                    snippets.append(t[:500])
+        item = r.get("item_name") or r.get("item") or "—"
+        out.append(
+            {
+                "category": r.get("category") or "—",
+                "item": item,
+                "amount": r.get("amount"),
+                "currency": r.get("currency"),
+                "comment_snippets": snippets[:4],
+            }
+        )
+    return out
+
+
+@cms_bp.route("/da-desk/api/da-key-notes", methods=["POST"])
+@cms_required
+def da_desk_da_key_notes():
+    """Generate AI key notes from a DA detail breakdown (browser sends GET payload snapshot)."""
+    from da import assistant as da_assistant
+    from da import settings as da_settings
+
+    if not da_settings.da_proxy_enabled():
+        return jsonify({"error": "DA Desk is not configured on this server."}), 503
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return jsonify({"error": "ANTHROPIC_API_KEY is not set."}), 503
+
+    body = request.get_json(silent=True) or {}
+    rows = body.get("cost_breakdown")
+    if not isinstance(rows, list):
+        return jsonify({"error": "cost_breakdown must be a list"}), 400
+    if len(rows) > 220:
+        return jsonify({"error": "cost_breakdown too large"}), 400
+
+    rows = _filter_owner_da_detail_rows(rows)
+    by_cat, grand = _da_breakdown_totals(rows)
+    stage = (body.get("stage") or "PDA").strip() or "PDA"
+    persona = (body.get("persona") or "OPERATOR").strip() or "OPERATOR"
+    currency = (body.get("currency") or "").strip()
+    if not currency:
+        for r in rows:
+            c = (r.get("currency") or "").strip()
+            if c:
+                currency = c
+                break
+        if not currency:
+            currency = "—"
+
+    ctx = {
+        "vessel_name": body.get("vessel_name"),
+        "port_name": body.get("port_name"),
+        "reference_number": body.get("reference_number"),
+        "da_id": body.get("da_id"),
+        "stage": stage,
+        "persona": persona,
+        "currency": currency,
+        "category_subtotals": dict(sorted(by_cat.items(), key=lambda kv: kv[0].lower())),
+        "grand_total": round(grand, 2),
+        "line_items": _compact_breakdown_for_notes(rows),
+    }
+
+    try:
+        markdown = da_assistant.generate_da_key_notes(ctx)
+        return jsonify({"ok": True, "markdown": markdown})
+    except Exception as e:
+        logger.exception("[CMS] da_desk_da_key_notes failed")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

@@ -840,16 +840,30 @@ def _try_strip_left_prefix_line_numbers(lines: List[str]) -> Optional[List[str]]
 
 def _strip_bare_sequential_line_rows(lines: List[str]) -> Optional[List[str]]:
     """
-    Remove rows that are only a 1-3 digit integer when they form a running
+    Remove rows that are only a 1-4 digit integer when they form a running
     line-number column (typical of **right** margin: each number on its own
     extracted line). These fail the left-prefix stripper's coverage ratio when
     most lines are normal prose.
+
+    Two acceptance modes (either qualifies):
+
+    Strict (clean digital PDFs): strong density (≥40 % of integers in span),
+    very few inversions, ≥10 hits.
+
+    Lenient (OCR'd / scanned PDFs): on a Toshiba MFP scan only ~1 in 3 line
+    numbers survive OCR, so density-on-span will land near 0.20–0.35. Accept
+    when there are still ≥30 hits, the values are strictly monotonic
+    (inversions ≤ 5 %), and the median gap between consecutive values is
+    small (≤ 8) — i.e. these really are sequential margin numbers, not
+    coincidental data values.
     """
     bare_indices: List[int] = []
     bare_values: List[int] = []
     for i, line in enumerate(lines):
         s = line.strip()
-        if re.fullmatch(r'\d{1,3}', s):
+        # Accept up to 4 digits so we don't silently miss line 1000+ in long
+        # negotiated charter parties (this PDF runs to line 1131).
+        if re.fullmatch(r'\d{1,4}', s):
             bare_indices.append(i)
             bare_values.append(int(s))
     if len(bare_values) < 10:
@@ -858,19 +872,37 @@ def _strip_bare_sequential_line_rows(lines: List[str]) -> Optional[List[str]]:
     span = max(bare_values) - min(bare_values)
     if span < 15:
         return None
-    if len(set(bare_values)) / (span + 1) < 0.40:
-        return None
+
+    density = len(set(bare_values)) / (span + 1)
     if len(bare_values) > 1:
-        inv = sum(
+        inversions_frac = sum(
             1 for i in range(len(bare_values) - 1) if bare_values[i] > bare_values[i + 1]
-        )
-        if inv / (len(bare_values) - 1) > 0.25:
-            return None
+        ) / (len(bare_values) - 1)
+    else:
+        inversions_frac = 0.0
+
+    sorted_vals = sorted(bare_values)
+    gaps = [
+        sorted_vals[i + 1] - sorted_vals[i] for i in range(len(sorted_vals) - 1)
+    ]
+    median_gap = sorted(gaps)[len(gaps) // 2] if gaps else 0
+
+    accept_strict = density >= 0.40 and inversions_frac <= 0.20
+    accept_lenient = (
+        len(bare_values) >= 30
+        and density >= 0.18
+        and inversions_frac <= 0.05
+        and median_gap <= 8
+    )
+    if not (accept_strict or accept_lenient):
+        return None
 
     logger.info(
         "[extractor] Stripping bare line-number rows (margin column, often right): "
-        "range %d–%d, %d rows removed",
+        "range %d–%d, %d rows removed (density=%.2f, median_gap=%d, mode=%s)",
         min(bare_values), max(bare_values), len(bare_indices),
+        density, median_gap,
+        "strict" if accept_strict else "lenient",
     )
     skip = set(bare_indices)
     return [line for i, line in enumerate(lines) if i not in skip]
@@ -878,11 +910,22 @@ def _strip_bare_sequential_line_rows(lines: List[str]) -> Optional[List[str]]:
 
 # Lines repeated on every page of many BIMCO / owner “working copy” charter PDFs
 # (footer band is often ≥8pt so MIN_FONT filtering in fitz-presplit does not remove it).
+#
+# We accept three vendor formats:
+#   - SmartCon working copy:    "CP ID: 12345", "CP Date: …", "Vessel: …"
+#   - Chinsay working copy:     "Chinsay ID: 139705"  (and the OCR-mangled
+#                               "ChinsaylD: 139705" variant where l→I)
+#   - Page-of footers:          "Page 1 of 35"  AND  the trailing-text variant
+#                               "Page 1 of 35 - MORGENSTOND 1-19 May 2021"
 _CP_PDF_FOOTER_LINE_RES: Tuple[re.Pattern, ...] = (
     re.compile(r"^CP ID:\s*\d+\s*$", re.I),
     re.compile(r"^CP Date:\s*.+$", re.I),
     re.compile(r"^Vessel:\s*.+$", re.I),
-    re.compile(r"^Page\s+\d+\s+of\s+\d+\s*$", re.I),
+    # Chinsay working-copy: tolerate extra whitespace and OCR ID/lD mangling
+    re.compile(r"^Chinsay\s*[Il]\s*[Dd]\s*[:.]?\s*\d+\s*$", re.I),
+    # Page footer: accept either a clean "Page N of M" or a longer line with a
+    # trailing dash + descriptor ("Page 2 of 35 - MORGENSTOND 1-19 May 2021").
+    re.compile(r"^Page\s+\d+\s+of\s+\d+(?:\s*[-–—].*)?\s*$", re.I),
     re.compile(r"^WORKING COPY\s*$", re.I),
 )
 
@@ -1691,8 +1734,11 @@ def _presplit_parse_clause_heading_line(core: str) -> Optional[Tuple[int, str]]:
     If *core* opens a top-level clause heading, return (clause_num, title_rest).
 
     Supports:
-      - ``46. BIMCO …``  (main form)
-      - ``Clause 46 - …`` / ``Clause 46 — …`` (rider / additional-clauses pages)
+      - ``46. BIMCO …``                             (main form)
+      - ``Clause 46 - …`` / ``Clause 46 — …``       (rider / additional-clauses)
+      - ``Clause 58`` / ``Clause 58.``              (bare rider heading; the
+                                                     real title or body
+                                                     follows on the next line)
     """
     if not core:
         return None
@@ -1712,6 +1758,12 @@ def _presplit_parse_clause_heading_line(core: str) -> Optional[Tuple[int, str]]:
         r = (m3.group(2) or "").strip()
         tail = f"Charter Party - {r}" if r else "Charter Party"
         return n, tail
+    # Bare "Clause N" / "Clause N." line — common in additional/rider clauses
+    # where the body text is a self-contained paragraph and there is no
+    # inline title (e.g. "Clause 59\nThe Charterers have the liberty…").
+    m4 = re.match(r"(?i)^Clause\s+(\d{1,3})\s*\.?\s*$", core)
+    if m4:
+        return int(m4.group(1)), ""
     return None
 
 
@@ -1809,30 +1861,62 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
     # Matches a bare clause number on its own line: "1." or "89."
     _BARE_NUM_RE = re.compile(r"^(\d{1,3})\.$")
 
-    # Appendix / annex / schedule header detection (best-effort).
-    # Covers two common patterns:
+    # Appendix / annex / schedule / additional-clauses header detection
+    # (best-effort). Covers two common patterns:
     #   1. Line starts with keyword + identifier:
-    #        "APPENDIX A", "Annex B", "Schedule I", "Exhibit C"
+    #        "APPENDIX A", "Annex B", "Schedule I", "Exhibit C",
+    #        "ADDENDUM No. 1"
     #   2. Short all-caps line containing keyword anywhere:
     #        "NYPE 2015 APPENDIX A (VESSEL DESCRIPTION)"
+    #        "ADDITIONAL CLAUSES TO CHARTER PARTY DATED 19TH MAY 2021"
     # Custom appendix titles that use neither pattern are not caught — they
     # remain in the last clause body, which is acceptable.
     _APPENDIX_START_RE = re.compile(
-        r"^(?:APPENDIX|ANNEX|SCHEDULE|EXHIBIT)\s+[A-Z0-9]",
+        r"^(?:APPENDIX|ANNEX|SCHEDULE|EXHIBIT|ADDENDUM|ADDENDA)\b",
         re.IGNORECASE,
+    )
+    # Two flavours of structural divider:
+    #   "restart"   — appendix/annex bodies that contain their own internal
+    #                 numbering (clause 1, 2, 3 …) so we MUST reset
+    #                 max_clause_seen or those numbers are swallowed by the
+    #                 monotonic guard.
+    #   "continue"  — additional / rider / addendum clauses whose numbers
+    #                 continue from the main body (e.g. main body ends at
+    #                 clause 57, rider starts at Clause 58). Resetting
+    #                 max_clause_seen would let a stray "Clause 1" inside the
+    #                 rider falsely register as a new top-level clause.
+    _APPENDIX_RESTART_KEYWORDS = ("APPENDIX", "ANNEX", "SCHEDULE", "EXHIBIT")
+    _APPENDIX_CONTINUE_KEYWORDS = (
+        "ADDITIONAL CLAUSE",  # matches "ADDITIONAL CLAUSES" too
+        "RIDER CLAUSE",
+        "ADDENDUM",
+        "ADDENDA",
+    )
+    _APPENDIX_ALL_KEYWORDS = (
+        _APPENDIX_RESTART_KEYWORDS + _APPENDIX_CONTINUE_KEYWORDS
     )
 
     def _is_appendix_header(text: str) -> bool:
         if not text or len(text) > 80:
             return False
-        # Pattern 1: starts with keyword
         if _APPENDIX_START_RE.match(text):
             return True
-        # Pattern 2: short all-caps line containing keyword
+        # Short all-caps line containing one of the keywords.
         alpha = [c for c in text if c.isalpha()]
         if alpha and all(c.isupper() for c in alpha):
-            return any(kw in text for kw in ("APPENDIX", "ANNEX", "SCHEDULE", "EXHIBIT"))
+            up = text.upper()
+            return any(kw in up for kw in _APPENDIX_ALL_KEYWORDS)
         return False
+
+    def _appendix_restarts_numbering(text: str) -> bool:
+        """True for APPENDIX/ANNEX/SCHEDULE/EXHIBIT (their own clause space)."""
+        up = text.upper()
+        # Continuation keywords win when both could match — e.g. an
+        # "ADDENDUM No. 1 - APPENDIX A" line is logically a continuation
+        # of the main numbering.
+        if any(kw in up for kw in _APPENDIX_CONTINUE_KEYWORDS):
+            return False
+        return any(kw in up for kw in _APPENDIX_RESTART_KEYWORDS)
 
     raw_lines = full_text.splitlines()
 
@@ -1909,22 +1993,26 @@ def _presplit_on_clauses(full_text: str) -> List[Dict]:
                     current_lines = []
         elif _is_appendix_header(core):
             # Non-numbered structural boundary: Appendix A, Annex B, etc.
-            # Reset max_clause_seen so sub-items inside the appendix are not
-            # accidentally swallowed by the monotonic guard.
+            # For APPENDIX/ANNEX/SCHEDULE/EXHIBIT we reset max_clause_seen so
+            # sub-items inside the appendix (whose numbering restarts at 1)
+            # are not swallowed by the monotonic guard. For ADDITIONAL
+            # CLAUSES / RIDER / ADDENDUM the numbering CONTINUES from the
+            # main body (e.g. main ends at 57, rider starts at Clause 58),
+            # so we keep max_clause_seen intact — otherwise stray small
+            # numerals inside the rider get misread as top-level clauses.
             #
             # Exception: a fully struck-through appendix marker (e.g.
             # "~~APPENDIX "A"~~") is deleted content — the appendix was
             # removed in negotiation and is NOT a real structural boundary.
-            # Treating it as a boundary would reset max_clause_seen to 0,
-            # causing the numbered prose items that follow (sub-clauses like
-            # "1. Owners will arrange…", "2. Charterers to pay…") to be
-            # misidentified as top-level clause headings.
             if stripped.startswith("~~"):
                 # Struck-through appendix — treat as body text, keep counter.
                 current_lines.append(line)
             else:
                 _flush()
-                max_clause_seen = 0
+                if _appendix_restarts_numbering(core):
+                    max_clause_seen = 0
+                # else: continuation rider — preserve max_clause_seen so the
+                #       parser correctly accepts Clause 58, Clause 59, …
                 current_title = stripped
                 current_lines = []
         else:
@@ -2050,10 +2138,21 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
     MIN_FONT = 8.0
     page_texts: List[str] = []
 
+    # Footer-band drop: anything whose vertical midpoint falls in the bottom
+    # FOOTER_BAND_FRAC of the page is treated as page-furniture (copyright
+    # disclaimer, vendor ID, page X of N) and discarded. On scanned/OCR'd
+    # PDFs the disclaimer band is randomized garbage that no regex can catch
+    # reliably, but it ALWAYS sits in this band, so position-based filtering
+    # is the safe net. The fraction is conservative (10%): real clause text
+    # may extend close to the bottom margin on dense pages, but never into
+    # the printed footer area.
+    FOOTER_BAND_FRAC = 0.10
+
     with fitz.open(stream=raw_bytes, filetype="pdf") as pdf:
         for page in pdf:
             blocks = page.get_text("rawdict")["blocks"]
             strike_bands = _fitz_collect_strike_bands(page, blocks=blocks)
+            footer_y_threshold = page.rect.height * (1.0 - FOOTER_BAND_FRAC)
 
             page_lines: List[str] = []
             for block in blocks:
@@ -2061,47 +2160,87 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
                     continue
                 for line in block.get("lines", []):
                     spans = line.get("spans", [])
-                    text_spans = [s for s in spans if _fitz_span_plain_text(s).strip()]
-                    if not text_spans:
+                    if not spans:
                         continue
-                    max_size = max(s["size"] for s in text_spans)
+                    # Drop lines positioned in the printed footer band —
+                    # vendor copyright disclaimer, "Chinsay ID", "Page N of M",
+                    # and any OCR garbage layered on top of them.
+                    line_bbox = line.get("bbox")
+                    if line_bbox and len(line_bbox) >= 4:
+                        line_y_mid = (line_bbox[1] + line_bbox[3]) / 2.0
+                        if line_y_mid >= footer_y_threshold:
+                            continue
+                    # MIN_FONT gate: at least one substantive (non-whitespace)
+                    # span on the line must clear the font threshold. Pure
+                    # whitespace spans don't have a meaningful size.
+                    sized_spans = [
+                        s for s in spans if _fitz_span_plain_text(s).strip()
+                    ]
+                    if not sized_spans:
+                        continue
+                    max_size = max(s["size"] for s in sized_spans)
                     if max_size < MIN_FONT:
                         continue
 
-                    # Build line text with per-span strikethrough markers,
-                    # grouping consecutive struck spans before cleaning so
-                    # that ligature fragments merge correctly inside ~~…~~.
-                    parts: List[str] = []
-                    struck_buf: List[str] = []
+                    # Build line text by concatenating EVERY span's text in
+                    # source order — including whitespace-only spans, which
+                    # PyMuPDF often emits as their own glyph cluster between
+                    # words. Strikethrough state is tracked per character
+                    # segment; consecutive struck pieces are wrapped in a
+                    # single ~~…~~ marker.
+                    #
+                    # We deliberately do NOT use " ".join(parts): on heavily
+                    # span-fragmented OCR'd PDFs (e.g. Toshiba MFP scans), a
+                    # single visual line can yield 25+ spans and joining with
+                    # spaces produces "Th e Vesse l dur i ng" instead of
+                    # "The Vessel during". The character data inside each
+                    # span already carries its own leading/trailing whitespace.
+                    raw_pieces: List[Tuple[str, bool]] = []
+                    for s in spans:
+                        for piece, is_struck in _fitz_span_strike_segments(
+                            s, strike_bands
+                        ):
+                            if piece:
+                                raw_pieces.append((piece, is_struck))
 
-                    def _flush_struck_ps() -> None:
-                        if not struck_buf:
+                    # Coalesce adjacent (struck/non-struck) pieces, then emit
+                    # ~~…~~ wrappers around struck runs only.
+                    line_parts: List[str] = []
+                    cur_text: List[str] = []
+                    cur_struck: Optional[bool] = None
+
+                    def _flush_run() -> None:
+                        nonlocal cur_text, cur_struck
+                        if not cur_text:
                             return
-                        merged = _clean_pdf_text(" ".join(struck_buf)).strip()
-                        if merged:
-                            parts.append(f"~~{merged}~~")
-                        struck_buf.clear()
+                        merged = _clean_pdf_text("".join(cur_text))
+                        if cur_struck and merged.strip():
+                            line_parts.append(f"~~{merged.strip()}~~")
+                        elif merged:
+                            line_parts.append(merged)
+                        cur_text = []
+                        cur_struck = None
 
-                    for s in text_spans:
-                        sub_struck: List[str] = []
-                        for piece, is_struck in _fitz_span_strike_segments(s, strike_bands):
-                            if piece == "":
-                                continue
-                            if is_struck:
-                                if not piece.strip():
-                                    continue
-                                sub_struck.append(piece)
-                            else:
-                                if sub_struck:
-                                    struck_buf.append("".join(sub_struck))
-                                    sub_struck = []
-                                _flush_struck_ps()
-                                parts.append(_clean_pdf_text(piece))
-                        if sub_struck:
-                            struck_buf.append("".join(sub_struck))
-                    _flush_struck_ps()
+                    for piece, is_struck in raw_pieces:
+                        # Whitespace-only pieces stay attached to the
+                        # surrounding non-struck run so that spaces between
+                        # words are preserved without being marked struck.
+                        if not piece.strip():
+                            if cur_struck is True:
+                                _flush_run()
+                            cur_struck = False
+                            cur_text.append(piece)
+                            continue
+                        if cur_struck is None or cur_struck == is_struck:
+                            cur_struck = is_struck
+                            cur_text.append(piece)
+                        else:
+                            _flush_run()
+                            cur_struck = is_struck
+                            cur_text.append(piece)
+                    _flush_run()
 
-                    combined = " ".join(parts).strip()
+                    combined = "".join(line_parts).strip()
                     if combined:
                         page_lines.append(combined)
 

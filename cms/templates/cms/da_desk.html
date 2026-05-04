@@ -275,6 +275,190 @@
   .da-chat-send:hover:not(:disabled) { opacity: .88; }
   .da-chat-send:disabled { opacity: .45; cursor: not-allowed; }
   [data-theme="light"] .da-chat-send { background: #0f172a; color: #fff; }
+
+  .da-details-btn {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.08);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  [data-theme="light"] .da-details-btn {
+    background: rgba(0,0,0,.05);
+  }
+  .da-details-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .da-details-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .da-detail-panel {
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .da-detail-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 24;
+    box-shadow: 0 0 0 transparent;
+    transition: box-shadow 0.15s ease;
+  }
+  .da-detail-panel:not([hidden]) .da-detail-toolbar {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  }
+  [data-theme="light"] .da-detail-panel:not([hidden]) .da-detail-toolbar {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  }
+
+  tr.da-result-row.da-result--selected td {
+    background: rgba(96, 165, 250, 0.14);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  [data-theme="light"] tr.da-result-row.da-result--selected td {
+    background: rgba(37, 99, 235, 0.1);
+  }
+  .da-card.da-result--selected {
+    border-color: var(--accent);
+    background: rgba(96, 165, 250, 0.1);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  [data-theme="light"] .da-card.da-result--selected {
+    background: rgba(37, 99, 235, 0.06);
+  }
+  .da-compare-col.da-result--selected {
+    border-radius: 10px;
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    background: rgba(96, 165, 250, 0.06);
+  }
+  [data-theme="light"] .da-compare-col.da-result--selected {
+    background: rgba(37, 99, 235, 0.05);
+  }
+  .da-detail-title {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .da-detail-body {
+    padding: 16px 20px 22px;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: min(55vh, 520px);
+    overflow-y: auto;
+  }
+  .da-detail-head {
+    margin-bottom: 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .da-detail-cost-table td.da-num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .da-detail-cost-table td.da-cat-cell {
+    vertical-align: top;
+    font-weight: 600;
+    color: var(--text);
+    border-right: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    max-width: 9.5em;
+    word-break: break-word;
+  }
+  [data-theme="light"] .da-detail-cost-table td.da-cat-cell {
+    background: rgba(0, 0, 0, 0.03);
+  }
+  .da-row-subtotal td {
+    background: rgba(255, 255, 255, 0.04);
+    font-weight: 600;
+    border-top: 1px solid var(--border);
+  }
+  [data-theme="light"] .da-row-subtotal td {
+    background: rgba(0, 0, 0, 0.04);
+  }
+  .da-row-grand td {
+    background: rgba(255, 255, 255, 0.08);
+    font-weight: 700;
+    font-size: 14px;
+    border-top: 2px solid var(--border);
+  }
+  [data-theme="light"] .da-row-grand td {
+    background: rgba(0, 0, 0, 0.06);
+  }
+  .da-da-footnote {
+    margin: 12px 0 0;
+    font-size: 12px;
+    color: var(--muted, #888);
+    font-style: italic;
+  }
+  .da-key-notes {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .da-key-notes-head {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+  }
+  .da-key-notes-mount { font-size: 13px; line-height: 1.55; }
+  .da-key-notes-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted, #888);
+    font-size: 13px;
+  }
+  .da-key-notes-body :where(h1, h2, h3, h4) {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .da-key-notes-body ul {
+    margin: 0;
+    padding-left: 1.2em;
+  }
+  .da-key-notes-body li { margin-bottom: 6px; }
+  .da-key-notes-body p { margin: 0 0 8px; }
+
+  .da-comment-details { max-width: 36em; }
+  .da-comment-details summary.da-comment-summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #fff;
+    list-style: none;
+    user-select: none;
+  }
+  .da-comment-details summary.da-comment-summary::-webkit-details-marker { display: none; }
+  .da-comment-details summary.da-comment-summary::before {
+    content: '▸ ';
+    display: inline-block;
+    transition: transform 0.15s ease;
+    opacity: 0.75;
+  }
+  .da-comment-details[open] summary.da-comment-summary::before {
+    transform: rotate(90deg);
+  }
+  .da-comment-list {
+    margin: 8px 0 0;
+    padding-left: 1.15em;
+    font-weight: 400;
+    color: var(--text);
+  }
+  .da-comment-li { margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
 </style>
 {% endblock %}
 
@@ -314,8 +498,7 @@
         <div class="da-field form-group">
           <label for="da-request-type">What is required?</label>
           <select id="da-request-type" name="request_type" {% if not da_desk_available %}disabled{% endif %}>
-            <option value="" disabled selected>Select an option</option>
-            <option value="port_list">D/A — vessels in port (PDA/FDA)</option>
+            <option value="port_list" selected>D/A — vessels in port (PDA/FDA)</option>
             <option value="stevedoring">Stevedoring</option>
             <option value="agency_fee">Agency fee</option>
             <option value="compare">Compare my D/A (two references)</option>
@@ -340,6 +523,13 @@
     <div class="card-header">Results</div>
     <div class="da-results-inner da-empty" id="da-results">
       Choose a request type and run a query. Structured tables and summaries will show here.
+    </div>
+    <div id="da-detail-panel" class="da-detail-panel" hidden>
+      <div class="da-detail-toolbar">
+        <span class="da-detail-title">Details</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="da-detail-close">Close</button>
+      </div>
+      <div id="da-detail-body" class="da-detail-body"></div>
     </div>
   </div>
 </div>
@@ -384,6 +574,41 @@
   var resultsEl = document.getElementById('da-results');
   var submitBtn = document.getElementById('da-submit');
   var runUrl = {{ url_for('cms.da_desk_run') | tojson }};
+  var detailsUrl = {{ url_for('cms.da_desk_da_details') | tojson }};
+  var keyNotesUrl = {{ url_for('cms.da_desk_da_key_notes') | tojson }};
+  var daKeyNotesAvailable = {{ da_chat_available | tojson }};
+  var detailPanel = document.getElementById('da-detail-panel');
+  var detailBody = document.getElementById('da-detail-body');
+  var detailClose = document.getElementById('da-detail-close');
+  var daDetailGen = 0;
+
+  function clearDaResultSelection() {
+    if (!resultsEl) return;
+    resultsEl.querySelectorAll('.da-result--selected').forEach(function (el) {
+      el.classList.remove('da-result--selected');
+    });
+  }
+
+  function setDaResultSelection(detailsBtn) {
+    clearDaResultSelection();
+    if (!detailsBtn) return;
+    var anchor =
+      detailsBtn.closest('tr.da-result-row') ||
+      detailsBtn.closest('.da-card.da-card--row') ||
+      detailsBtn.closest('.da-compare-col');
+    if (anchor) anchor.classList.add('da-result--selected');
+  }
+
+  function clearDetailPanel() {
+    if (!detailPanel || !detailBody) return;
+    detailPanel.hidden = true;
+    detailBody.innerHTML = '';
+    clearDaResultSelection();
+  }
+
+  if (detailClose) {
+    detailClose.addEventListener('click', clearDetailPanel);
+  }
 
   function escapeHtml(s) {
     if (s == null || s === '') return '';
@@ -400,6 +625,7 @@
     rowCompare.style.display = isCompare ? 'block' : 'none';
   }
   typeSel.addEventListener('change', syncFormMode);
+  syncFormMode();
 
   function costTableHtml(payload) {
     if (!payload || !payload.found) {
@@ -416,45 +642,434 @@
       '<div class="da-table-wrap"><table>' + head + '<tbody>' + rows + '</tbody></table></div>';
   }
 
+  function safeDaId(raw) {
+    if (raw === null || raw === undefined || raw === 'N/A') return null;
+    var n = typeof raw === 'number' ? raw : parseInt(String(raw).trim(), 10);
+    return !isNaN(n) && n > 0 ? n : null;
+  }
+
+  function detailsButton(daId) {
+    if (daId == null) {
+      return '<button type="button" class="da-details-btn" disabled title="No DA ID">Details</button>';
+    }
+    return (
+      '<button type="button" class="da-details-btn da-details-btn--fetch" data-da-id="' +
+      String(daId) +
+      '">Details</button>'
+    );
+  }
+
+  function parseAmount(v) {
+    if (v === null || v === undefined || v === '') return NaN;
+    if (typeof v === 'number') return v;
+    var n = parseFloat(String(v).replace(/,/g, ''));
+    return isNaN(n) ? NaN : n;
+  }
+
+  function formatMoney(amount, currency) {
+    if (amount === null || isNaN(amount)) return '—';
+    var cur = currency ? String(currency) : '';
+    var parts = Number(amount).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return parts + (cur ? ' ' + cur : '');
+  }
+
+  function groupBreakdownRows(rows) {
+    var groups = [];
+    var idx = {};
+    (rows || []).forEach(function (row) {
+      var c = row.category || '—';
+      if (idx[c] === undefined) {
+        idx[c] = groups.length;
+        groups.push({ name: c, rows: [] });
+      }
+      groups[idx[c]].rows.push(row);
+    });
+    return groups;
+  }
+
+  function commentSnippet(c) {
+    if (c == null || c === '') return '';
+    if (typeof c === 'object') {
+      var t =
+        c.text ||
+        c.comment ||
+        c.commentText ||
+        c.body ||
+        c.content ||
+        c.message ||
+        c.note ||
+        '';
+      return String(t).trim();
+    }
+    return String(c).trim();
+  }
+
+  function renderCommentsCell(comments) {
+    if (!Array.isArray(comments) || comments.length === 0) return '—';
+    var n = comments.length;
+    var lis = [];
+    for (var ci = 0; ci < comments.length; ci++) {
+      var txt = commentSnippet(comments[ci]);
+      if (!txt) txt = '(empty comment)';
+      lis.push('<li class="da-comment-li">' + escapeHtml(txt) + '</li>');
+    }
+    return (
+      '<details class="da-comment-details">' +
+      '<summary class="da-comment-summary">' +
+      escapeHtml(n === 1 ? '1 comment' : n + ' comments') +
+      '</summary>' +
+      '<ul class="da-comment-list">' +
+      lis.join('') +
+      '</ul>' +
+      '</details>'
+    );
+  }
+
+  function stripDuplicateKeyNotesHeading(md) {
+    var orig = String(md || '').trim();
+    if (!orig) return '';
+    var s = orig;
+    var patterns = [
+      /^#{1,6}\s*Key\s+notes\s*:?\s*\n*/i,
+      /^\*{1,2}\s*Key\s+notes\s*\*{1,2}\s*:?\s*\n*/i,
+      /^_{1,2}\s*Key\s+notes\s*_{1,2}\s*:?\s*\n*/i,
+      /^Key\s+notes\s*:?\s*\n+/i,
+    ];
+    for (var pi = 0; pi < patterns.length; pi++) {
+      var prev;
+      do {
+        prev = s;
+        s = s.replace(patterns[pi], '').trim();
+      } while (s !== prev);
+    }
+    return s || orig;
+  }
+
+  function renderDaDetailsIntoPanel(d) {
+    var meta = [];
+    if (d.vessel_name) meta.push('<strong>' + escapeHtml(d.vessel_name) + '</strong>');
+    if (d.reference_number) meta.push('Ref <span class="font-mono">' + escapeHtml(d.reference_number) + '</span>');
+    if (d.port_name) meta.push(escapeHtml(d.port_name));
+    if (d.status) meta.push(escapeHtml(d.status));
+    meta.push('<span class="font-mono">DA ID ' + escapeHtml(d.da_id) + '</span>');
+    if (d.stage) {
+      meta.push(
+        '<span class="da-meta">' + escapeHtml(d.stage) + ' · ' + escapeHtml(d.persona || '') + '</span>'
+      );
+    }
+
+    var rowsIn = d.cost_breakdown || [];
+    var currency = '';
+    for (var ri = 0; ri < rowsIn.length; ri++) {
+      if (rowsIn[ri].currency) {
+        currency = String(rowsIn[ri].currency);
+        break;
+      }
+    }
+
+    var groups = groupBreakdownRows(rowsIn);
+    var bodyHtml = '';
+    var grand = 0;
+
+    groups.forEach(function (g) {
+      var sub = 0;
+      var spanCount = g.rows.length + 1;
+      g.rows.forEach(function (row, idx) {
+        var comm = row.comments;
+        var noteHtml = renderCommentsCell(Array.isArray(comm) ? comm : []);
+        var item = row.item_name || row.item || '—';
+        var amtNum = parseAmount(row.amount);
+        if (!isNaN(amtNum)) sub += amtNum;
+        var rowCur = row.currency || currency;
+        var amtDisp = formatMoney(amtNum, rowCur);
+        var catCell = '';
+        if (idx === 0) {
+          catCell =
+            '<td rowspan="' +
+            spanCount +
+            '" class="da-cat-cell">' +
+            escapeHtml(g.name) +
+            '</td>';
+        }
+        bodyHtml +=
+          '<tr>' +
+          catCell +
+          '<td>' +
+          escapeHtml(item) +
+          '</td><td class="da-num">' +
+          escapeHtml(amtDisp) +
+          '</td><td class="da-comments-cell">' +
+          noteHtml +
+          '</td></tr>';
+      });
+      grand += sub;
+      bodyHtml +=
+        '<tr class="da-row-subtotal"><td><strong>Subtotal</strong></td><td class="da-num"><strong>' +
+        escapeHtml(formatMoney(sub, currency)) +
+        '</strong></td><td></td></tr>';
+    });
+
+    var thead =
+      '<thead><tr><th>Category</th><th>Item</th><th>Amount</th><th>Comments</th></tr></thead>';
+
+    var stageNote =
+      String(d.stage || '').toUpperCase() === 'PDA'
+        ? '<p class="da-da-footnote">These are PDA amounts — provisional agreed values in the system, not firm quotes.</p>'
+        : '';
+
+    return (
+      '<div class="da-detail-head">' +
+      meta.join(' · ') +
+      '</div>' +
+      '<div class="da-table-wrap da-detail-table-wrap"><table class="da-detail-cost-table">' +
+      thead +
+      '<tbody>' +
+      bodyHtml +
+      '<tr class="da-row-grand"><td colspan="2"><strong>Total</strong></td><td class="da-num"><strong>' +
+      escapeHtml(formatMoney(grand, currency)) +
+      '</strong></td><td></td></tr>' +
+      '</tbody></table></div>' +
+      stageNote +
+      '<div class="da-key-notes" id="da-key-notes-section">' +
+      '<div class="da-key-notes-head">Key notes</div>' +
+      '<div id="da-key-notes-mount" class="da-key-notes-mount"></div>' +
+      '</div>'
+    );
+  }
+
+  async function fetchAndFillKeyNotes(d, gen) {
+    if (gen === undefined || gen === null) gen = daDetailGen;
+    var mount = document.getElementById('da-key-notes-mount');
+    if (!mount) return;
+    if (!daKeyNotesAvailable || !keyNotesUrl) {
+      mount.innerHTML =
+        '<p class="text-muted">Set <span class="font-mono">ANTHROPIC_API_KEY</span> (same as the assistant tab) to generate AI key notes from these figures.</p>';
+      return;
+    }
+    mount.innerHTML =
+      '<div class="da-key-notes-loading"><span class="da-spinner"></span><span>Generating key notes…</span></div>';
+    try {
+      var payload = {
+        da_id: d.da_id,
+        vessel_name: d.vessel_name,
+        port_name: d.port_name,
+        reference_number: d.reference_number,
+        stage: d.stage || 'PDA',
+        persona: d.persona || 'OPERATOR',
+        cost_breakdown: d.cost_breakdown || [],
+      };
+      var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timeoutId = null;
+      if (ctrl) {
+        timeoutId = setTimeout(function () {
+          ctrl.abort();
+        }, 120000);
+      }
+      var res = await fetch(keyNotesUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (gen !== daDetailGen) return;
+
+      mount = document.getElementById('da-key-notes-mount');
+      if (!mount) return;
+
+      var data = {};
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        data = { _parse_error: true };
+      }
+
+      if (!res.ok || data.ok === false) {
+        mount.innerHTML =
+          '<div class="da-alert err">' + escapeHtml(data.error || 'HTTP ' + res.status) + '</div>';
+        return;
+      }
+      if (data._parse_error || typeof data.markdown !== 'string') {
+        mount.innerHTML =
+          '<div class="da-alert err">Unexpected response from key-notes API (not JSON).</div>';
+        return;
+      }
+
+      var rawMd = data.markdown;
+      var md = stripDuplicateKeyNotesHeading(rawMd);
+      if (!md.trim()) {
+        mount.innerHTML =
+          '<p class="text-muted">No key notes text was returned. Check <span class="font-mono">ANTHROPIC_API_KEY</span>, model name, and server logs.</p>';
+        return;
+      }
+
+      mount.innerHTML =
+        '<div class="da-key-notes-body">' +
+        (typeof marked !== 'undefined'
+          ? marked.parse(md, { breaks: true })
+          : '<pre style="white-space:pre-wrap;margin:0;">' + escapeHtml(md) + '</pre>') +
+        '</div>';
+    } catch (e) {
+      if (gen !== daDetailGen) return;
+      mount = document.getElementById('da-key-notes-mount');
+      if (!mount) return;
+      var msg = String(e.message || e);
+      if (/abort/i.test(msg)) msg = 'Key notes request timed out (120s). Try again.';
+      mount.innerHTML = '<div class="da-alert err">' + escapeHtml(msg) + '</div>';
+    }
+  }
+
+  async function fetchAndShowDetails(daId) {
+    if (!detailPanel || !detailBody || daId == null) return;
+    var gen = ++daDetailGen;
+    detailPanel.hidden = false;
+    detailBody.innerHTML =
+      '<div class="da-spinner"></div><div class="text-muted" style="text-align:center;">Loading details…</div>';
+    detailPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    try {
+      var url = detailsUrl + '?da_id=' + encodeURIComponent(String(daId));
+      var res = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      var data = await res.json().catch(function () {
+        return {};
+      });
+      if (!res.ok) {
+        detailBody.innerHTML =
+          '<div class="da-alert err">' + escapeHtml(data.error || 'HTTP ' + res.status) + '</div>';
+        return;
+      }
+      detailBody.innerHTML = renderDaDetailsIntoPanel(data);
+      fetchAndFillKeyNotes(data, gen);
+    } catch (e) {
+      detailBody.innerHTML =
+        '<div class="da-alert err">' + escapeHtml(String(e.message || e)) + '</div>';
+    }
+  }
+
+  resultsEl.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.da-details-btn--fetch');
+    if (!btn) return;
+    var id = safeDaId(btn.getAttribute('data-da-id'));
+    if (id == null) return;
+    setDaResultSelection(btn);
+    fetchAndShowDetails(id);
+  });
+
   function renderPortVessels(data) {
     var vessels = data.vessels || [];
     var meta = [];
     if (data.port_name) meta.push('Port: ' + data.port_name);
     if (data.date_from) meta.push('From ' + data.date_from + (data.date_to ? ' to ' + data.date_to : ''));
     if (typeof data.total_vessels === 'number') meta.push('Total: ' + data.total_vessels);
-    var rows = vessels.map(function (v) {
-      var act = v.main_activity || '—';
-      return '<tr><td>' + escapeHtml(v.vessel_name) + '</td><td class="font-mono">' + escapeHtml(v.reference_number) +
-        '</td><td>' + escapeHtml(v.port_name) + '</td><td>' + escapeHtml(v.eta_ata) + '</td><td>' +
-        escapeHtml(v.state) + '</td><td>' + escapeHtml(act) + '</td></tr>';
-    }).join('');
-    var thead = '<thead><tr><th>Vessel</th><th>Reference</th><th>Port</th><th>ETA/ATA</th><th>State</th><th>Activity</th></tr></thead>';
-    return '<div class="da-badge">Port vessel list</div><div class="da-meta">' + escapeHtml(meta.join(' · ')) + '</div>' +
-      '<div class="da-table-wrap"><table>' + thead + '<tbody>' + rows + '</tbody></table></div>';
+    var rows = vessels
+      .map(function (v) {
+        var act = v.main_activity || '—';
+        var daId = safeDaId(v.da_id);
+        return (
+          '<tr class="da-result-row"><td>' +
+          escapeHtml(v.vessel_name) +
+          '</td><td class="font-mono">' +
+          escapeHtml(v.reference_number) +
+          '</td><td>' +
+          escapeHtml(v.port_name) +
+          '</td><td>' +
+          escapeHtml(v.eta_ata) +
+          '</td><td>' +
+          escapeHtml(v.state) +
+          '</td><td>' +
+          escapeHtml(act) +
+          '</td><td>' +
+          detailsButton(daId) +
+          '</td></tr>'
+        );
+      })
+      .join('');
+    var thead =
+      '<thead><tr><th>Vessel</th><th>Reference</th><th>Port</th><th>ETA/ATA</th><th>State</th><th>Activity</th><th></th></tr></thead>';
+    return (
+      '<div class="da-badge">Port vessel list</div><div class="da-meta">' +
+      escapeHtml(meta.join(' · ')) +
+      '</div>' +
+      '<div class="da-table-wrap"><table>' +
+      thead +
+      '<tbody>' +
+      rows +
+      '</tbody></table></div>'
+    );
   }
 
   function renderDaSearch(data) {
     var q = data.query || '';
     var list = data.results || [];
-    var cards = list.map(function (r, i) {
-      var d = r.details || {};
-      var vname = (d.vessel && d.vessel.name) || '—';
-      var pname = (d.port && d.port.name) || '—';
-      var ref = d.referenceNumber || '—';
-      return '<div class="da-card"><strong>' + escapeHtml(vname) + '</strong><div class="sub">DA ID ' +
-        escapeHtml(r.da_id) + ' · ' + escapeHtml(pname) + ' · Ref ' + escapeHtml(ref) + '</div></div>';
-    }).join('');
-    return '<div class="da-badge">DA search</div><div class="da-meta">Query: ' + escapeHtml(q) +
-      ' · Showing ' + list.length + ' detail snapshot(s)</div><div class="da-cards">' + cards + '</div>';
+    var cards = list
+      .map(function (r, i) {
+        var d = r.details || {};
+        var vname = (d.vessel && d.vessel.name) || '—';
+        var pname = (d.port && d.port.name) || '—';
+        var ref = d.referenceNumber || '—';
+        var daId = safeDaId(r.da_id);
+        return (
+          '<div class="da-card da-card--row">' +
+          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
+          '<div style="flex:1;min-width:160px;"><strong>' +
+          escapeHtml(vname) +
+          '</strong><div class="sub">DA ID ' +
+          escapeHtml(r.da_id) +
+          ' · ' +
+          escapeHtml(pname) +
+          ' · Ref ' +
+          escapeHtml(ref) +
+          '</div></div>' +
+          '<div>' +
+          detailsButton(daId) +
+          '</div></div></div>'
+        );
+      })
+      .join('');
+    return (
+      '<div class="da-badge">DA search</div><div class="da-meta">Query: ' +
+      escapeHtml(q) +
+      ' · Showing ' +
+      list.length +
+      ' detail snapshot(s)</div><div class="da-cards">' +
+      cards +
+      '</div>'
+    );
   }
 
   function renderCompare(payload) {
     var a = payload.a || {};
     var b = payload.b || {};
-    return '<div class="da-badge">Compare</div><div class="da-compare-grid">' +
-      '<div><div class="da-mini-title">' + escapeHtml(a.label || 'A') + '</div>' + costTableHtml(a.payload) + '</div>' +
-      '<div><div class="da-mini-title">' + escapeHtml(b.label || 'B') + '</div>' + costTableHtml(b.payload) + '</div>' +
-      '</div>';
+    var idA = safeDaId(a.payload && a.payload.da_id);
+    var idB = safeDaId(b.payload && b.payload.da_id);
+    var actionsA =
+      idA != null
+        ? '<div style="margin-bottom:10px;">' + detailsButton(idA) + '</div>'
+        : '';
+    var actionsB =
+      idB != null
+        ? '<div style="margin-bottom:10px;">' + detailsButton(idB) + '</div>'
+        : '';
+    return (
+      '<div class="da-badge">Compare</div><div class="da-compare-grid">' +
+      '<div class="da-compare-col"><div class="da-mini-title">' +
+      escapeHtml(a.label || 'A') +
+      '</div>' +
+      actionsA +
+      costTableHtml(a.payload) +
+      '</div>' +
+      '<div class="da-compare-col"><div class="da-mini-title">' +
+      escapeHtml(b.label || 'B') +
+      '</div>' +
+      actionsB +
+      costTableHtml(b.payload) +
+      '</div>' +
+      '</div>'
+    );
   }
 
   form.addEventListener('submit', async function (ev) {
@@ -467,6 +1082,7 @@
     }
 
     submitBtn.disabled = true;
+    clearDetailPanel();
     resultsEl.className = 'da-results-inner';
     resultsEl.innerHTML = '<div class="da-spinner"></div><div class="text-muted" style="text-align:center;">Calling Marcura…</div>';
 

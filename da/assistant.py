@@ -278,3 +278,76 @@ def run_chat_turn(
         return reply if reply else "NO_HTTP_CALL_MADE"
 
     return "NO_HTTP_CALL_MADE"
+
+
+_KEY_NOTES_SYSTEM = """You are a maritime disbursement account (DA) analyst. The user sends JSON with \
+vessel/port context, PDA/FDA stage, verified numeric category subtotals, grand total, and line items \
+(category, item, amount, optional comment snippets).
+
+Write concise Key Notes as Markdown body text only (no document title or "Key Notes" heading — the UI already shows that label):
+- Start directly with a bullet list (use - bullets).
+- Explain what drives the larger amounts using ONLY the supplied figures and comments.
+- Explicitly reference category subtotals and the grand total where helpful (numbers must match the JSON).
+- If stage is PDA, note these are provisional/agreed estimates unless comments say otherwise.
+- Do not invent tariffs, GT, regulations, or rates not implied by the data or comments.
+- Stay under 400 words. No salutation."""
+
+
+def _fallback_key_notes_markdown(context: dict[str, Any]) -> str:
+    """Non-AI bullets when the model returns no text (timeouts, safety filters, etc.)."""
+    cur = (context.get("currency") or "").strip()
+    stage = context.get("stage") or "PDA"
+    persona = context.get("persona") or "OPERATOR"
+    lines = [
+        f"- Figures use **{stage}** / **{persona}** staging.",
+        "- Category subtotals:",
+    ]
+    subs = context.get("category_subtotals") or {}
+    for cat in sorted(subs.keys(), key=lambda x: str(x).lower()):
+        raw_amt = subs.get(cat)
+        try:
+            amt_s = f"{float(raw_amt):,.2f}"
+        except (TypeError, ValueError):
+            amt_s = str(raw_amt)
+        lines.append(f"- **{cat}**: {amt_s} {cur}".rstrip())
+    gt = context.get("grand_total")
+    if gt is not None:
+        try:
+            gt_s = f"{float(gt):,.2f}"
+        except (TypeError, ValueError):
+            gt_s = str(gt)
+        lines.append(f"- **Grand total**: {gt_s} {cur}".rstrip())
+    lines.append(
+        "- _(No narrative from the model — showing totals only; retry or check model/logs.)_"
+    )
+    return "\n".join(lines)
+
+
+def generate_da_key_notes(context: dict[str, Any]) -> str:
+    """Single-turn Claude call: narrative key notes from a DA cost breakdown snapshot."""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    notes_model = (
+        os.getenv("DA_DESK_KEY_NOTES_MODEL", "").strip()
+        or os.getenv("DA_DESK_ASSISTANT_MODEL", "").strip()
+        or _DEFAULT_MODEL
+    )
+    client = Anthropic(api_key=api_key)
+    user_blob = json.dumps(context, ensure_ascii=False, default=str)
+    resp = client.messages.create(
+        model=notes_model,
+        max_tokens=2048,
+        temperature=0.25,
+        system=_KEY_NOTES_SYSTEM,
+        messages=[{"role": "user", "content": user_blob}],
+    )
+    texts: list[str] = []
+    for block in resp.content:
+        if getattr(block, "type", None) == "text":
+            texts.append(block.text)
+    out = "".join(texts).strip()
+    if out:
+        return out
+    return _fallback_key_notes_markdown(context)
