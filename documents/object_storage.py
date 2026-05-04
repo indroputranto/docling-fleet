@@ -10,6 +10,13 @@ Reads configuration from environment variables:
   OBJECT_STORAGE_ACCESS_KEY — Spaces access key ID
   OBJECT_STORAGE_SECRET_KEY — Spaces secret access key
   OBJECT_STORAGE_BUCKET     — Space (bucket) name
+  OBJECT_STORAGE_REGION     — optional SigV4 region override
+
+DigitalOcean Spaces: the MinIO client must use the datacenter slug as the API
+region (``sin1``, ``sgp1``, ``nyc3``, …). That slug matches the subdomain of
+``OBJECT_STORAGE_ENDPOINT``. If unset, it is inferred from ``*.digitaloceanspaces.com``.
+Without this, presigned URLs trigger GetBucketLocation signed as ``us-east-1`` and
+Spaces responds with ``SignatureDoesNotMatch``.
 
 Public API:
   upload_file(file_stream, storage_key, content_type=None, length=-1) -> str
@@ -40,15 +47,25 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-_ENDPOINT   = os.getenv("OBJECT_STORAGE_ENDPOINT", "").rstrip("/")
-_ACCESS_KEY = os.getenv("OBJECT_STORAGE_ACCESS_KEY", "")
-_SECRET_KEY = os.getenv("OBJECT_STORAGE_SECRET_KEY", "")
-_BUCKET     = os.getenv("OBJECT_STORAGE_BUCKET", "")
+_ENDPOINT   = os.getenv("OBJECT_STORAGE_ENDPOINT", "").strip().rstrip("/")
+_ACCESS_KEY = os.getenv("OBJECT_STORAGE_ACCESS_KEY", "").strip()
+_SECRET_KEY = os.getenv("OBJECT_STORAGE_SECRET_KEY", "").strip()
+_BUCKET     = os.getenv("OBJECT_STORAGE_BUCKET", "").strip()
 
 
 def is_configured() -> bool:
     """Return True when all required object-storage env vars are set."""
     return bool(_ENDPOINT and _ACCESS_KEY and _SECRET_KEY and _BUCKET)
+
+
+def _infer_spaces_region(host: str) -> Optional[str]:
+    """
+    Parse DigitalOcean Spaces datacenter slug from the endpoint hostname.
+
+    e.g. sgp1.digitaloceanspaces.com → sgp1
+    """
+    m = re.match(r"^([a-z0-9-]+)\.digitaloceanspaces\.com$", host.strip(), flags=re.I)
+    return m.group(1).lower() if m else None
 
 
 def _get_client():
@@ -67,11 +84,15 @@ def _get_client():
     host = re.sub(r"^https?://", "", _ENDPOINT)
     secure = _ENDPOINT.startswith("https://")
 
+    explicit_region = os.getenv("OBJECT_STORAGE_REGION", "").strip()
+    region = explicit_region or _infer_spaces_region(host)
+
     return Minio(
         host,
         access_key=_ACCESS_KEY,
         secret_key=_SECRET_KEY,
         secure=secure,
+        region=region,
     )
 
 

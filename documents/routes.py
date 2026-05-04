@@ -56,6 +56,25 @@ DOCUMENT_SECTIONS = [
 FULL_DOCUMENT_CATEGORY = "full_document"
 VALID_CATEGORIES = {key for key, _ in DOCUMENT_SECTIONS} | {FULL_DOCUMENT_CATEGORY}
 
+# Vercel Functions reject bodies larger than ~4.5 MB before the app sees them.
+_VERCEL_SERVERLESS_BODY_CAP = 4 * 1024 * 1024
+
+
+def _safe_standard_upload_max_bytes() -> int:
+    """
+    Largest multipart upload body POST /documents/upload can accept without
+    hitting the hosting platform's hard body limit (not Flask MAX_CONTENT_LENGTH).
+
+    On Vercel this is ~4.5 MB regardless of app config; on a Droplet it's the
+    configured Flask limit only.
+    """
+    from production_config import get_config
+
+    cfg = get_config()
+    if os.environ.get("VERCEL"):
+        return min(cfg.MAX_CONTENT_LENGTH, _VERCEL_SERVERLESS_BODY_CAP)
+    return cfg.MAX_CONTENT_LENGTH
+
 
 def _effective_skip_ai_enrichment(user_requested: bool, document_category: str | None) -> bool:
     """
@@ -1735,4 +1754,5 @@ def vessel_dossier(vessel_id: int):
         total_sections=total_sections,
         progress_pct=progress_pct,
         full_document_category=FULL_DOCUMENT_CATEGORY,
+        safe_standard_upload_max=_safe_standard_upload_max_bytes(),
     )

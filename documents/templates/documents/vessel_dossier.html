@@ -847,6 +847,8 @@ function submitFullDoc() {
 // Files above this threshold are uploaded directly to object storage via a
 // pre-signed PUT URL, bypassing the Vercel serverless function body limit.
 var LARGE_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
+// Max multipart POST body this deployment can accept (Vercel ~4 MB; Droplet = Flask limit).
+var SAFE_STANDARD_UPLOAD_MAX = {{ safe_standard_upload_max|tojson }};
 
 function showUploading(key) {
   // ── Dim the dropzone ────────────────────────────────────────────────────────
@@ -920,6 +922,12 @@ function showUploading(key) {
     return evtSource;
   }
 
+  function uploadFatal(msg) {
+    appendLog('warn', msg);
+    wrap.classList.remove('uploading');
+    overlay.classList.remove('active');
+  }
+
   const form       = document.getElementById('form-' + key);
   const fileInput  = document.getElementById('file-' + key);
   const fileList   = fileInput ? fileInput.files : null;
@@ -954,12 +962,43 @@ function showUploading(key) {
         skip_enrichment:   skipEnrichment,
       }),
     })
-    .then(function(r) { return r.json(); })
-    .then(function(meta) {
+    .then(function(r) {
+      return r.json().then(function(meta) {
+        return { ok: r.ok, status: r.status, meta: meta };
+      });
+    })
+    .then(function(bundle) {
+      var meta = bundle.meta;
+      var standardTooLarge = file.size > SAFE_STANDARD_UPLOAD_MAX;
+
+      if (!bundle.ok) {
+        var errDetail = (meta && meta.error) ? meta.error : ('HTTP ' + bundle.status);
+        if (standardTooLarge) {
+          uploadFatal(
+            'Pre-signed upload failed (' + errDetail + '). Files over ~' +
+            (SAFE_STANDARD_UPLOAD_MAX / (1024 * 1024)).toFixed(0) +
+            ' MB cannot use standard upload on this host — set OBJECT_STORAGE_ENDPOINT, ' +
+            'OBJECT_STORAGE_ACCESS_KEY, OBJECT_STORAGE_SECRET_KEY, and OBJECT_STORAGE_BUCKET.'
+          );
+          return;
+        }
+        appendLog('info', 'Pre-sign failed (' + errDetail + ') — falling back to standard upload…');
+        _doNormalUpload(key, form, taskId, appendLog, attachSse, wrap, overlay);
+        return;
+      }
+
       if (!meta.use_direct) {
-        // Object storage not configured — fall back to normal upload
+        if (standardTooLarge) {
+          uploadFatal(
+            'Large files must upload directly to object storage. Configure OBJECT_STORAGE_ENDPOINT, ' +
+            'OBJECT_STORAGE_ACCESS_KEY, OBJECT_STORAGE_SECRET_KEY, and OBJECT_STORAGE_BUCKET. ' +
+            'Standard upload here is limited to about ' +
+            (SAFE_STANDARD_UPLOAD_MAX / (1024 * 1024)).toFixed(0) + ' MB.'
+          );
+          return;
+        }
         appendLog('info', 'Direct upload unavailable — falling back to standard upload…');
-        _doNormalUpload(key, form, taskId, appendLog, attachSse);
+        _doNormalUpload(key, form, taskId, appendLog, attachSse, wrap, overlay);
         return;
       }
 
@@ -984,8 +1023,7 @@ function showUploading(key) {
 
       xhr.onload = function() {
         if (xhr.status < 200 || xhr.status >= 300) {
-          appendLog('warn', 'Storage PUT failed (HTTP ' + xhr.status + ') — please try again.');
-          wrap.classList.remove('uploading');
+          uploadFatal('Storage PUT failed (HTTP ' + xhr.status + ') — please try again.');
           return;
         }
 
@@ -1015,27 +1053,50 @@ function showUploading(key) {
       };
 
       xhr.onerror = function() {
-        appendLog('warn', 'Storage upload failed — network error. Please try again.');
-        wrap.classList.remove('uploading');
+        uploadFatal('Storage upload failed — network error. Please try again.');
       };
 
       xhr.send(file);
     })
     .catch(function(err) {
-      // Presign call failed — fall back to normal upload
+      if (file.size > SAFE_STANDARD_UPLOAD_MAX) {
+        uploadFatal(
+          'Pre-sign request failed: ' + err.message + '. Large files cannot use standard upload on this host.'
+        );
+        return;
+      }
       appendLog('info', 'Pre-sign request failed (' + err.message + ') — falling back to standard upload…');
-      _doNormalUpload(key, form, taskId, appendLog, attachSse);
+      _doNormalUpload(key, form, taskId, appendLog, attachSse, wrap, overlay);
     });
 
     return; // large-file path initiated; normal path below will not run
   }
 
   // ── Normal path: small file (or multiple files) — submit form via fetch() ───
-  _doNormalUpload(key, form, taskId, appendLog, attachSse);
+  _doNormalUpload(key, form, taskId, appendLog, attachSse, wrap, overlay);
 }
 
 // Extracted so both paths can reuse it.
-function _doNormalUpload(key, form, taskId, appendLog, attachSse) {
+function _doNormalUpload(key, form, taskId, appendLog, attachSse, wrap, overlay) {
+  const fileInput = document.getElementById('file-' + key);
+  let totalBytes = 0;
+  if (fileInput && fileInput.files && fileInput.files.length) {
+    for (let i = 0; i < fileInput.files.length; i++) {
+      totalBytes += fileInput.files[i].size;
+    }
+  }
+  if (totalBytes > SAFE_STANDARD_UPLOAD_MAX) {
+    appendLog(
+      'warn',
+      'Total upload exceeds ~' + (SAFE_STANDARD_UPLOAD_MAX / (1024 * 1024)).toFixed(0) +
+      ' MB on this deployment. Use environments with OBJECT_STORAGE_* configured for larger files, ' +
+      'or split into smaller uploads.'
+    );
+    wrap.classList.remove('uploading');
+    overlay.classList.remove('active');
+    return;
+  }
+
   const evtSource = attachSse(new EventSource('/documents/upload-progress/' + taskId));
 
   const formData = new FormData(form);
