@@ -977,8 +977,10 @@ def presign():
     db.session.add(doc)
     db.session.commit()
 
+    content_type = (data.get("content_type") or "").strip() or "application/octet-stream"
+
     try:
-        presign_url = generate_presigned_put_url(storage_key)
+        presign_url = generate_presigned_put_url(storage_key, content_type=content_type)
     except Exception as e:
         db.session.delete(doc)
         db.session.commit()

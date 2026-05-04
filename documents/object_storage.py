@@ -2,8 +2,8 @@
 """
 DigitalOcean Spaces (S3-compatible) object storage helper.
 
-Uses the MinIO Python client — it is fully S3-compatible and installs at
-~1 MB, versus ~90 MB for boto3+botocore, keeping the Vercel bundle lean.
+Uses MinIO for server-side object I/O and **boto3** for presigned URLs when the
+endpoint is DigitalOcean Spaces (SigV4 + virtual-hosted style per DO docs).
 
 Reads configuration from environment variables:
   OBJECT_STORAGE_ENDPOINT   — e.g. https://sgp1.digitaloceanspaces.com
@@ -42,6 +42,7 @@ import logging
 import os
 import re
 from typing import IO, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,74 @@ def _infer_spaces_region(host: str) -> Optional[str]:
     """
     m = re.match(r"^([a-z0-9-]+)\.digitaloceanspaces\.com$", host.strip(), flags=re.I)
     return m.group(1).lower() if m else None
+
+
+def _digitalocean_endpoint_url() -> str:
+    """Normalize OBJECT_STORAGE_ENDPOINT to a URL string."""
+    e = _ENDPOINT.strip().rstrip("/")
+    if e.startswith(("http://", "https://")):
+        return e
+    return f"https://{e}"
+
+
+def _endpoint_hostname() -> str:
+    raw = _ENDPOINT.strip().rstrip("/")
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    host = urlparse(raw).hostname
+    return (host or "").lower()
+
+
+def _is_digitalocean_spaces() -> bool:
+    return "digitaloceanspaces.com" in _ENDPOINT.lower()
+
+
+def _spaces_sigv4_region(host: str) -> str:
+    """Region name used in SigV4 for Spaces — matches datacenter slug from endpoint."""
+    explicit = os.getenv("OBJECT_STORAGE_REGION", "").strip()
+    if explicit:
+        return explicit
+    inferred = _infer_spaces_region(host)
+    if inferred:
+        return inferred
+    raise RuntimeError(
+        "Could not infer Spaces region from OBJECT_STORAGE_ENDPOINT. "
+        "Use https://<region>.digitaloceanspaces.com (e.g. sin1) or set OBJECT_STORAGE_REGION."
+    )
+
+
+def _presigned_put_boto3(storage_key: str, expiry_seconds: int, content_type: str) -> str:
+    """Presigned PUT using boto3 — DigitalOcean documents this path for Spaces."""
+    import boto3
+    from botocore.client import Config
+
+    host = _endpoint_hostname()
+    region = _spaces_sigv4_region(host)
+    endpoint_url = _digitalocean_endpoint_url().rstrip("/")
+
+    client = boto3.client(
+        "s3",
+        region_name=region,
+        endpoint_url=endpoint_url,
+        aws_access_key_id=_ACCESS_KEY,
+        aws_secret_access_key=_SECRET_KEY,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    )
+    url = client.generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": _BUCKET,
+            "Key": storage_key,
+            "ContentType": content_type,
+        },
+        ExpiresIn=min(expiry_seconds, 604800),
+        HttpMethod="PUT",
+    )
+    logger.info(
+        f"[object_storage] boto3 pre-signed PUT for '{storage_key}' "
+        f"(region={region}, endpoint={endpoint_url})"
+    )
+    return url
 
 
 def _get_client():
@@ -186,7 +255,11 @@ def get_public_url(storage_key: str) -> str:
     return f"{_ENDPOINT}/{_BUCKET}/{storage_key}"
 
 
-def generate_presigned_put_url(storage_key: str, expiry_seconds: int = 900) -> str:
+def generate_presigned_put_url(
+    storage_key: str,
+    expiry_seconds: int = 900,
+    content_type: Optional[str] = None,
+) -> str:
     """
     Generate a pre-signed PUT URL so a browser can upload a file directly
     to the Space without routing the binary payload through the Flask server.
@@ -195,18 +268,39 @@ def generate_presigned_put_url(storage_key: str, expiry_seconds: int = 900) -> s
     function request-body limit.  The URL expires after *expiry_seconds*
     (default: 15 minutes).
 
+    *content_type* is included in the SigV4 signature where supported so the
+    browser must send the same ``Content-Type`` header on PUT (match the value
+    sent to ``/documents/presign``).
+
+    DigitalOcean Spaces uses boto3 for presign (official SigV4 + virtual-hosted
+    style). Other S3-compatible endpoints keep MinIO presign.
+
     Parameters
     ----------
     storage_key : str
         The object key the file will be stored under.
     expiry_seconds : int
         How long (in seconds) the URL remains valid.
+    content_type : str, optional
+        MIME type for the PUT (defaults to ``application/octet-stream``).
 
     Returns
     -------
     str
         A pre-signed HTTPS URL accepting HTTP PUT requests.
     """
+    ct = (content_type or "").strip() or "application/octet-stream"
+
+    if _is_digitalocean_spaces():
+        try:
+            return _presigned_put_boto3(storage_key, expiry_seconds, ct)
+        except Exception as exc:
+            logger.error(
+                f"[object_storage] boto3 pre-signed PUT failed for '{storage_key}': {exc}",
+                exc_info=True,
+            )
+            raise RuntimeError(f"Could not generate pre-signed PUT URL: {exc}") from exc
+
     from datetime import timedelta
 
     client = _get_client()
@@ -216,11 +310,11 @@ def generate_presigned_put_url(storage_key: str, expiry_seconds: int = 900) -> s
             storage_key,
             expires=timedelta(seconds=expiry_seconds),
         )
-        logger.info(f"[object_storage] Pre-signed PUT URL generated for '{storage_key}'")
+        logger.info(f"[object_storage] MinIO pre-signed PUT for '{storage_key}'")
         return url
     except Exception as exc:
         logger.error(
-            f"[object_storage] Pre-signed PUT URL generation failed for '{storage_key}': {exc}",
+            f"[object_storage] MinIO pre-signed PUT failed for '{storage_key}': {exc}",
             exc_info=True,
         )
         raise RuntimeError(f"Could not generate pre-signed PUT URL: {exc}") from exc

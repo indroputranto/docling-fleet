@@ -37,6 +37,7 @@ check("sqlalchemy importable",     lambda: __import__("flask_sqlalchemy"))
 check("jwt importable",            lambda: __import__("jwt"))
 check("dotenv importable",         lambda: __import__("dotenv"))
 check("requests importable",       lambda: __import__("requests"))
+check("boto3 importable",           lambda: __import__("boto3"))
 
 # ── 2. App module imports ─────────────────────────────────────────────────────
 print("\n[2] Application module imports")
