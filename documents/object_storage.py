@@ -59,48 +59,56 @@ def is_configured() -> bool:
     return bool(_ENDPOINT and _ACCESS_KEY and _SECRET_KEY and _BUCKET)
 
 
-def _infer_spaces_region(host: str) -> Optional[str]:
-    """
-    Parse DigitalOcean Spaces datacenter slug from the endpoint hostname.
-
-    e.g. sgp1.digitaloceanspaces.com → sgp1
-    """
-    m = re.match(r"^([a-z0-9-]+)\.digitaloceanspaces\.com$", host.strip(), flags=re.I)
-    return m.group(1).lower() if m else None
-
-
-def _digitalocean_endpoint_url() -> str:
-    """Normalize OBJECT_STORAGE_ENDPOINT to a URL string."""
-    e = _ENDPOINT.strip().rstrip("/")
-    if e.startswith(("http://", "https://")):
-        return e
-    return f"https://{e}"
-
-
-def _endpoint_hostname() -> str:
-    raw = _ENDPOINT.strip().rstrip("/")
-    if not raw.startswith(("http://", "https://")):
-        raw = f"https://{raw}"
-    host = urlparse(raw).hostname
-    return (host or "").lower()
-
-
 def _is_digitalocean_spaces() -> bool:
     return "digitaloceanspaces.com" in _ENDPOINT.lower()
 
 
-def _spaces_sigv4_region(host: str) -> str:
-    """Region name used in SigV4 for Spaces — matches datacenter slug from endpoint."""
+def _normalize_spaces_endpoint() -> tuple[str, Optional[str], bool]:
+    """
+    Normalize ``OBJECT_STORAGE_ENDPOINT`` for DigitalOcean Spaces.
+
+    Accepts every shape DO surfaces:
+      • ``https://sgp1.digitaloceanspaces.com``           (preferred, region endpoint)
+      • ``https://<bucket>.sgp1.digitaloceanspaces.com``  (bucket origin)
+      • ``https://sgp1.cdn.digitaloceanspaces.com``       (CDN region)
+      • ``https://<bucket>.sgp1.cdn.digitaloceanspaces.com`` (CDN origin)
+
+    Returns ``(endpoint_url, region, secure)`` where ``endpoint_url`` is always
+    the canonical region endpoint ``https://<region>.digitaloceanspaces.com``,
+    so boto3 with virtual-hosted addressing builds
+    ``<bucket>.<region>.digitaloceanspaces.com`` (not duplicated bucket names).
+    """
+    raw = _ENDPOINT.strip().rstrip("/")
+    secure = not raw.startswith("http://")
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+
+    if not host.endswith(".digitaloceanspaces.com"):
+        return raw, None, secure
+
+    prefix_parts = [p for p in host[: -len(".digitaloceanspaces.com")].split(".") if p and p != "cdn"]
+    if not prefix_parts:
+        return raw, None, secure
+
+    region = prefix_parts[-1]
+    canonical = f"{'https' if secure else 'http'}://{region}.digitaloceanspaces.com"
+    return canonical, region, secure
+
+
+def _spaces_sigv4_region(canonical_region: Optional[str]) -> str:
+    """Region used in SigV4. Prefer explicit env, else region parsed from endpoint."""
     explicit = os.getenv("OBJECT_STORAGE_REGION", "").strip()
-    if explicit:
-        return explicit
-    inferred = _infer_spaces_region(host)
-    if inferred:
-        return inferred
-    raise RuntimeError(
-        "Could not infer Spaces region from OBJECT_STORAGE_ENDPOINT. "
-        "Use https://<region>.digitaloceanspaces.com (e.g. sin1) or set OBJECT_STORAGE_REGION."
-    )
+    region = explicit or canonical_region
+    if not region:
+        raise RuntimeError(
+            "Could not infer Spaces region from OBJECT_STORAGE_ENDPOINT. "
+            "Use https://<region>.digitaloceanspaces.com (e.g. sgp1) "
+            "or set OBJECT_STORAGE_REGION."
+        )
+    return region
 
 
 def _presigned_put_boto3(storage_key: str, expiry_seconds: int, content_type: str) -> str:
@@ -108,9 +116,8 @@ def _presigned_put_boto3(storage_key: str, expiry_seconds: int, content_type: st
     import boto3
     from botocore.client import Config
 
-    host = _endpoint_hostname()
-    region = _spaces_sigv4_region(host)
-    endpoint_url = _digitalocean_endpoint_url().rstrip("/")
+    endpoint_url, parsed_region, _secure = _normalize_spaces_endpoint()
+    region = _spaces_sigv4_region(parsed_region)
 
     client = boto3.client(
         "s3",
@@ -148,13 +155,15 @@ def _get_client():
             "OBJECT_STORAGE_SECRET_KEY, and OBJECT_STORAGE_BUCKET."
         )
 
-    # Strip scheme — MinIO client takes host only, with secure= flag separately.
-    # e.g. "https://sgp1.digitaloceanspaces.com" → "sgp1.digitaloceanspaces.com"
-    host = re.sub(r"^https?://", "", _ENDPOINT)
-    secure = _ENDPOINT.startswith("https://")
-
-    explicit_region = os.getenv("OBJECT_STORAGE_REGION", "").strip()
-    region = explicit_region or _infer_spaces_region(host)
+    if _is_digitalocean_spaces():
+        # Always talk to the region endpoint so MinIO doesn't double the bucket name.
+        endpoint_url, parsed_region, secure = _normalize_spaces_endpoint()
+        host = re.sub(r"^https?://", "", endpoint_url)
+        region = os.getenv("OBJECT_STORAGE_REGION", "").strip() or parsed_region
+    else:
+        host = re.sub(r"^https?://", "", _ENDPOINT)
+        secure = _ENDPOINT.startswith("https://")
+        region = os.getenv("OBJECT_STORAGE_REGION", "").strip() or None
 
     return Minio(
         host,
@@ -249,9 +258,12 @@ def get_public_url(storage_key: str) -> str:
     """
     Return the canonical public HTTPS URL for *storage_key*.
 
-    Format: {endpoint}/{bucket}/{key}
+    Format: {region_endpoint}/{bucket}/{key}
     Example: https://sgp1.digitaloceanspaces.com/vesfleet-docs/documents/...
     """
+    if _is_digitalocean_spaces():
+        endpoint_url, _region, _secure = _normalize_spaces_endpoint()
+        return f"{endpoint_url}/{_BUCKET}/{storage_key}"
     return f"{_ENDPOINT}/{_BUCKET}/{storage_key}"
 
 
