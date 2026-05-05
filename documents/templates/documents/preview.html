@@ -179,7 +179,19 @@
     }
     if (data.type === 'error' || data.type === 'timeout') {
       es.close();
-      if (stageEl) stageEl.textContent = data.msg || 'Connection lost.';
+      // "Task not found" is the expected outcome on Vercel: SSE and
+      // process-from-storage land on different serverless instances and
+      // don't share the in-memory progress queue. Processing still
+      // completes; the fetch().then() below will handle navigation.
+      var msg = data.msg || 'Connection lost.';
+      var isExpectedServerlessGap =
+        data && data.msg &&
+        data.msg.toLowerCase().indexOf('task not found') !== -1;
+      if (stageEl) {
+        stageEl.textContent = isExpectedServerlessGap
+          ? 'Processing… page will redirect when ready.'
+          : msg;
+      }
       return;
     }
     if (data.pct !== undefined && bar) {
@@ -198,8 +210,17 @@
     credentials: 'same-origin',
     redirect: 'follow',
   }).then(function(resp) {
-    if (resp.redirected && resp.url) {
+    // Always navigate when processing returns a successful response,
+    // regardless of redirect/SSE state — handles the Vercel split-instance
+    // case where the SSE never sees the task. resp.url after redirect:
+    // 'follow' points at the final destination (typically /preview).
+    if (resp && resp.ok && resp.url) {
+      try { es && es.close(); } catch (_e) {}
       window.location.href = resp.url;
+      return;
+    }
+    if (resp && !resp.ok && stageEl) {
+      stageEl.textContent = 'Processing returned HTTP ' + resp.status + ' — try refreshing.';
     }
   }).catch(function() {
     if (stageEl) stageEl.textContent = 'Request failed — try refreshing the page.';

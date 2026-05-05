@@ -114,19 +114,26 @@ with app.app_context():
         db.create_all()
 
         # ── Idempotent column migrations (Postgres + SQLite 3.35+) ──────────
+        # db.create_all() only creates MISSING tables — it never adds columns
+        # to existing ones. Anything new in the SQLAlchemy models that needs
+        # to land on existing rows must also appear here as an ADD COLUMN IF
+        # NOT EXISTS, otherwise Neon (and any non-fresh local SQLite) will
+        # 500 with "column does not exist" on the first SELECT.
         _pending_cols = [
             "ALTER TABLE documents ADD COLUMN IF NOT EXISTS skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS force_reocr BOOLEAN NOT NULL DEFAULT FALSE",
         ]
         try:
             with db.engine.begin() as _conn:
                 for _sql in _pending_cols:
                     _conn.execute(sa_text(_sql))
-            logging.info("[boot] documents.skip_ai_enrichment column migration applied (if needed)")
+            logging.info("[boot] documents column migrations applied (if needed)")
         except Exception as _ce:
             logging.warning(
-                "[boot] documents.skip_ai_enrichment migration failed — "
-                "run manually on Postgres: "
+                "[boot] documents column migration failed — run manually on "
+                "Postgres if needed: "
                 "ALTER TABLE documents ADD COLUMN skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE; "
+                "ALTER TABLE documents ADD COLUMN force_reocr BOOLEAN NOT NULL DEFAULT FALSE; "
                 f"({_ce})"
             )
         # ─────────────────────────────────────────────────────────────────────

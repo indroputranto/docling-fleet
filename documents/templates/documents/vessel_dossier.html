@@ -934,7 +934,20 @@ function showUploading(key) {
       }
       if (data.type === 'error' || data.type === 'timeout') {
         evtSource.close();
-        appendLog('warn', data.msg || 'Connection lost — page will redirect when processing finishes');
+        // "Task not found" is the expected shape on Vercel: the SSE handler
+        // and the process-from-storage handler are in different serverless
+        // function instances and don't share the in-memory progress queue.
+        // Processing still runs to completion in the other instance and the
+        // POST .then() above navigates to /preview when it returns. Keep the
+        // log line informational rather than scary.
+        var isExpectedServerlessGap =
+          data && data.msg &&
+          data.msg.toLowerCase().indexOf('task not found') !== -1;
+        if (isExpectedServerlessGap) {
+          appendLog('info', 'Live progress stream unavailable — page will redirect when processing finishes.');
+        } else {
+          appendLog('warn', data.msg || 'Connection lost — page will redirect when processing finishes');
+        }
         return;
       }
       appendLog(data.type, data.msg);
@@ -1073,8 +1086,21 @@ function showUploading(key) {
           body:     processData,
           redirect: 'follow',
         }).then(function(resp) {
-          if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
+          // On Vercel, the SSE upload-progress endpoint and this POST land
+          // on different serverless function instances and don't share the
+          // in-memory progress queue — the SSE will eventually emit
+          // "Task not found", but processing still completed successfully
+          // and the redirect-followed response.url points at /preview.
+          // Navigate as soon as processing returns a successful response;
+          // the SSE is purely cosmetic at that point.
+          if (resp && resp.ok && resp.url) {
+            try { evtSource && evtSource.close(); } catch (_e) {}
             window.location.href = resp.url;
+            return;
+          }
+          // Non-2xx (rare): fall back to whatever SSE eventually emits.
+          if (resp && !resp.ok) {
+            appendLog('warn', 'Processing request returned HTTP ' + resp.status);
           }
         }).catch(function(err) {
           evtSource.close();

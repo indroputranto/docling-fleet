@@ -22,7 +22,10 @@ python app.py          # Flask dev server on port 8080
 # Run CI smoke tests
 python test_ci.py
 
-# Apply DB schema migrations (SQLite only — Neon runs db.create_all() on boot)
+# Apply DB schema migrations for local SQLite.
+# (Neon migrations live in app.py's boot-time _pending_cols list — see
+# Database Models section below. db.create_all() does NOT add columns to
+# existing tables; it only creates missing tables.)
 python migrate_db.py
 ```
 
@@ -115,7 +118,11 @@ Key models: `User`, `ClientConfig`, `Document`, `DocumentChunk`, `Vessel`, `Usag
 `Document.document_category` — one of 10 fixed slugs (e.g. `charter_party`, `fixture_recap`) used for Vessel Dossier sections and future Pinecone filter queries.  
 `ChatSession` → `ChatMessage` — one-to-many, cascade delete. `session_id` is returned in chat responses and passed back by the frontend.
 
-When adding columns, update `migrate_db.py` with an idempotent `ALTER TABLE` (SQLite) AND ensure the column is in `db.create_all()` scope via the SQLAlchemy model (for Neon/PostgreSQL which uses `create_all` on boot).
+When adding columns, three places must be updated together — `db.create_all()` only creates *missing tables*, it never adds *new columns* to existing ones, so Neon will 500 on the first SELECT until the ALTER runs:
+
+1. **`models.py`** — declare the column on the SQLAlchemy model (so fresh Neon deployments and `db.create_all()` get it).
+2. **`migrate_db.py`** — add an idempotent `ALTER TABLE` for local SQLite (developers run `python migrate_db.py`).
+3. **`app.py`** — append the same column to the `_pending_cols` list inside the boot-time migration block (`with app.app_context(): … ALTER TABLE … ADD COLUMN IF NOT EXISTS …`). This is what actually adds the column on Neon and on already-running Droplets at next deploy.
 
 ---
 
