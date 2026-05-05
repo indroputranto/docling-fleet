@@ -1166,18 +1166,22 @@ def _fitz_span_bboxes_from_blocks(blocks: list) -> List[Tuple[float, float, floa
 # Shared strike-vs-underline vertical geometry (relative to a text box).
 # Underlines sit just above the baseline → small (y1 - y_mid) vs box height.
 # Strikethrough crosses the glyph body → more “air” below the rule.
-_FITZ_STRIKE_REL_LO = 0.10   # minimum rel — bands at rel<0.10 are above the glyph
-# Real strikethroughs in BIMCO SmartCon PDFs sit at rel≈0.55–0.65 (the glyph
-# body takes up the lower portion of the bbox once ascenders/descenders are
-# included); raise the ceiling from 0.50 → 0.65 to capture them.
+#
+# TWO PROFILES:
+#   - "strict"  for digital PDFs: spans include ascender/descender padding so
+#               strikes land at rel ≈ 0.55–0.65 of the bbox.
+#   - "loose"   for OCR'd raster PDFs: Tesseract reports tight glyph bboxes
+#               with no ascender padding, so strikes land at rel ≈ 0.65–0.78.
+#               Underlines on tight Tesseract glyphs sit at rel ≥ 1.0 so the
+#               loose ceiling stays well separated from underlines.
+_FITZ_STRIKE_REL_LO = 0.10
 _FITZ_STRIKE_REL_HI = 0.65
-_FITZ_STRIKE_MIN_GAP_BELOW = 0.22   # fraction of box height; underlines are < ~0.18
-# Underline bleed-up: the underline of span N sits at the very TOP of span N+1
-# (due to line-spacing bbox overlap) giving rel≈0.14 AND gap_below≈0.86.
-# A real strikethrough never has that much air below it (gap_below≈0.35–0.55).
-# Capping gap_below at 0.70 rejects all bleed-up cases while leaving true
-# strikes untouched — confirmed by diagnostic on Ocean7_Revolution_NEW_CP.pdf.
+_FITZ_STRIKE_MIN_GAP_BELOW = 0.22
 _FITZ_STRIKE_MAX_GAP_BELOW = 0.70
+
+_FITZ_STRIKE_REL_HI_LOOSE = 0.82
+_FITZ_STRIKE_MIN_GAP_BELOW_LOOSE = 0.16
+_FITZ_STRIKE_MAX_GAP_BELOW_LOOSE = 0.78
 
 
 def _fitz_path_skip_for_strike_inference(path: dict) -> bool:
@@ -1222,8 +1226,18 @@ def _fitz_horizontal_rule_is_strikethrough_in_box(
     *,
     min_overlap_pt: float,
     min_overlap_frac: Optional[float] = None,
+    loose_geometry: bool = False,
 ) -> bool:
-    """True if a near-horizontal drawing rule crosses the mid-body of *box*, not underline zone."""
+    """
+    True if a near-horizontal drawing rule crosses the mid-body of *box*, not
+    the underline zone.
+
+    Set ``loose_geometry=True`` when the source bbox came from OCR'd raster
+    text (Tesseract): glyph bboxes are tighter than digital-PDF spans, so
+    strikes land deeper into the bbox (rel up to ~0.80). The underline
+    rejection still works because underlines on tight Tesseract glyphs sit
+    at rel ≥ 1.0, far above the loose ceiling.
+    """
     if not (by0 <= y_mid <= by1):
         return False
     overlap_w = min(x1, bx1) - max(x0, bx0)
@@ -1237,14 +1251,20 @@ def _fitz_horizontal_rule_is_strikethrough_in_box(
         return False
     rel = (y_mid - by0) / bh
     gap_below = (by1 - y_mid) / bh
-    if rel < _FITZ_STRIKE_REL_LO or rel > _FITZ_STRIKE_REL_HI:
+    rel_hi = _FITZ_STRIKE_REL_HI_LOOSE if loose_geometry else _FITZ_STRIKE_REL_HI
+    min_gap = (
+        _FITZ_STRIKE_MIN_GAP_BELOW_LOOSE
+        if loose_geometry else _FITZ_STRIKE_MIN_GAP_BELOW
+    )
+    max_gap = (
+        _FITZ_STRIKE_MAX_GAP_BELOW_LOOSE
+        if loose_geometry else _FITZ_STRIKE_MAX_GAP_BELOW
+    )
+    if rel < _FITZ_STRIKE_REL_LO or rel > rel_hi:
         return False
-    if gap_below < _FITZ_STRIKE_MIN_GAP_BELOW:
+    if gap_below < min_gap:
         return False
-    # Reject underline bleed-up: the underline of span N sits at the very top
-    # of span N+1, giving a very large gap_below (≈0.86).  Real strikethroughs
-    # cross the glyph body and have moderate gap_below (≈0.35–0.55).
-    if gap_below > _FITZ_STRIKE_MAX_GAP_BELOW:
+    if gap_below > max_gap:
         return False
     return True
 
@@ -1331,7 +1351,12 @@ def _fitz_collect_strike_bands(
     return strike_bands
 
 
-def _fitz_char_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -> bool:
+def _fitz_char_is_struck(
+    bbox,
+    strike_bands: List[Tuple[float, float, float]],
+    *,
+    loose_geometry: bool = False,
+) -> bool:
     """Glyph-level strike test — uses the same vertical band as span-level."""
     sx0, sy0, sx1, sy1 = bbox
     cw = sx1 - sx0
@@ -1343,12 +1368,18 @@ def _fitz_char_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -
             bx0, bx1, by_mid, sx0, sy0, sx1, sy1,
             min_overlap_pt=0.0,
             min_overlap_frac=0.52,
+            loose_geometry=loose_geometry,
         ):
             return True
     return False
 
 
-def _fitz_span_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -> bool:
+def _fitz_span_is_struck(
+    bbox,
+    strike_bands: List[Tuple[float, float, float]],
+    *,
+    loose_geometry: bool = False,
+) -> bool:
     """
     Whole-span fallback when ``rawdict`` glyph boxes are missing.
 
@@ -1372,7 +1403,9 @@ def _fitz_span_is_struck(bbox, strike_bands: List[Tuple[float, float, float]]) -
         if band_w <= 0:
             continue
         if not _fitz_horizontal_rule_is_strikethrough_in_box(
-            bx0, bx1, by_mid, sx0, sy0, sx1, sy1, min_overlap_pt=1.5
+            bx0, bx1, by_mid, sx0, sy0, sx1, sy1,
+            min_overlap_pt=1.5,
+            loose_geometry=loose_geometry,
         ):
             continue
         # Strike sits across most of this span's width.
@@ -1395,17 +1428,28 @@ def _fitz_span_plain_text(span: dict) -> str:
 def _fitz_span_strike_segments(
     span: dict,
     strike_bands: List[Tuple[float, float, float]],
+    *,
+    loose_geometry: bool = False,
 ) -> List[Tuple[str, bool]]:
     """
     Split a span into (substring, is_struck) pieces using per-glyph boxes when
     present (``rawdict``), otherwise one piece with whole-span heuristics.
+
+    ``loose_geometry`` should be set to True for OCR'd raster-source PDFs:
+    Tesseract glyph bboxes are tight (no ascender padding), so strike rules
+    fall deeper into the bbox than the strict-mode thresholds expect.
     """
     chars = span.get("chars") or []
     if not chars:
         raw = _fitz_span_plain_text(span)
         if not raw.strip():
             return []
-        return [(raw, _fitz_span_is_struck(span["bbox"], strike_bands))]
+        return [(
+            raw,
+            _fitz_span_is_struck(
+                span["bbox"], strike_bands, loose_geometry=loose_geometry,
+            ),
+        )]
 
     segments: List[Tuple[str, bool]] = []
     cur: List[str] = []
@@ -1415,7 +1459,7 @@ def _fitz_span_strike_segments(
         c = ch.get("c") or ""
         bb = ch.get("bbox")
         if bb and bb[2] > bb[0] and bb[3] > bb[1]:
-            st = _fitz_char_is_struck(bb, strike_bands)
+            st = _fitz_char_is_struck(bb, strike_bands, loose_geometry=loose_geometry)
         else:
             st = False
         if cur_st is None:
@@ -1433,7 +1477,12 @@ def _fitz_span_strike_segments(
     if not segments:
         raw = _fitz_span_plain_text(span)
         if raw.strip():
-            return [(raw, _fitz_span_is_struck(span["bbox"], strike_bands))]
+            return [(
+                raw,
+                _fitz_span_is_struck(
+                    span["bbox"], strike_bands, loose_geometry=loose_geometry,
+                ),
+            )]
         return []
 
     return [(t, st) for t, st in segments if t]
@@ -2111,7 +2160,11 @@ def _extract_pdf_raw(raw_bytes: bytes) -> List[Dict]:
 # PDF extraction — PyMuPDF + clause presplit (hybrid, for negotiated contracts)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
+def _extract_pdf_fitz_presplit(
+    raw_bytes: bytes,
+    *,
+    is_image_source: bool = False,
+) -> List[Dict]:
     """
     Hybrid extraction for negotiated contract PDFs (e.g. charter parties).
 
@@ -2132,11 +2185,33 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
     to filter out the BIMCO SmartCon copyright footer, which is consistently
     printed at 7.0pt on every page.  All substantive clause text in NYPE/BIMCO
     forms is 9pt or larger, so no legal content is lost.
+
+    Args:
+        raw_bytes:        Source PDF (already re-OCR'd if image-source).
+        is_image_source:  True when the PDF was originally a scan and has
+                          been re-OCR'd. Triggers raster-image strikethrough
+                          detection (since scanned strike marks are not
+                          present as vector drawings). Adds ~1 s per page.
     """
     import fitz
 
     MIN_FONT = 8.0
     page_texts: List[str] = []
+
+    # Optional raster-image strikethrough detector. Only loaded when needed
+    # (image-source documents) so digital PDFs don't pay the import cost.
+    _raster_detect = None
+    if is_image_source:
+        try:
+            from documents.strikethrough_raster import (
+                detect_raster_strike_bands as _raster_detect,
+            )
+        except ImportError as e:
+            logger.warning(
+                "[extractor] Raster strikethrough module unavailable (%s) — "
+                "image-source PDF will be processed without strike detection",
+                e,
+            )
 
     # Footer-band drop: anything whose vertical midpoint falls in the bottom
     # FOOTER_BAND_FRAC of the page is treated as page-furniture (copyright
@@ -2152,6 +2227,17 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
         for page in pdf:
             blocks = page.get_text("rawdict")["blocks"]
             strike_bands = _fitz_collect_strike_bands(page, blocks=blocks)
+            # On scanned PDFs the original strike marks live in the page
+            # raster, not in vector drawings, so _fitz_collect_strike_bands
+            # returns []. Augment with raster-detected horizontal pixel runs
+            # — the downstream geometry filter
+            # (_fitz_horizontal_rule_is_strikethrough_in_box) will only accept
+            # bands that cross the middle of a glyph row, so over-supplying
+            # candidates is safe.
+            if _raster_detect is not None:
+                raster_bands = _raster_detect(page)
+                if raster_bands:
+                    strike_bands = list(strike_bands) + list(raster_bands)
             footer_y_threshold = page.rect.height * (1.0 - FOOTER_BAND_FRAC)
 
             page_lines: List[str] = []
@@ -2198,7 +2284,9 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
                     raw_pieces: List[Tuple[str, bool]] = []
                     for s in spans:
                         for piece, is_struck in _fitz_span_strike_segments(
-                            s, strike_bands
+                            s,
+                            strike_bands,
+                            loose_geometry=is_image_source,
                         ):
                             if piece:
                                 raw_pieces.append((piece, is_struck))
@@ -2295,9 +2383,28 @@ def _extract_pdf_fitz_presplit(raw_bytes: bytes) -> List[Dict]:
 # PDF extraction — public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_pdf(file_obj: IO[bytes], document_category: Optional[str] = None) -> List[Dict]:
+def extract_pdf(
+    file_obj: IO[bytes],
+    document_category: Optional[str] = None,
+    *,
+    force_reocr: bool = False,
+) -> List[Dict]:
     """
     Extract chunks from a .pdf file.
+
+    OCR pre-pass:
+        Image-source PDFs (multifunction-printer scans, mobile photos) ship
+        with a low-quality OCR text layer that produces glued words and
+        garbled characters in the chunks. Before any other processing we run
+        them through ``documents.ocr_pipeline.maybe_reocr`` which:
+
+          - detects scan-sourced PDFs via metadata + page composition
+          - re-OCRs them with ocrmypdf + Tesseract on hosts that have it
+            installed (Droplets); on hosts without (Vercel) it logs a
+            warning and proceeds with the original bytes
+
+        Pass ``force_reocr=True`` to skip the detector and always re-OCR
+        (useful when the upload UI exposes a "force re-OCR" checkbox).
 
     Dispatch order by document_category:
 
@@ -2306,6 +2413,8 @@ def extract_pdf(file_obj: IO[bytes], document_category: Optional[str] = None) ->
              PyMuPDF strikethrough detection + numbered-clause splitting.
              Use when struck-out text is legally significant AND bold body
              text would confuse the font-based header detector.
+             For re-OCR'd documents, also runs raster-image strikethrough
+             detection (since scanned strike marks are not vector drawings).
 
       2. _RAW_EXTRACTION_CATEGORIES (e.g. fixture_recap, addendum)
              → _extract_pdf_raw
@@ -2319,14 +2428,52 @@ def extract_pdf(file_obj: IO[bytes], document_category: Optional[str] = None) ->
     """
     raw_bytes = file_obj.read()
 
+    # OCR pre-pass — best-effort, never blocks even on failure.
+    is_image_source = False
+    try:
+        from documents.ocr_pipeline import is_image_pdf, maybe_reocr
+        is_image_source = force_reocr or is_image_pdf(raw_bytes)
+        if is_image_source:
+            cleaned = maybe_reocr(raw_bytes, force=force_reocr)
+            if cleaned is not raw_bytes and cleaned != raw_bytes:
+                logger.info(
+                    "[extractor] OCR pre-pass replaced source bytes "
+                    "(%d → %d bytes); raster strike detection enabled",
+                    len(raw_bytes), len(cleaned),
+                )
+                raw_bytes = cleaned
+            else:
+                # Detector said image, but re-OCR was unavailable / failed.
+                # Still flag as image-source so the raster strike detector
+                # runs on the original page rasters — at least that part
+                # works without ocrmypdf.
+                logger.info(
+                    "[extractor] Image-source PDF detected but re-OCR did "
+                    "not run; raster strike detection will still apply"
+                )
+    except ImportError:
+        logger.warning(
+            "[extractor] OCR pipeline module unavailable — proceeding "
+            "without re-OCR or raster strike detection"
+        )
+    except Exception as e:
+        logger.warning(
+            "[extractor] OCR pre-pass failed: %s — proceeding with original "
+            "bytes",
+            e,
+        )
+
     # Hybrid: PyMuPDF strikethrough + clause-based splitting
     if document_category in _FITZ_PRESPLIT_CATEGORIES:
         logger.info(
             f"[extractor] Using fitz-presplit (strikethrough + clause) "
-            f"for category '{document_category}'"
+            f"for category '{document_category}' "
+            f"(image_source={is_image_source})"
         )
         try:
-            chunks = _extract_pdf_fitz_presplit(raw_bytes)
+            chunks = _extract_pdf_fitz_presplit(
+                raw_bytes, is_image_source=is_image_source,
+            )
             if chunks:
                 return chunks
             logger.warning(
@@ -2824,6 +2971,8 @@ def extract(
     file_obj: IO[bytes],
     filename: str,
     document_category: Optional[str] = None,
+    *,
+    force_reocr: bool = False,
 ) -> List[Dict]:
     """
     Route to the correct extractor based on file extension.
@@ -2836,6 +2985,11 @@ def extract(
                             strategy for that document type — raw full-text
                             extraction for narrative/spec docs so that AI
                             enrichment receives complete context.
+        force_reocr:        When True (PDFs only) the extractor runs the OCR
+                            pre-pass (ocrmypdf + Tesseract) unconditionally,
+                            bypassing image-PDF auto-detection. Useful for
+                            scanned/photographed PDFs whose existing OCR text
+                            layer is poor. Ignored for non-PDF files.
 
     Returns:
         List of {"title": str|None, "body": str} dicts, ready for DB insertion.
@@ -2845,13 +2999,18 @@ def extract(
     """
     ext = filename.rsplit(".", 1)[-1].lower()
     logger.info(
-        f"[extractor] Extracting {filename} (type={ext}, category={document_category})"
+        f"[extractor] Extracting {filename} (type={ext}, "
+        f"category={document_category}, force_reocr={force_reocr})"
     )
 
     if ext == "docx":
         return extract_docx(file_obj)
     elif ext == "pdf":
-        return extract_pdf(file_obj, document_category=document_category)
+        return extract_pdf(
+            file_obj,
+            document_category=document_category,
+            force_reocr=force_reocr,
+        )
     elif ext in ("xlsx", "xls"):
         return extract_xlsx(file_obj)
     else:

@@ -620,6 +620,19 @@
           </span>
         </div>
 
+        {# Force re-OCR toggle — slow but cleans scanned/photographed PDFs #}
+        <div class="toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" name="force_reocr" id="force-reocr-toggle-full">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">
+            <strong>Force re-OCR</strong> — turn on for scanned/photographed
+            PDFs with garbled words or missing strikethroughs (slow: adds
+            ~3&nbsp;min for a 35-page charter party)
+          </span>
+        </div>
+
         <div class="section-dropzone"
              id="dz-full_document"
              onclick="document.getElementById('file-full_document').click()"
@@ -764,6 +777,19 @@
                    accept=".pdf,.docx,.xlsx,.xls"
                    style="display:none;"
                    onchange="showUploading('{{ section.key }}')">
+
+            {# Force re-OCR toggle (per-section upload) #}
+            <div class="toggle-row" style="margin-bottom: 8px;">
+              <label class="toggle-switch">
+                <input type="checkbox" name="force_reocr"
+                       id="force-reocr-toggle-{{ section.key }}">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label">
+                <strong>Force re-OCR</strong> — for scanned/photographed PDFs
+                with garbled words or missing strikethroughs (slow)
+              </span>
+            </div>
 
             <div class="section-dropzone"
                  id="dz-{{ section.key }}"
@@ -944,8 +970,10 @@ function showUploading(key) {
     const documentCategory = (form.querySelector('[name=document_category]') || {}).value || '';
     const fromVessel       = (form.querySelector('[name=from_vessel]')       || {}).value || '';
     const skipEnrichment   = !!(form.querySelector('[name=skip_enrichment]') || {}).checked;
+    const forceReocr       = !!(form.querySelector('[name=force_reocr]')     || {}).checked;
 
     appendLog('info', 'File is ' + (file.size / (1024*1024)).toFixed(1) + ' MB — using direct storage upload…');
+    if (forceReocr) appendLog('info', 'Force re-OCR enabled — extraction will run ocrmypdf.');
 
     // Step 1: obtain pre-signed PUT URL from Flask
     fetch('/documents/presign', {
@@ -960,6 +988,7 @@ function showUploading(key) {
         document_category: documentCategory,
         from_vessel:       fromVessel,
         skip_enrichment:   skipEnrichment,
+        force_reocr:       forceReocr,
       }),
     })
     .then(function(r) {
@@ -1037,6 +1066,7 @@ function showUploading(key) {
         processData.set('task_id',         taskId);
         processData.set('from_vessel',     fromVessel);
         processData.set('skip_enrichment', skipEnrichment ? 'on' : '');
+        processData.set('force_reocr',     forceReocr     ? 'on' : '');
 
         fetch('/documents/' + docId + '/process-from-storage', {
           method:   'POST',

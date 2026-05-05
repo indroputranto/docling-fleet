@@ -238,6 +238,15 @@ def run():
         )
         print("  [+] documents.skip_ai_enrichment (BOOLEAN NOT NULL DEFAULT 0)")
 
+    # ── documents: force_reocr ────────────────────────────────────────────────
+    if col_exists(cur, "documents", "force_reocr"):
+        print("  [skip] documents.force_reocr already exists")
+    else:
+        cur.execute(
+            "ALTER TABLE documents ADD COLUMN force_reocr BOOLEAN NOT NULL DEFAULT 0"
+        )
+        print("  [+] documents.force_reocr (BOOLEAN NOT NULL DEFAULT 0)")
+
     # ── chat_sessions table ───────────────────────────────────────────────────
     if table_exists(cur, "chat_sessions"):
         print("  [skip] chat_sessions table already exists")

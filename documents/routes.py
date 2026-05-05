@@ -341,6 +341,11 @@ def replace(doc_id: int):
     from_vessel     = request.form.get("from_vessel", "").strip() or str(doc.vessel_id or "")
     user_skip_ai    = request.form.get("skip_enrichment") == "on"
     skip_enrichment = _effective_skip_ai_enrichment(user_skip_ai, doc.document_category)
+    # Honour the form override OR the previously-persisted flag on the doc.
+    force_reocr     = (
+        request.form.get("force_reocr") == "on"
+        or bool(getattr(doc, "force_reocr", False))
+    )
     client          = ClientConfig.query.filter_by(client_id=doc.client_id).first()
 
     # ── 0. Remove old object from storage ────────────────────────────────────
@@ -381,6 +386,7 @@ def replace(doc_id: int):
         doc.coverage_notes = None
         doc.error_message  = None
         doc.skip_ai_enrichment = skip_enrichment
+        doc.force_reocr        = force_reocr
         db.session.commit()
         try:
             storage_key = build_storage_key(doc.client_id, filename)
@@ -409,7 +415,12 @@ def replace(doc_id: int):
     # ── 3b. No object storage — full inline extract (local dev) ──────────────
     from documents.extractor import extract
     try:
-        raw_chunks = extract(file.stream, filename, document_category=doc.document_category)
+        raw_chunks = extract(
+            file.stream,
+            filename,
+            document_category=doc.document_category,
+            force_reocr=force_reocr,
+        )
     except Exception as e:
         flash(f"Could not extract text from '{filename}': {e}", "error")
         db.session.rollback()
@@ -608,6 +619,13 @@ def upload():
     user_skip_ai    = request.form.get("skip_enrichment") == "on"
     skip_enrichment = _effective_skip_ai_enrichment(user_skip_ai, document_category)
 
+    # Force re-OCR: user-controlled checkbox in the upload UI. When True the
+    # extractor runs ocrmypdf + Tesseract unconditionally instead of relying
+    # on the image-PDF auto-detector. Useful for poor-quality scans that
+    # auto-detection might miss. Persisted on the Document so the deferred
+    # /process-from-storage handler keeps the user's choice.
+    force_reocr = request.form.get("force_reocr") == "on"
+
     files = [f for f in request.files.getlist("files") if f and f.filename]
 
     if not files:
@@ -650,6 +668,7 @@ def upload():
                 group_name=group_name,
                 document_category=document_category,
                 skip_ai_enrichment=skip_enrichment,
+                force_reocr=force_reocr,
             )
             db.session.add(doc)
             db.session.flush()
@@ -689,7 +708,12 @@ def upload():
         _pq_emit(task_id, "info",  f"Detecting document format ({ext.upper()})…", pct=18)
         _pq_emit(task_id, "info",  "Initialising parser…", pct=20)
         try:
-            raw_chunks = extract(file.stream, filename, document_category=document_category)
+            raw_chunks = extract(
+                file.stream,
+                filename,
+                document_category=document_category,
+                force_reocr=force_reocr,
+            )
         except Exception as e:
             flash(f"'{filename}' skipped — could not extract text: {e}", "error")
             logger.error(f"[documents] Extraction error for {filename}: {e}", exc_info=True)
@@ -948,6 +972,7 @@ def presign():
         bool(data.get("skip_enrichment", False)),
         document_category,
     )
+    force_reocr       = bool(data.get("force_reocr", False))
 
     ext         = filename.rsplit(".", 1)[1].lower()
     storage_key = build_storage_key(client_id, filename)
@@ -973,6 +998,7 @@ def presign():
         document_category=document_category,
         storage_key=storage_key,
         skip_ai_enrichment=skip_enrichment,
+        force_reocr=force_reocr,
     )
     db.session.add(doc)
     db.session.commit()
@@ -1062,6 +1088,18 @@ def process_from_storage(doc_id: int):
     client_id         = doc.client_id
     document_category = doc.document_category
 
+    # Force re-OCR can be set EITHER on the original upload (persisted on the
+    # Document) OR re-asserted on this deferred call (so a user can retry an
+    # already-uploaded doc with re-OCR turned on without re-uploading).
+    force_reocr       = (
+        request.form.get("force_reocr") == "on"
+        or bool(getattr(doc, "force_reocr", False))
+    )
+    # Mirror the form override back onto the row for visibility in /preview.
+    if force_reocr and not getattr(doc, "force_reocr", False):
+        doc.force_reocr = True
+        db.session.commit()
+
     # ── Download file from DO Spaces ──────────────────────────────────────────
     _pq_emit(task_id, "stage", "Retrieving file from storage…")
     _pq_emit(task_id, "info",  f"Downloading '{filename}' from object storage…", pct=10)
@@ -1086,7 +1124,12 @@ def process_from_storage(doc_id: int):
     _pq_emit(task_id, "info",  "Initialising parser…", pct=20)
 
     try:
-        raw_chunks = extract(file_stream, filename, document_category=document_category)
+        raw_chunks = extract(
+            file_stream,
+            filename,
+            document_category=document_category,
+            force_reocr=force_reocr,
+        )
     except Exception as e:
         doc.status        = "error"
         doc.error_message = str(e)

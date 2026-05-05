@@ -236,6 +236,15 @@ class Document(db.Model):
     # invoke process-from-storage without losing the user preference).
     skip_ai_enrichment = db.Column(db.Boolean, nullable=False, default=False)
 
+    # When True, the extractor runs the OCR pre-pass (ocrmypdf + Tesseract)
+    # unconditionally — bypassing the image-PDF auto-detection. Use this for
+    # scanned charter parties where the existing OCR text layer is poor:
+    # garbled words, missing strikethroughs, OCR-mangled BIMCO text, etc.
+    # On hosts without ocrmypdf installed (Vercel) this falls back gracefully.
+    # Persisted on the row so the deferred /process-from-storage handler can
+    # read it without losing the user's checkbox choice.
+    force_reocr = db.Column(db.Boolean, nullable=False, default=False)
+
     chunks = db.relationship(
         "DocumentChunk",
         backref="document",

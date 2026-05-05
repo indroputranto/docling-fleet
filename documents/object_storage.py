@@ -2,8 +2,9 @@
 """
 DigitalOcean Spaces (S3-compatible) object storage helper.
 
-Uses MinIO for server-side object I/O and **boto3** for presigned URLs when the
-endpoint is DigitalOcean Spaces (SigV4 + virtual-hosted style per DO docs).
+Uses **boto3** for all operations — DigitalOcean officially documents
+SigV4 + virtual-hosted addressing for Spaces with the AWS SDKs, and the
+same client handles uploads, downloads, deletes, and presigned URLs.
 
 Reads configuration from environment variables:
   OBJECT_STORAGE_ENDPOINT   — e.g. https://sgp1.digitaloceanspaces.com
@@ -12,30 +13,20 @@ Reads configuration from environment variables:
   OBJECT_STORAGE_BUCKET     — Space (bucket) name
   OBJECT_STORAGE_REGION     — optional SigV4 region override
 
-DigitalOcean Spaces: the MinIO client must use the datacenter slug as the API
-region (``sin1``, ``sgp1``, ``nyc3``, …). That slug matches the subdomain of
-``OBJECT_STORAGE_ENDPOINT``. If unset, it is inferred from ``*.digitaloceanspaces.com``.
-Without this, presigned URLs trigger GetBucketLocation signed as ``us-east-1`` and
-Spaces responds with ``SignatureDoesNotMatch``.
+The endpoint may be the region endpoint, the bucket origin, or the CDN form;
+``_normalize_spaces_endpoint`` collapses them all to
+``https://<region>.digitaloceanspaces.com`` so virtual-hosted addressing
+produces ``<bucket>.<region>.digitaloceanspaces.com`` (no doubled bucket name).
 
 Public API:
   upload_file(file_stream, storage_key, content_type=None, length=-1) -> str
-      Upload a file-like object and return the storage key on success.
-
   delete_file(storage_key) -> bool
-      Delete an object by its storage key. Returns True on success.
-
+  download_file(storage_key) -> bytes
   get_public_url(storage_key) -> str
-      Return the public HTTPS URL for an object.
-
   generate_presigned_url(storage_key, expiry_seconds=3600) -> str
-      Return a time-limited pre-signed download URL.
-
+  generate_presigned_put_url(storage_key, expiry_seconds=900, content_type=None) -> str
   build_storage_key(client_id, filename) -> str
-      Build a namespaced object key, e.g. "documents/ocean7/charter.pdf".
-
   is_configured() -> bool
-      Return True when all required env vars are present.
 """
 
 import logging
@@ -74,9 +65,7 @@ def _normalize_spaces_endpoint() -> tuple[str, Optional[str], bool]:
       • ``https://<bucket>.sgp1.cdn.digitaloceanspaces.com`` (CDN origin)
 
     Returns ``(endpoint_url, region, secure)`` where ``endpoint_url`` is always
-    the canonical region endpoint ``https://<region>.digitaloceanspaces.com``,
-    so boto3 with virtual-hosted addressing builds
-    ``<bucket>.<region>.digitaloceanspaces.com`` (not duplicated bucket names).
+    the canonical region endpoint ``https://<region>.digitaloceanspaces.com``.
     """
     raw = _ENDPOINT.strip().rstrip("/")
     secure = not raw.startswith("http://")
@@ -89,7 +78,10 @@ def _normalize_spaces_endpoint() -> tuple[str, Optional[str], bool]:
     if not host.endswith(".digitaloceanspaces.com"):
         return raw, None, secure
 
-    prefix_parts = [p for p in host[: -len(".digitaloceanspaces.com")].split(".") if p and p != "cdn"]
+    prefix_parts = [
+        p for p in host[: -len(".digitaloceanspaces.com")].split(".")
+        if p and p != "cdn"
+    ]
     if not prefix_parts:
         return raw, None, secure
 
@@ -98,56 +90,29 @@ def _normalize_spaces_endpoint() -> tuple[str, Optional[str], bool]:
     return canonical, region, secure
 
 
-def _spaces_sigv4_region(canonical_region: Optional[str]) -> str:
-    """Region used in SigV4. Prefer explicit env, else region parsed from endpoint."""
-    explicit = os.getenv("OBJECT_STORAGE_REGION", "").strip()
-    region = explicit or canonical_region
-    if not region:
-        raise RuntimeError(
-            "Could not infer Spaces region from OBJECT_STORAGE_ENDPOINT. "
-            "Use https://<region>.digitaloceanspaces.com (e.g. sgp1) "
-            "or set OBJECT_STORAGE_REGION."
-        )
-    return region
+def _resolve_endpoint_and_region() -> tuple[str, str]:
+    """Return (endpoint_url, region) for boto3."""
+    if _is_digitalocean_spaces():
+        endpoint_url, parsed_region, _secure = _normalize_spaces_endpoint()
+        explicit = os.getenv("OBJECT_STORAGE_REGION", "").strip()
+        region = explicit or parsed_region or ""
+        if not region:
+            raise RuntimeError(
+                "Could not infer Spaces region from OBJECT_STORAGE_ENDPOINT. "
+                "Use https://<region>.digitaloceanspaces.com (e.g. sgp1) "
+                "or set OBJECT_STORAGE_REGION."
+            )
+        return endpoint_url, region
 
-
-def _presigned_put_boto3(storage_key: str, expiry_seconds: int, content_type: str) -> str:
-    """Presigned PUT using boto3 — DigitalOcean documents this path for Spaces."""
-    import boto3
-    from botocore.client import Config
-
-    endpoint_url, parsed_region, _secure = _normalize_spaces_endpoint()
-    region = _spaces_sigv4_region(parsed_region)
-
-    client = boto3.client(
-        "s3",
-        region_name=region,
-        endpoint_url=endpoint_url,
-        aws_access_key_id=_ACCESS_KEY,
-        aws_secret_access_key=_SECRET_KEY,
-        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
-    )
-    url = client.generate_presigned_url(
-        "put_object",
-        Params={
-            "Bucket": _BUCKET,
-            "Key": storage_key,
-            "ContentType": content_type,
-        },
-        ExpiresIn=min(expiry_seconds, 604800),
-        HttpMethod="PUT",
-    )
-    logger.info(
-        f"[object_storage] boto3 pre-signed PUT for '{storage_key}' "
-        f"(region={region}, endpoint={endpoint_url})"
-    )
-    return url
+    raw = _ENDPOINT.strip().rstrip("/")
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    region = os.getenv("OBJECT_STORAGE_REGION", "").strip() or "us-east-1"
+    return raw, region
 
 
 def _get_client():
-    """Return a configured MinIO client pointed at DigitalOcean Spaces."""
-    from minio import Minio  # lazy import — app boots without minio installed
-
+    """Return a configured boto3 S3 client pointed at the configured endpoint."""
     if not is_configured():
         raise RuntimeError(
             "Object storage is not configured. "
@@ -155,22 +120,18 @@ def _get_client():
             "OBJECT_STORAGE_SECRET_KEY, and OBJECT_STORAGE_BUCKET."
         )
 
-    if _is_digitalocean_spaces():
-        # Always talk to the region endpoint so MinIO doesn't double the bucket name.
-        endpoint_url, parsed_region, secure = _normalize_spaces_endpoint()
-        host = re.sub(r"^https?://", "", endpoint_url)
-        region = os.getenv("OBJECT_STORAGE_REGION", "").strip() or parsed_region
-    else:
-        host = re.sub(r"^https?://", "", _ENDPOINT)
-        secure = _ENDPOINT.startswith("https://")
-        region = os.getenv("OBJECT_STORAGE_REGION", "").strip() or None
+    import boto3
+    from botocore.client import Config
 
-    return Minio(
-        host,
-        access_key=_ACCESS_KEY,
-        secret_key=_SECRET_KEY,
-        secure=secure,
-        region=region,
+    endpoint_url, region = _resolve_endpoint_and_region()
+
+    return boto3.client(
+        "s3",
+        region_name=region,
+        endpoint_url=endpoint_url,
+        aws_access_key_id=_ACCESS_KEY,
+        aws_secret_access_key=_SECRET_KEY,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
     )
 
 
@@ -180,46 +141,29 @@ def upload_file(
     file_stream: IO[bytes],
     storage_key: str,
     content_type: Optional[str] = None,
-    length: int = -1,
+    length: int = -1,  # kept for API compatibility; boto3 streams without it
 ) -> str:
     """
     Upload *file_stream* to the configured Space under *storage_key*.
 
-    Parameters
-    ----------
-    file_stream : file-like object
-        Readable binary stream (e.g. Flask's ``request.files['f'].stream``
-        or an ``io.BytesIO``).  The stream is read from its current position.
-    storage_key : str
-        The object key (path inside the bucket), e.g.
-        ``"documents/ocean7/fixture_recap_mv_aurora.pdf"``.
-    content_type : str, optional
-        MIME type.  Defaults to ``"application/octet-stream"``.
-    length : int, optional
-        Content length in bytes.  Pass -1 (default) when unknown — the MinIO
-        client will buffer the stream to determine the size automatically.
-
-    Returns
-    -------
-    str
-        The *storage_key* that was used — store this in ``Document.storage_key``.
+    Returns the *storage_key* on success — store this in ``Document.storage_key``.
 
     Raises
     ------
     RuntimeError
         When the upload fails.
     """
+    del length  # unused; boto3's upload_fileobj handles streaming + multipart
+
     client = _get_client()
     mime = content_type or "application/octet-stream"
 
     try:
-        client.put_object(
-            bucket_name=_BUCKET,
-            object_name=storage_key,
-            data=file_stream,
-            length=length,
-            content_type=mime,
-            part_size=10 * 1024 * 1024,  # 10 MB multipart threshold
+        client.upload_fileobj(
+            Fileobj=file_stream,
+            Bucket=_BUCKET,
+            Key=storage_key,
+            ExtraArgs={"ContentType": mime},
         )
         logger.info(f"[object_storage] Uploaded → {_BUCKET}/{storage_key}")
         return storage_key
@@ -232,18 +176,13 @@ def upload_file(
 
 
 def delete_file(storage_key: str) -> bool:
-    """
-    Delete the object identified by *storage_key* from the Space.
-
-    Returns True on success, False when the operation fails (errors are
-    logged but not re-raised so callers can proceed with DB cleanup).
-    """
+    """Delete *storage_key* from the Space. Errors are logged but never raised."""
     if not storage_key:
         return False
 
     try:
         client = _get_client()
-        client.remove_object(_BUCKET, storage_key)
+        client.delete_object(Bucket=_BUCKET, Key=storage_key)
         logger.info(f"[object_storage] Deleted → {_BUCKET}/{storage_key}")
         return True
     except Exception as exc:
@@ -276,57 +215,28 @@ def generate_presigned_put_url(
     Generate a pre-signed PUT URL so a browser can upload a file directly
     to the Space without routing the binary payload through the Flask server.
 
-    Intended for large files (> 3 MB) that would exceed Vercel's serverless
-    function request-body limit.  The URL expires after *expiry_seconds*
-    (default: 15 minutes).
-
-    *content_type* is included in the SigV4 signature where supported so the
-    browser must send the same ``Content-Type`` header on PUT (match the value
-    sent to ``/documents/presign``).
-
-    DigitalOcean Spaces uses boto3 for presign (official SigV4 + virtual-hosted
-    style). Other S3-compatible endpoints keep MinIO presign.
-
-    Parameters
-    ----------
-    storage_key : str
-        The object key the file will be stored under.
-    expiry_seconds : int
-        How long (in seconds) the URL remains valid.
-    content_type : str, optional
-        MIME type for the PUT (defaults to ``application/octet-stream``).
-
-    Returns
-    -------
-    str
-        A pre-signed HTTPS URL accepting HTTP PUT requests.
+    *content_type* is included in the SigV4 signature so the browser must
+    send the same ``Content-Type`` header on PUT.
     """
     ct = (content_type or "").strip() or "application/octet-stream"
 
-    if _is_digitalocean_spaces():
-        try:
-            return _presigned_put_boto3(storage_key, expiry_seconds, ct)
-        except Exception as exc:
-            logger.error(
-                f"[object_storage] boto3 pre-signed PUT failed for '{storage_key}': {exc}",
-                exc_info=True,
-            )
-            raise RuntimeError(f"Could not generate pre-signed PUT URL: {exc}") from exc
-
-    from datetime import timedelta
-
     client = _get_client()
     try:
-        url = client.presigned_put_object(
-            _BUCKET,
-            storage_key,
-            expires=timedelta(seconds=expiry_seconds),
+        url = client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": _BUCKET,
+                "Key": storage_key,
+                "ContentType": ct,
+            },
+            ExpiresIn=min(int(expiry_seconds), 604800),
+            HttpMethod="PUT",
         )
-        logger.info(f"[object_storage] MinIO pre-signed PUT for '{storage_key}'")
+        logger.info(f"[object_storage] Pre-signed PUT URL generated for '{storage_key}'")
         return url
     except Exception as exc:
         logger.error(
-            f"[object_storage] MinIO pre-signed PUT failed for '{storage_key}': {exc}",
+            f"[object_storage] Pre-signed PUT URL generation failed for '{storage_key}': {exc}",
             exc_info=True,
         )
         raise RuntimeError(f"Could not generate pre-signed PUT URL: {exc}") from exc
@@ -338,28 +248,11 @@ def download_file(storage_key: str) -> bytes:
 
     Used by the server-side processing pipeline to retrieve a file that was
     uploaded directly by the browser via a pre-signed PUT URL.
-
-    Parameters
-    ----------
-    storage_key : str
-        The object key to download.
-
-    Returns
-    -------
-    bytes
-        The full file contents.
-
-    Raises
-    ------
-    RuntimeError
-        When the download fails.
     """
     client = _get_client()
     try:
-        response = client.get_object(_BUCKET, storage_key)
-        data = response.read()
-        response.close()
-        response.release_conn()
+        resp = client.get_object(Bucket=_BUCKET, Key=storage_key)
+        data = resp["Body"].read()
         logger.info(f"[object_storage] Downloaded {len(data)} bytes from '{storage_key}'")
         return data
     except Exception as exc:
@@ -372,31 +265,17 @@ def download_file(storage_key: str) -> bytes:
 
 def generate_presigned_url(storage_key: str, expiry_seconds: int = 3600) -> str:
     """
-    Generate a time-limited pre-signed URL so a document can be downloaded
+    Generate a time-limited pre-signed GET URL so a document can be downloaded
     directly from the Space without exposing permanent credentials.
-
-    Parameters
-    ----------
-    storage_key : str
-        The object key to generate a URL for.
-    expiry_seconds : int
-        How long (in seconds) the URL remains valid.  Default: 1 hour.
-
-    Returns
-    -------
-    str
-        A pre-signed HTTPS URL.
     """
-    from datetime import timedelta
-
     client = _get_client()
     try:
-        url = client.presigned_get_object(
-            _BUCKET,
-            storage_key,
-            expires=timedelta(seconds=expiry_seconds),
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": _BUCKET, "Key": storage_key},
+            ExpiresIn=min(int(expiry_seconds), 604800),
+            HttpMethod="GET",
         )
-        return url
     except Exception as exc:
         logger.error(
             f"[object_storage] Pre-signed URL generation failed for '{storage_key}': {exc}",
@@ -411,8 +290,6 @@ def build_storage_key(client_id: str, filename: str) -> str:
 
     Format: documents/{client_id}/{filename}
     Example: documents/ocean7/fixture_recap_mv_aurora.pdf
-
-    Keeps files organised per client in the same bucket.
     """
     safe_filename = re.sub(r"[^\w.\-]", "_", filename)
     safe_client   = re.sub(r"[^\w.\-]", "_", client_id)

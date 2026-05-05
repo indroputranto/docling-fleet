@@ -9,6 +9,16 @@ openpyxl>=3.1.0
 PyMuPDF>=1.24.0      # PDF text extraction — handles ligatures and custom font encodings
 pdfplumber>=0.11.0   # PDF fallback extractor
 
+# OCR pipeline for image-source PDFs (multifunction-printer scans, photos)
+# ocrmypdf wraps Tesseract; tesseract itself must be installed at the OS
+# level — see deploy.sh / docling-flask.service for Droplets:
+#     apt-get install -y tesseract-ocr tesseract-ocr-eng
+# On Vercel (read-only filesystem, no system tesseract) the OCR pre-pass
+# detects the missing binary and gracefully falls back to the existing
+# extraction path with a logged warning.
+ocrmypdf>=16.0.0
+opencv-python-headless>=4.10.0  # raster strikethrough detection (no GUI deps)
+
 # AI / LLM
 openai>=1.30.0
 anthropic>=0.28.0
@@ -28,10 +38,8 @@ psycopg2-binary>=2.9.0  # PostgreSQL driver (required for Vercel / production)
 python-dotenv>=1.0.0
 
 # Object storage (DigitalOcean Spaces / S3-compatible)
-# minio: uploads/downloads/delete on the server (~1 MB).
-# boto3: presigned PUT/GET URLs — DO documents SigV4 + virtual-hosted style for the
-# AWS SDK; MinIO presign intermittently hits SignatureDoesNotMatch on Spaces.
-minio>=7.2.0
+# boto3 handles uploads/downloads/deletes/presigned URLs. DO Spaces requires
+# SigV4 + virtual-hosted addressing (which MinIO did not always sign correctly).
 boto3>=1.34.0
 
 # Utilities (existing pipeline)
