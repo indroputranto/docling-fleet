@@ -9,6 +9,12 @@ openpyxl>=3.1.0
 PyMuPDF>=1.24.0      # PDF text extraction — handles ligatures and custom font encodings
 pdfplumber>=0.11.0   # PDF fallback extractor
 
+# Cargo packing-list parsing — legacy .xls support.
+# xlrd dropped .xls in 2.0; pinned to 1.2.0 which is the last version
+# that handles the old binary BIFF format we receive from European
+# break-bulk shippers (TRC packing lists, etc.).
+xlrd==1.2.0
+
 # OCR pipeline for image-source PDFs (multifunction-printer scans, photos)
 # ocrmypdf wraps Tesseract; tesseract itself must be installed at the OS
 # level — see deploy.sh / docling-flask.service for Droplets:

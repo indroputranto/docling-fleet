@@ -84,6 +84,47 @@
     .hud{position:absolute;top:12px;left:14px;pointer-events:none;display:none;}
     .hud-title{font-size:18px;font-weight:700;text-shadow:0 1px 6px rgba(0,0,0,.8);}
     .hud-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+    /* drag-mode overlay */
+    .edit-hud{position:absolute;top:50px;left:14px;background:rgba(22,27,34,.94);
+              border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:10px 13px;
+              display:none;backdrop-filter:blur(6px);min-width:215px;font-size:12px;}
+    .edit-hud.show{display:block;}
+    .edit-hud h4{font-size:10px;font-weight:600;color:#60a5fa;text-transform:uppercase;
+                 letter-spacing:.8px;margin-bottom:8px;}
+    .edit-hud .row{display:flex;justify-content:space-between;margin:4px 0;color:var(--muted);}
+    .edit-hud .row b{color:var(--text);font-weight:600;}
+    .edit-hud .row.ok b{color:#10b981;}
+    .edit-hud .row.warn b{color:#f59e0b;}
+    .edit-hud .row.bad b{color:#ef4444;}
+    .edit-hud .help{font-size:10px;color:var(--muted);margin-top:8px;line-height:1.45;
+                    border-top:1px solid var(--border);padding-top:7px;}
+    .edit-hud kbd{font-size:9px;background:var(--bg);border:1px solid var(--border);
+                  border-radius:3px;padding:1px 4px;font-family:var(--font);}
+    .edit-msg{margin-top:6px;padding:6px 8px;border-radius:5px;font-size:11px;display:none;}
+    .edit-msg.show{display:block;}
+    .edit-msg.err{background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.4);
+                  color:#fca5a5;}
+    .edit-msg.ok{background:rgba(16,185,129,.14);border:1px solid rgba(16,185,129,.4);
+                 color:#6ee7b7;}
+
+    /* edit-mode cursor */
+    body.edit-mode #cargo-canvas{cursor:grab;}
+    body.edit-mode.dragging #cargo-canvas{cursor:grabbing;}
+
+    /* edit toggle active state */
+    .header-btn.editing{border-color:rgba(59,130,246,.55);background:rgba(59,130,246,.18);
+                        color:#93c5fd;}
+
+    /* context menu (right-click on placement) */
+    .ctx-menu{position:fixed;background:rgba(22,27,34,.96);border:1px solid var(--border);
+              border-radius:6px;padding:4px 0;display:none;backdrop-filter:blur(6px);
+              z-index:9999;min-width:155px;box-shadow:0 4px 16px rgba(0,0,0,.6);}
+    .ctx-menu.show{display:block;}
+    .ctx-item{padding:7px 14px;font-size:12px;cursor:pointer;color:var(--text);}
+    .ctx-item:hover{background:rgba(59,130,246,.18);color:#93c5fd;}
+    .ctx-item.danger:hover{background:rgba(239,68,68,.16);color:#fca5a5;}
+    .ctx-item.disabled{color:var(--muted);cursor:not-allowed;pointer-events:none;}
     .state-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--muted);}
     .spinner{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .75s linear infinite;}
     @keyframes spin{to{transform:rotate(360deg);}}
@@ -105,7 +146,93 @@
     .stat-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
     .stat-val{font-size:15px;font-weight:700;margin-top:1px;}
     .stat-val .u{font-size:11px;font-weight:400;color:var(--muted);}
+    .stat-val.warn{color:var(--amber,#f59e0b);}
+    .stat-val.bad {color:#ef4444;}
+    .stat-val.ok  {color:#22c55e;}
     .sdiv{width:1px;height:26px;background:var(--border);flex-shrink:0;}
+
+    /* ── Right sidebar (cargo items) ──────────────────────────── */
+    .sidebar-right{width:300px;flex-shrink:0;background:var(--surface);
+                   border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+    .sb-head{padding:11px 13px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .sb-head h2{font-size:10px;font-weight:600;color:var(--muted);
+                text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px;}
+    .upload-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+                background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);
+                color:#93c5fd;border-radius:6px;padding:8px 10px;font-size:12px;
+                font-weight:600;cursor:pointer;font-family:var(--font);transition:background .12s;}
+    .upload-btn:hover{background:rgba(59,130,246,.25);color:#bfdbfe;}
+    .upload-btn:disabled{opacity:.4;cursor:not-allowed;}
+    .upload-btn svg{width:13px;height:13px;}
+    .sb-empty{padding:30px 18px;text-align:center;color:var(--muted);font-size:12px;line-height:1.5;}
+    .sb-section{padding:9px 13px 4px;font-size:9px;font-weight:600;color:var(--muted);
+                text-transform:uppercase;letter-spacing:.9px;
+                border-bottom:1px solid var(--border);background:var(--surface2);
+                display:flex;justify-content:space-between;align-items:center;}
+    .sb-section .count{color:var(--text);background:rgba(255,255,255,.06);
+                       padding:1px 6px;border-radius:4px;}
+    .sb-section.unplaced{color:#fca5a5;background:rgba(239,68,68,.06);border-bottom-color:rgba(239,68,68,.18);}
+    .sb-section.unplaced .count{background:rgba(239,68,68,.15);color:#fca5a5;}
+    .sb-list{flex:1;overflow-y:auto;}
+    .sb-list::-webkit-scrollbar{width:3px;}
+    .sb-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+    .it{padding:7px 13px;border-bottom:1px solid var(--border);cursor:pointer;
+        transition:background .1s;display:flex;flex-direction:column;gap:2px;}
+    .it:hover{background:var(--surface2);}
+    .it.active{background:rgba(59,130,246,.15);border-left:3px solid var(--accent);padding-left:10px;}
+    .it.unplaced{opacity:.85;border-left:3px solid #ef4444;padding-left:10px;}
+    .it-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+    .it-id{font-size:11px;font-weight:600;font-family:'SF Mono',Menlo,monospace;
+           color:#93c5fd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .it-w{font-size:10px;color:var(--muted);flex-shrink:0;}
+    .it-dim{font-size:10px;color:var(--muted);}
+    .it-tag{font-size:9px;background:var(--bg);border:1px solid var(--border);
+            border-radius:3px;padding:0 4px;color:var(--muted);margin-right:3px;}
+    .it-tag.hold{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.3);color:#93c5fd;}
+    .it-tag.imo {background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.4);color:var(--amber,#f59e0b);}
+    .it-reason{font-size:10px;color:#fca5a5;}
+
+    /* ── Upload modal ──────────────────────────────────────────── */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;
+              align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(2px);}
+    .modal-bg.show{display:flex;}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+           width:480px;max-width:92vw;max-height:90vh;overflow-y:auto;
+           padding:22px 24px;display:flex;flex-direction:column;gap:14px;}
+    .modal h3{font-size:15px;font-weight:600;}
+    .modal p.help{font-size:11px;color:var(--muted);line-height:1.5;}
+    .modal label{font-size:10px;font-weight:600;color:var(--muted);
+                 text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
+    .modal input,.modal select{width:100%;background:var(--bg);border:1px solid var(--border);
+                               border-radius:5px;padding:8px 10px;color:var(--text);
+                               font-family:var(--font);font-size:13px;outline:none;}
+    .modal input:focus,.modal select:focus{border-color:var(--accent);}
+    .modal .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+    .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
+    .btn{padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;
+         font-family:var(--font);cursor:pointer;border:1px solid transparent;}
+    .btn-primary{background:var(--accent);color:#fff;}
+    .btn-primary:hover{background:#60a5fa;}
+    .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+    .btn-secondary{background:transparent;color:var(--muted);border-color:var(--border);}
+    .btn-secondary:hover{color:var(--text);border-color:var(--text);}
+
+    /* ── Toast ─────────────────────────────────────────────────── */
+    .toast{position:fixed;top:60px;right:18px;background:var(--surface);
+           border:1px solid var(--border);border-radius:6px;padding:10px 14px;
+           font-size:12px;display:none;z-index:2000;max-width:340px;line-height:1.4;}
+    .toast.show{display:block;}
+    .toast.ok{border-color:#22c55e;}
+    .toast.err{border-color:#ef4444;color:#fca5a5;}
+
+    .header-actions{display:flex;align-items:center;gap:10px;margin-left:auto;}
+    .header-btn{display:flex;align-items:center;gap:5px;background:transparent;
+                border:1px solid var(--border);color:var(--muted);
+                border-radius:5px;padding:5px 10px;font-size:11px;font-weight:500;
+                cursor:pointer;font-family:var(--font);}
+    .header-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent-h);}
+    .header-btn:disabled{opacity:.35;cursor:not-allowed;}
+    .header-btn svg{width:11px;height:11px;}
   </style>
 </head>
 <body>
@@ -120,6 +247,25 @@
   <span class="nav-div">/</span>
   <span class="nav-title">Cargo Hold Visualizer</span>
   <span class="badge">Beta</span>
+
+  <div class="header-actions">
+    <button class="header-btn" id="btnEditHolds" onclick="openEditHoldsModal()" disabled title="Edit cargo hold dimensions for this vessel">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 1l4 4-9 9H2v-4z"/></svg>
+      Edit Holds
+    </button>
+    <button class="header-btn" id="btnRepack" onclick="repackCurrent()" disabled title="Re-run the auto-packer with current items">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a5 5 0 0 1 9-3l2 1"/><path d="M14 4v3h-3"/><path d="M13 8a5 5 0 0 1-9 3l-2-1"/><path d="M2 12V9h3"/></svg>
+      Repack
+    </button>
+    <button class="header-btn" id="btnEditPlacements" onclick="toggleEditMode()" disabled title="Manually move items between holds">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h12"/><path d="M5 5L2 8l3 3"/><path d="M11 5l3 3-3 3"/></svg>
+      <span id="editPlacementsLabel">Edit Placements</span>
+    </button>
+    <button class="header-btn" id="btnUpload" onclick="openUploadModal()" disabled title="Upload a packing list for the selected vessel">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V2"/><path d="M5 5l3-3 3 3"/><path d="M2 11v3h12v-3"/></svg>
+      Upload Packing List
+    </button>
+  </div>
 </header>
 
 <div class="app">
@@ -148,10 +294,40 @@
         <div class="hud-sub" id="hudSub"></div>
       </div>
 
+      <!-- Drag-mode HUD: live balance + selected-item readout -->
+      <div class="edit-hud" id="editHud">
+        <h4>Manual Placement</h4>
+        <div class="row" id="editRowItem"><span>Item</span><b id="editItemId">—</b></div>
+        <div class="row" id="editRowHold"><span>Hold</span><b id="editHoldLabel">—</b></div>
+        <div class="row" id="editRowPos"><span>Position</span><b id="editPosLabel">—</b></div>
+        <div class="row" id="editRowBalance"><span>Balance</span><b id="editBalance">—</b></div>
+        <div class="edit-msg" id="editMsg"></div>
+        <div class="help">
+          Drag a box to move. <kbd>Shift</kbd>+drag = tween deck,
+          <kbd>Shift</kbd>+wheel = pan horizontally. Right-click a box
+          for more options. <kbd>Esc</kbd> exits.
+        </div>
+      </div>
+
+      <!-- Right-click context menu -->
+      <div class="ctx-menu" id="ctxMenu">
+        <div class="ctx-item" id="ctxPin"     onclick="ctxPin()">Pin in place</div>
+        <div class="ctx-item" id="ctxUnpin"   onclick="ctxUnpin()">Unpin (allow repack)</div>
+        <div class="ctx-item" id="ctxRotate"  onclick="ctxRotate()">Rotate 90°</div>
+      </div>
+
       <div class="view-btns" id="viewBtns" style="display:none">
         <button class="vbtn" onclick="setView('3d')">3D</button>
         <button class="vbtn active" onclick="setView('top')">Top</button>
         <button class="vbtn" onclick="setView('side')">Side</button>
+      </div>
+
+      <!-- Level filter — Lower / Tween / All — sits above the view buttons -->
+      <div class="view-btns" id="levelBtns"
+           style="display:none;bottom:48px;">
+        <button class="vbtn active" id="lvlAll"   onclick="setLevel('all')">All Levels</button>
+        <button class="vbtn"        id="lvlLower" onclick="setLevel('lower')">Lower</button>
+        <button class="vbtn"        id="lvlTween" onclick="setLevel('tween')">Tween</button>
       </div>
 
       <div class="scale-bar" id="scaleBar" style="display:none">
@@ -174,9 +350,135 @@
       <div class="stat"><div class="stat-lbl">Holds</div><div class="stat-val" id="sHolds">—</div></div>
       <div class="sdiv"></div>
       <div class="stat"><div class="stat-lbl">Hold Capacity</div><div class="stat-val" id="sCap">—</div></div>
+      <div class="sdiv" id="cargoStatDiv" style="display:none"></div>
+      <div class="stat" id="cargoStatLoad" style="display:none">
+        <div class="stat-lbl">Cargo Loaded</div>
+        <div class="stat-val" id="sCargoLoad">—</div>
+      </div>
+      <div class="sdiv" id="cargoStatDiv2" style="display:none"></div>
+      <div class="stat" id="cargoStatBalance" style="display:none">
+        <div class="stat-lbl">Balance Score</div>
+        <div class="stat-val" id="sBalance">—</div>
+      </div>
+      <div class="sdiv" id="cargoStatDiv3" style="display:none"></div>
+      <div class="stat" id="cargoStatPlaced" style="display:none">
+        <div class="stat-lbl">Items Placed</div>
+        <div class="stat-val" id="sPlaced">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right sidebar: cargo items ───────────────────────────── -->
+  <div class="sidebar-right">
+    <div class="sb-head">
+      <h2>Cargo</h2>
+      <button class="upload-btn" id="sbUploadBtn" onclick="openUploadModal()" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V2"/><path d="M5 5l3-3 3 3"/><path d="M2 11v3h12v-3"/></svg>
+        Upload Packing List
+      </button>
+    </div>
+    <div class="sb-list" id="cargoList">
+      <div class="sb-empty" id="cargoEmpty">
+        Select a vessel on the left to view its current cargo, or upload a new packing list.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Upload modal ────────────────────────────────────────────── -->
+<div class="modal-bg" id="uploadModal">
+  <div class="modal">
+    <h3>Upload Packing List</h3>
+    <p class="help">Accepts <code>.xlsx</code> or <code>.xls</code>. The system will parse the items, then take you to a review screen before running the auto-packer.</p>
+
+    <div>
+      <label for="upFile">Packing list file</label>
+      <input type="file" id="upFile" accept=".xlsx,.xlsm,.xls"/>
+    </div>
+
+    <div>
+      <label for="upVoyage">Voyage / shipment label (optional)</label>
+      <input type="text" id="upVoyage" placeholder="e.g. Pluto 2nd Shipment Livorno"/>
+    </div>
+
+    <div class="grid">
+      <div>
+        <label for="upDeparturePort">Departure port</label>
+        <input type="text" id="upDeparturePort" placeholder="e.g. Marina di Carrara"/>
+      </div>
+      <div>
+        <label for="upArrivalPort">Arrival port</label>
+        <input type="text" id="upArrivalPort" placeholder="e.g. Livorno"/>
+      </div>
+    </div>
+
+    <div>
+      <label for="upDepartureDate">Departure date (optional)</label>
+      <input type="date" id="upDepartureDate"/>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+      <button class="btn btn-primary" id="upSubmit" onclick="submitUpload()">Upload &amp; Review</button>
     </div>
   </div>
 </div>
+
+<!-- ── Edit Holds modal ────────────────────────────────────────── -->
+<div class="modal-bg" id="holdsModal">
+  <div class="modal" style="width:720px;max-width:96vw;">
+    <h3>Edit Cargo Holds — <span id="holdsModalVessel"></span></h3>
+    <p class="help">
+      Define each cargo hold's outer dimensions in meters. If a hold has a tween deck,
+      tick the box and provide the lower/upper hold heights — they should sum to the
+      total height. These values feed both the 3D visualizer and the auto-packer's
+      weight balance constraint.
+    </p>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div><label>LOA (m)</label><input type="number" step="0.1" id="hmLoa" placeholder="e.g. 120"/></div>
+      <div><label>Breadth (m)</label><input type="number" step="0.1" id="hmBeam" placeholder="e.g. 18"/></div>
+      <div><label>Depth (m)</label><input type="number" step="0.1" id="hmDepth" placeholder="e.g. 10"/></div>
+      <div><label>Draft (m)</label><input type="number" step="0.1" id="hmDraft" placeholder="e.g. 7"/></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Total hold capacity (m³)</label><input type="number" step="1" id="hmCap" placeholder="optional"/></div>
+      <div><label>Double bottom height (m)</label><input type="number" step="0.1" id="hmDB" placeholder="default 1.5"/></div>
+    </div>
+
+    <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:13px">Holds</h3>
+      <button type="button" class="btn btn-secondary" style="padding:5px 12px;font-size:11px" onclick="addHoldRow()">+ Add hold</button>
+    </div>
+
+    <div style="overflow:auto;max-height:300px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.6px">
+            <th style="padding:6px 4px">#</th>
+            <th style="padding:6px 4px">L (m)</th>
+            <th style="padding:6px 4px">B (m)</th>
+            <th style="padding:6px 4px">H (m)</th>
+            <th style="padding:6px 4px">Tween</th>
+            <th style="padding:6px 4px">Lower H</th>
+            <th style="padding:6px 4px">Upper H</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="holdsTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeEditHoldsModal()">Cancel</button>
+      <button class="btn btn-primary" id="hmSave" onclick="saveHolds()">Save Holds</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -264,6 +566,7 @@ setTimeout(resize, 50);
 let allVessels    = [];
 let currentVessel = null;
 let currentView   = 'top';
+let currentLevel  = 'all';   // 'all' | 'lower' | 'tween'
 let vesselGroup   = null;
 
 // ── Geometry helpers ───────────────────────────────────────────────
@@ -462,7 +765,13 @@ function build3D(g, v) {
   const draft=v.draft||D*.65;
   const above=D-draft;
 
-  // Hull
+  // When cargo is loaded, render the vessel as a wireframe skeleton so
+  // packed items are fully visible AND clickable from every angle.
+  // Bow / bridge / funnel / masts stay as solid silhouettes so the
+  // vessel is still recognizable for orientation.
+  const cargoMode = !!currentLayout && (currentLayout.placements || []).length > 0;
+
+  // Hull materials (used in non-cargo mode only)
   const matLow   = new THREE.MeshStandardMaterial({color:0x1e293b,roughness:.7,metalness:.3});
   const matHigh  = new THREE.MeshStandardMaterial({color:0x2d3f55,roughness:.6,metalness:.2});
   const matDeck  = new THREE.MeshStandardMaterial({color:0x475569,roughness:.8});
@@ -473,9 +782,28 @@ function build3D(g, v) {
 
   const mk = (geo,mat,x,y,z) => { const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); m.castShadow=true; g.add(m); return m; };
 
-  mk(new THREE.BoxGeometry(loa*.82,draft,B*.92), matLow,  0,-draft/2,0);
-  mk(new THREE.BoxGeometry(loa*.88,above,B),     matHigh, 0,above/2,0);
-  mk(new THREE.BoxGeometry(loa,.28,B),           matDeck, 0,above+.14,0);
+  // Wireframe-only outline of a box (skeleton mode)
+  const skel = (geo, x, y, z, color, opacity=0.55) => {
+    const m = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({color, transparent:true, opacity})
+    );
+    m.position.set(x, y, z);
+    g.add(m);
+    return m;
+  };
+
+  if (cargoMode) {
+    // Skeleton: hull, deck — wireframe outlines only
+    skel(new THREE.BoxGeometry(loa*.82, draft, B*.92), 0, -draft/2, 0, 0x475569, 0.45);
+    skel(new THREE.BoxGeometry(loa*.88, above, B),     0,  above/2, 0, 0x64748b, 0.55);
+    skel(new THREE.BoxGeometry(loa,     .28,    B),    0,  above+.14, 0, 0x94a3b8, 0.40);
+  } else {
+    // Solid hull (default view)
+    mk(new THREE.BoxGeometry(loa*.82,draft,B*.92), matLow,  0,-draft/2,0);
+    mk(new THREE.BoxGeometry(loa*.88,above,B),     matHigh, 0,above/2,0);
+    mk(new THREE.BoxGeometry(loa,.28,B),           matDeck, 0,above+.14,0);
+  }
 
   // bow
   const bowL=loa*.09;
@@ -501,38 +829,73 @@ function build3D(g, v) {
   // holds
   const hPos = holdPositions(v);
   const deckY = above;
+
   v.holds.forEach((h,i)=>{
     const col=HOLD_INT[i%HOLD_INT.length];
     const cx=hPos[i].cx, hL=h.length||loa*.5, hB=Math.min(h.breadth||B*.82,B*.9), hH=h.height||D;
 
-    // Hatch frame
-    mk(new THREE.BoxGeometry(hL+.5,.3,hB+.5),
-       new THREE.MeshStandardMaterial({color:0x7f8fa6,roughness:.4,metalness:.5}),
-       cx, deckY+.15, 0);
+    if (!cargoMode) {
+      // Hatch frame (skipped in cargo mode — would occlude items)
+      mk(new THREE.BoxGeometry(hL+.5,.3,hB+.5),
+         new THREE.MeshStandardMaterial({color:0x7f8fa6,roughness:.4,metalness:.5}),
+         cx, deckY+.15, 0);
 
-    // Hatch cover (tinted glass)
-    mk(new THREE.BoxGeometry(hL-.2,.18,hB-.2),
-       new THREE.MeshStandardMaterial({color:col,transparent:true,opacity:.3,roughness:.2,metalness:.6}),
-       cx, deckY+.32, 0);
+      // Hatch cover (tinted glass)
+      mk(new THREE.BoxGeometry(hL-.2,.18,hB-.2),
+         new THREE.MeshStandardMaterial({color:col,transparent:true,opacity:.3,roughness:.2,metalness:.6}),
+         cx, deckY+.32, 0);
 
-    // Hold volume (transparent)
+      // Hold volume (translucent fill — skip in cargo mode, items live here)
+      const holdGeo = new THREE.BoxGeometry(hL,hH,hB);
+      mk(holdGeo,
+         new THREE.MeshStandardMaterial({color:col,transparent:true,opacity:.13,side:THREE.DoubleSide}),
+         cx, deckY-hH/2+.08, 0);
+    }
+
+    // Wireframe edges (always — outlines the cargo hold extents)
     const holdGeo = new THREE.BoxGeometry(hL,hH,hB);
-    mk(holdGeo,
-       new THREE.MeshStandardMaterial({color:col,transparent:true,opacity:.13,side:THREE.DoubleSide}),
-       cx, deckY-hH/2+.08, 0);
-
-    // Wireframe edges
     const edges=new THREE.LineSegments(
       new THREE.EdgesGeometry(holdGeo),
-      new THREE.LineBasicMaterial({color:col,linewidth:2}));
+      new THREE.LineBasicMaterial({color:col, transparent:true, opacity: cargoMode ? 0.95 : 1.0}));
     edges.position.set(cx, deckY-hH/2+.08, 0);
     g.add(edges);
 
-    // Floor
-    const floorM=mk(new THREE.PlaneGeometry(hL-.5,hB-.5),
-      new THREE.MeshStandardMaterial({color:col,roughness:.9,transparent:true,opacity:.35}),
-      cx, deckY-hH+.12, 0);
-    floorM.rotation.x=-Math.PI/2;
+    // Tank-top (lower-hold floor) — opaque steel plate so the level is
+    // unambiguous in 3D regardless of camera angle.
+    const tankTop = mk(new THREE.BoxGeometry(hL-.4, .14, hB-.4),
+      new THREE.MeshStandardMaterial({
+        color: 0x52606d, roughness: 0.85, metalness: 0.4,
+      }),
+      cx, deckY - hH + .15, 0);
+    tankTop.userData.holdId = h.id;
+    tankTop.userData.level  = 'lower';
+    tankTop.userData.role   = 'floor';
+
+    // Tween-deck floor — opaque plate at lower_height, only when the hold
+    // has a tween deck.  Without this, items on the tween deck visually
+    // float in mid-air and the user can't tell which level they're on.
+    const lowerH = h.lower_height || 0;
+    const upperH = h.upper_height || 0;
+    if (h.has_tween && lowerH > 0 && upperH > 0.5) {
+      const tweenY = deckY - hH + lowerH + .15;
+      const tweenFloor = mk(new THREE.BoxGeometry(hL-.4, .14, hB-.4),
+        new THREE.MeshStandardMaterial({
+          color: 0x6b7280, roughness: 0.85, metalness: 0.45,
+        }),
+        cx, tweenY, 0);
+      tweenFloor.userData.holdId = h.id;
+      tweenFloor.userData.level  = 'tween';
+      tweenFloor.userData.role   = 'floor';
+
+      // Subtle outline on the tween-deck plate so it reads as a deck and
+      // not just a slab.
+      const tFEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(hL-.4, .14, hB-.4)),
+        new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.7 }),
+      );
+      tFEdges.position.copy(tweenFloor.position);
+      g.add(tFEdges);
+    }
 
     // Hold ID label in 3D
     addLabel(g, cx, deckY+3, 0, `<b>Hold #${h.id}</b><br>${hL}×${hB}m`, 'chip');
@@ -551,8 +914,14 @@ function buildTop(g, v) {
   const Y=D-draft; // deckY — all top-view geometry lives at this Y height
   const hPos=holdPositions(v);
 
+  // In cargo mode, the deck + hatch fills would occlude items below.
+  // Render them dimmed (or not at all) so the top-down view shows packed boxes.
+  const cargoMode = !!currentLayout && (currentLayout.placements || []).length > 0;
+  const deckFillOpacity = cargoMode ? 0.18 : 1.0;
+  const hatchFillOpacity = cargoMode ? 0.12 : 0.72;
+
   // Deck fill
-  addPlane(g, 0,Y,0, loa*.88,B, 0x243447);
+  addPlane(g, 0,Y,0, loa*.88,B, 0x243447, deckFillOpacity);
 
   // Bow triangle
   const bowSh=new THREE.Shape();
@@ -584,11 +953,13 @@ function buildTop(g, v) {
     const col=HOLD_INT[i%HOLD_INT.length];
     const cx=hPos[i].cx, hL=h.length||0, hB=h.breadth||0;
 
-    // Shadow / deck opening
-    addPlane(g, cx,Y+.03,0, hL+.8,hB+.8, 0x0d1117);
-    // Hatch coloured fill
-    addPlane(g, cx,Y+.05,0, hL,hB, col, .72);
-    // Hatch outline
+    // Shadow / deck opening (skipped in cargo mode — would occlude items)
+    if (!cargoMode) {
+      addPlane(g, cx,Y+.03,0, hL+.8,hB+.8, 0x0d1117);
+      // Hatch coloured fill
+      addPlane(g, cx,Y+.05,0, hL,hB, col, hatchFillOpacity);
+    }
+    // Hatch outline (always — gives top-down boundary of the hold)
     addRect(g, cx,Y+.1,0, hL,hB, col);
 
     // Hold centre label
@@ -746,20 +1117,110 @@ function updateLegend(v) {
 function setView(v) {
   currentView = v;
   controls.enabled = v === '3d';
-  document.querySelectorAll('.vbtn').forEach(b =>
+  // Update only the View buttons (3D/Top/Side) — Level buttons live in a
+  // sibling .view-btns cluster and are managed by setLevel.
+  document.querySelectorAll('#viewBtns .vbtn').forEach(b =>
     b.classList.toggle('active', b.textContent.toLowerCase().includes(v==='3d'?'3d':v)));
   document.getElementById('legend').style.display='none';
   if(currentVessel) buildScene(currentVessel);
 }
 
+// Level filter (Lower / Tween / All) — purely visual: dims items on the
+// other level so the user can focus on one deck at a time, and biases
+// drag-mode placements toward the selected level.
+function setLevel(level) {
+  if (level !== 'all' && level !== 'lower' && level !== 'tween') return;
+  currentLevel = level;
+  document.getElementById('lvlAll'  ).classList.toggle('active', level === 'all');
+  document.getElementById('lvlLower').classList.toggle('active', level === 'lower');
+  document.getElementById('lvlTween').classList.toggle('active', level === 'tween');
+  applyLevelFilter();
+}
+
+// Re-apply the current level filter to every placed item mesh + every
+// floor plate.  Items on the de-emphasized level fade to 18% opacity but
+// stay clickable; floors get a stronger opacity treatment so the
+// selected deck reads as the active surface.
+function applyLevelFilter() {
+  if (!currentLayout) return;
+  const placementsByItemId = new Map();
+  (currentLayout.placements || []).forEach(p => {
+    if (p.cargo_item_id != null) placementsByItemId.set(p.cargo_item_id, p);
+  });
+  // Items
+  placedItemMeshes.forEach((mesh, cargoItemId) => {
+    const p = placementsByItemId.get(cargoItemId);
+    const itemLevel = (p && p.level) || 'lower';
+    const dimmed = currentLevel !== 'all' && itemLevel !== currentLevel;
+    mesh.material.transparent = dimmed;
+    mesh.material.opacity     = dimmed ? 0.18 : 1.0;
+    mesh.material.depthWrite  = !dimmed;
+    mesh.material.needsUpdate = true;
+    // Edges follow the same fade
+    const edges = mesh.children.find(c => c.isLineSegments);
+    if (edges) {
+      edges.material.transparent = true;
+      edges.material.opacity     = dimmed ? 0.10 : 0.55;
+      edges.material.needsUpdate = true;
+    }
+  });
+  // Floor plates (added in build3D with userData.role === 'floor').
+  if (vesselGroup) {
+    vesselGroup.traverse(obj => {
+      if (!obj.userData || obj.userData.role !== 'floor') return;
+      const isActive = currentLevel === 'all' || obj.userData.level === currentLevel;
+      const mat = obj.material;
+      if (mat) {
+        mat.transparent = !isActive;
+        mat.opacity     = isActive ? 1.0 : 0.55;
+        mat.needsUpdate = true;
+      }
+    });
+  }
+}
+
+// ── Cargo state ────────────────────────────────────────────────────
+// Multiple packing lists can be active on a single vessel/trip.  Each one
+// gets a stable color from the backend palette (matched in the JS palette
+// below), and items render with their manifest's color so the operator
+// can tell at a glance which crates came from which packing list.
+let currentManifests   = [];        // [{id, color_hex, items, ...}, ...]
+let currentLayout      = null;      // combined layout dict (from /cargo)
+let currentItemsById   = new Map(); // cargo_item_id → flat item dict (for sidebar/3D)
+let placedItemMeshes   = new Map(); // cargo_item_id → THREE.Mesh
+let highlightedItemId  = null;
+
+// Fallback palette — only used if the backend response is missing color_hex
+// for some reason.  Matches MANIFEST_COLOR_PALETTE in cargo/routes.py.
+const MANIFEST_COLORS_HEX = [
+  '#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#ef4444',
+  '#14b8a6','#f97316','#a855f7','#22c55e','#06b6d4','#eab308',
+];
+const MANIFEST_COLORS_INT = MANIFEST_COLORS_HEX.map(h => parseInt(h.slice(1), 16));
+
+function colorIntFromHex(hex) {
+  if (!hex) return 0x60a5fa;
+  return parseInt((hex.startsWith('#') ? hex.slice(1) : hex), 16);
+}
+
 // ── Select vessel ──────────────────────────────────────────────────
 function selectVessel(v, el) {
   currentVessel = v;
+  // Clear any cargo state from the previously-selected vessel BEFORE
+  // buildScene runs, so the new vessel renders with an opaque hull
+  // until its own manifest (if any) loads and re-triggers the rebuild.
+  currentManifest = null;
+  currentItems    = [];
+  currentLayout   = null;
+  placedItemMeshes.clear();
+  highlightedItemId = null;
+
   document.querySelectorAll('.vi').forEach(i=>i.classList.remove('active'));
   el.classList.add('active');
 
   document.getElementById('stateMsg').style.display='none';
   document.getElementById('viewBtns').style.display='flex';
+  document.getElementById('levelBtns').style.display='flex';
   document.getElementById('statsBar').style.display='flex';
   document.getElementById('hud').style.display='block';
 
@@ -777,8 +1238,592 @@ function selectVessel(v, el) {
     ?`${Number(v.hold_capacity_m3).toLocaleString()}<span class="u"> m³</span>`
     :'<span class="u">—</span>';
 
+  // Enable cargo upload + edit-holds buttons
+  document.getElementById('btnUpload').disabled = false;
+  document.getElementById('sbUploadBtn').disabled = false;
+  document.getElementById('btnEditHolds').disabled = false;
+
+  // Sync URL so the selection survives a refresh and is shareable.
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('vessel') !== v.id) {
+      url.searchParams.set('vessel', v.id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  } catch {}
+
   buildScene(v);
+  loadManifestForVessel(v);
 }
+
+// ──────────────────────────────────────────────────────────────────
+//  Edit Holds modal
+// ──────────────────────────────────────────────────────────────────
+
+function openEditHoldsModal() {
+  if (!currentVessel) return;
+  document.getElementById('holdsModalVessel').textContent = currentVessel.name;
+  document.getElementById('hmLoa').value   = currentVessel.loa     || '';
+  document.getElementById('hmBeam').value  = currentVessel.breadth || '';
+  document.getElementById('hmDepth').value = currentVessel.depth   || '';
+  document.getElementById('hmDraft').value = currentVessel.draft   || '';
+  document.getElementById('hmCap').value   = currentVessel.hold_capacity_m3 || '';
+  document.getElementById('hmDB').value    = currentVessel.double_bottom_height ?? 1.5;
+
+  const tbody = document.getElementById('holdsTableBody');
+  tbody.innerHTML = '';
+  (currentVessel.holds || []).forEach(h => addHoldRow(h));
+  if (!tbody.children.length) addHoldRow();
+
+  document.getElementById('holdsModal').classList.add('show');
+}
+function closeEditHoldsModal() {
+  document.getElementById('holdsModal').classList.remove('show');
+}
+
+function addHoldRow(h={}) {
+  const tbody = document.getElementById('holdsTableBody');
+  const idx = tbody.children.length + 1;
+  const tr = document.createElement('tr');
+  tr.style.borderTop = '1px solid var(--border)';
+  const inp = (cls, val='', step='0.01', min='0') =>
+    `<td style="padding:5px 4px"><input class="${cls}" type="number" step="${step}" min="${min}" value="${val}" style="width:80px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-family:var(--font);font-size:12px"/></td>`;
+  tr.innerHTML = `
+    <td style="padding:5px 4px;color:var(--muted);font-size:11px"><input class="hr-id" type="number" step="1" value="${h.id || idx}" style="width:48px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-family:var(--font);font-size:12px"/></td>
+    ${inp('hr-l', h.length || '')}
+    ${inp('hr-b', h.breadth || '')}
+    ${inp('hr-h', h.height || '')}
+    <td style="padding:5px 4px;text-align:center"><input class="hr-tween" type="checkbox" ${h.has_tween ? 'checked' : ''}/></td>
+    ${inp('hr-low', h.lower_height || '')}
+    ${inp('hr-up',  h.upper_height || '')}
+    <td style="padding:5px 4px"><button type="button" onclick="this.closest('tr').remove()" style="background:transparent;border:1px solid rgba(239,68,68,.3);color:#ef4444;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+async function saveHolds() {
+  const body = {
+    holds: [],
+    loa:      parseFloat(document.getElementById('hmLoa').value)   || null,
+    breadth:  parseFloat(document.getElementById('hmBeam').value)  || null,
+    depth:    parseFloat(document.getElementById('hmDepth').value) || null,
+    draft:    parseFloat(document.getElementById('hmDraft').value) || null,
+    hold_capacity_m3:     parseFloat(document.getElementById('hmCap').value) || null,
+    double_bottom_height: parseFloat(document.getElementById('hmDB').value)  || 1.5,
+  };
+
+  const rows = document.querySelectorAll('#holdsTableBody tr');
+  for (const tr of rows) {
+    const id  = parseInt(tr.querySelector('.hr-id').value, 10);
+    const L = parseFloat(tr.querySelector('.hr-l').value);
+    const B = parseFloat(tr.querySelector('.hr-b').value);
+    const H = parseFloat(tr.querySelector('.hr-h').value);
+    if (!(L > 0 && B > 0 && H > 0)) {
+      showToast('Each hold needs L, B, H > 0', 'err'); return;
+    }
+    body.holds.push({
+      id, length: L, breadth: B, height: H,
+      has_tween:    tr.querySelector('.hr-tween').checked,
+      lower_height: parseFloat(tr.querySelector('.hr-low').value) || 0,
+      upper_height: parseFloat(tr.querySelector('.hr-up').value)  || 0,
+    });
+  }
+
+  const btn = document.getElementById('hmSave');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/cargo/api/vessels/${currentVessel.id}/holds`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+
+    // Update the cached vessel object & re-render
+    Object.assign(currentVessel, data.payload);
+    closeEditHoldsModal();
+    showToast('Holds saved', 'ok');
+    buildScene(currentVessel);
+    if (currentManifest) loadManifestForVessel(currentVessel);
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Holds';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  Cargo manifest loading + rendering
+// ──────────────────────────────────────────────────────────────────
+
+async function loadManifestForVessel(v) {
+  // Reset cargo state
+  currentManifests = [];
+  currentItemsById.clear();
+  currentLayout    = null;
+  placedItemMeshes.clear();
+  document.getElementById('btnRepack').disabled = true;
+  hideCargoStats();
+  showCargoEmptyState('Loading…');
+
+  try {
+    const r = await fetch(`/cargo/api/vessels/${v.id}/cargo?client=${CLIENT_ID}`,
+                         { credentials: 'include' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+
+    if (!data.manifests || data.manifests.length === 0) {
+      const hasHolds = (currentVessel.holds || []).length > 0;
+      if (!hasHolds) {
+        showCargoEmptyState(
+          '<span style="color:var(--amber,#f59e0b)">⚠ This vessel has no hold dimensions defined.</span><br>' +
+          'Click <b>Edit Holds</b> in the header to set them, then upload a packing list.'
+        );
+      } else {
+        showCargoEmptyState(
+          'No active cargo for this vessel.<br>' +
+          'Upload a packing list to begin. Multiple packing lists can be loaded for the same trip.'
+        );
+      }
+      return;
+    }
+
+    currentManifests = data.manifests;
+    currentLayout    = data.layout;
+    // Flatten items across manifests — each item already carries its
+    // manifest_id and color_hex from the backend.
+    for (const m of currentManifests) {
+      for (const it of (m.items || [])) {
+        currentItemsById.set(it.id, it);
+      }
+    }
+
+    document.getElementById('btnRepack').disabled = false;
+    renderCargoSidebar();
+    // Rebuild the scene so the hull picks up cargoMode (translucent shell
+    // so packed items are visible from any angle).  buildScene's wrapper
+    // also calls renderPlacedItems(), so we don't call it directly here.
+    buildScene(currentVessel);
+    updateCargoStats();
+  } catch (err) {
+    showCargoEmptyState(
+      `<span style="color:#fca5a5">Failed to load cargo:<br>${err.message}</span>`
+    );
+  }
+}
+
+function showCargoEmptyState(html) {
+  const list = document.getElementById('cargoList');
+  list.innerHTML = `<div class="sb-empty">${html}</div>`;
+}
+
+function renderCargoSidebar() {
+  const list = document.getElementById('cargoList');
+  list.innerHTML = '';
+
+  if (!currentManifests.length) {
+    showCargoEmptyState('No active packing lists.');
+    return;
+  }
+
+  // ── Loaded packing lists section ────────────────────────────────────
+  // One row per manifest with its color swatch + summary + remove button.
+  const ph = document.createElement('div');
+  ph.className = 'sb-section';
+  ph.innerHTML = `<span>Loaded Packing Lists</span><span class="count">${currentManifests.length}</span>`;
+  list.appendChild(ph);
+
+  currentManifests.forEach(m => {
+    const placedCount   = m.placed_count || 0;
+    const unplacedCount = m.unplaced_count || 0;
+    const summary       = m.voyage_label || m.filename || `Manifest #${m.id}`;
+    const subtitle      = `${m.total_items} items · ${(m.total_weight_kg/1000).toFixed(1)} t`
+                        + (unplacedCount ? ` · ${unplacedCount} unplaced` : '');
+
+    const card = document.createElement('div');
+    card.style.cssText = 'padding:9px 13px;border-bottom:1px solid var(--border);'
+                       + 'display:flex;gap:9px;align-items:flex-start;';
+    card.innerHTML = `
+      <div style="width:8px;flex-shrink:0;align-self:stretch;
+                  background:${m.color_hex};border-radius:3px;margin-top:2px"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;line-height:1.3;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+             title="${summary}">${summary}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${subtitle}</div>
+      </div>
+      <button class="manifest-rm" data-mid="${m.id}" title="Remove this packing list"
+              style="background:transparent;border:1px solid rgba(239,68,68,.3);
+                     color:#ef4444;border-radius:4px;padding:1px 6px;font-size:11px;
+                     cursor:pointer;flex-shrink:0">×</button>
+    `;
+    card.querySelector('.manifest-rm').addEventListener('click', e => {
+      e.stopPropagation();
+      removeManifest(m.id, summary);
+    });
+    list.appendChild(card);
+  });
+
+  // ── Combined items list ────────────────────────────────────────────
+  // Build a placement lookup keyed by cargo_item_id so we can attach a
+  // hold tag to each item card.
+  const placementByItemId = {};
+  if (currentLayout && currentLayout.placements) {
+    currentLayout.placements.forEach(p => {
+      const key = p.cargo_item_id ?? `${p.manifest_id}:${p.item_position}`;
+      placementByItemId[key] = p;
+    });
+  }
+  const unplacedItemIds = new Set();
+  const unplacedReason  = {};
+  if (currentLayout && currentLayout.unplaced) {
+    currentLayout.unplaced.forEach(u => {
+      const key = u.cargo_item_id ?? `${u.manifest_id}:${u.item_position}`;
+      unplacedItemIds.add(key);
+      unplacedReason[key] = u.reason;
+    });
+  }
+
+  // Flatten items across all manifests, preserving manifest order
+  const allItems = [];
+  for (const m of currentManifests) {
+    for (const it of (m.items || [])) {
+      allItems.push({ ...it, _color: m.color_hex });
+    }
+  }
+
+  const placed   = allItems.filter(it => !unplacedItemIds.has(it.id));
+  const unplaced = allItems.filter(it =>  unplacedItemIds.has(it.id));
+
+  const psec = document.createElement('div');
+  psec.className = 'sb-section';
+  psec.innerHTML = `<span>Placed</span><span class="count">${placed.length}</span>`;
+  list.appendChild(psec);
+
+  placed.forEach(it => {
+    const p   = placementByItemId[it.id];
+    const col = it.color_hex || it._color || '#60a5fa';
+    const el  = document.createElement('div');
+    el.className = 'it';
+    el.dataset.itemId = it.id;
+    el.innerHTML = `
+      <div class="it-row">
+        <span class="it-id" style="border-left:3px solid ${col};padding-left:6px;">${it.item_id}</span>
+        <span class="it-w">${(it.gross_weight_kg/1000).toFixed(2)} t</span>
+      </div>
+      <div class="it-dim">
+        ${it.length_m.toFixed(2)} × ${it.width_m.toFixed(2)} × ${it.height_m.toFixed(2)} m
+        · ${it.volume_m3.toFixed(2)} m³
+      </div>
+      <div class="it-row" style="gap:4px">
+        <span class="it-tag hold">Hold ${p ? p.hold_id : '?'}${p && p.level ? ' '+p.level : ''}</span>
+        ${it.imo_flag ? '<span class="it-tag imo">IMO</span>' : ''}
+        ${!it.can_stack ? '<span class="it-tag">no-stack</span>' : ''}
+      </div>`;
+    el.addEventListener('click', () => focusItem(it.id));
+    list.appendChild(el);
+  });
+
+  if (unplaced.length) {
+    const usec = document.createElement('div');
+    usec.className = 'sb-section unplaced';
+    usec.innerHTML = `<span>Unplaced (overflow)</span><span class="count">${unplaced.length}</span>`;
+    list.appendChild(usec);
+
+    unplaced.forEach(it => {
+      const reason = unplacedReason[it.id] || 'unknown reason';
+      const col    = it.color_hex || it._color || '#fca5a5';
+      const el = document.createElement('div');
+      el.className = 'it unplaced';
+      el.dataset.itemId = it.id;
+      el.style.borderLeftColor = col;
+      el.innerHTML = `
+        <div class="it-row">
+          <span class="it-id" style="color:#fca5a5">${it.item_id}</span>
+          <span class="it-w">${(it.gross_weight_kg/1000).toFixed(2)} t</span>
+        </div>
+        <div class="it-dim">${it.length_m.toFixed(2)} × ${it.width_m.toFixed(2)} × ${it.height_m.toFixed(2)} m</div>
+        <div class="it-reason">${reason}</div>`;
+      list.appendChild(el);
+    });
+  }
+}
+
+async function removeManifest(manifestId, label) {
+  if (!confirm(`Remove "${label}" from this vessel? `
+             + `Items will be removed and remaining packing lists will be repacked.`)) return;
+  try {
+    const res = await fetch(`/cargo/api/manifests/${manifestId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => null);
+      throw new Error((d && d.error) || `HTTP ${res.status}`);
+    }
+    showToast('Packing list removed', 'ok');
+    await loadManifestForVessel(currentVessel);
+  } catch (e) {
+    showToast('Remove failed: ' + e.message, 'err');
+  }
+}
+
+function focusItem(itemId) {
+  // Highlight in sidebar
+  document.querySelectorAll('.it').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.itemId, 10) === itemId);
+  });
+  // Scroll into view
+  const sel = document.querySelector(`.it[data-item-id="${itemId}"]`);
+  if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Highlight 3D mesh — pulse emissive briefly
+  const mesh = placedItemMeshes.get(itemId);
+  if (mesh) {
+    if (highlightedItemId !== null) {
+      const prev = placedItemMeshes.get(highlightedItemId);
+      if (prev && prev.material) {
+        prev.material.emissiveIntensity = 0;
+      }
+    }
+    mesh.material.emissive = new THREE.Color(0xffffff);
+    mesh.material.emissiveIntensity = 0.45;
+    highlightedItemId = itemId;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  3D rendering of placed items inside hold geometry
+// ──────────────────────────────────────────────────────────────────
+
+function renderPlacedItems() {
+  if (!vesselGroup || !currentLayout || !currentLayout.placements) return;
+  const v = currentVessel;
+  const loa = v.loa, B = v.breadth, D = v.depth;
+  const draft = v.draft || D * 0.65;
+  const deckY = D - draft;
+  const dbH = v.double_bottom_height || 1.5;
+  const ttY = -draft + dbH;
+  const hPos = holdPositions(v);
+  placedItemMeshes.clear();
+
+  // Index hold by id for the (cx, geometry) lookup
+  const holdById = {};
+  v.holds.forEach((h, i) => holdById[h.id] = { hold: h, idx: i, cx: hPos[i].cx });
+
+  currentLayout.placements.forEach(p => {
+    const cargoItemId = p.cargo_item_id;
+    if (cargoItemId === undefined || cargoItemId === null) return;
+    const item = currentItemsById.get(cargoItemId);
+    if (!item) return;
+    const holdInfo = holdById[p.hold_id];
+    if (!holdInfo) return;
+    const h = holdInfo.hold;
+    const cx = holdInfo.cx;
+    const hL = h.length || loa * 0.5;
+    const hB = Math.min(h.breadth || B * 0.82, B * 0.9);
+    const hH = h.height || D;
+    const lowerH = h.lower_height || hH;
+    const upperH = h.upper_height || 0;
+    const hasTD = h.has_tween && upperH > 0.5;
+
+    const is3DorTop = currentView === '3d' || currentView === 'top';
+    const lowerFloorY_3d   = deckY - hH + 0.08;
+    const tweenFloorY_3d   = lowerFloorY_3d + lowerH;
+    const lowerFloorY_side = ttY;
+    const tweenFloorY_side = ttY + lowerH + 0.35;
+
+    let floorY;
+    if (is3DorTop) {
+      floorY = (p.level === 'tween') ? tweenFloorY_3d : lowerFloorY_3d;
+    } else {
+      floorY = (p.level === 'tween') ? tweenFloorY_side : lowerFloorY_side;
+    }
+
+    const sx = (cx - hL/2) + p.x + p.l/2;
+    const sy = floorY + p.y + p.h/2;
+    const sz = (-hB/2) + p.z + p.w/2;
+
+    // Color from manifest — falls back to the local palette if missing.
+    const colorInt = colorIntFromHex(
+      p.color_hex
+      || (p.manifest_id != null
+          ? (currentLayout.color_by_manifest || {})[String(p.manifest_id)]
+          : null)
+    );
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: colorInt, transparent: false, opacity: 1.0,
+      roughness: 0.5, metalness: 0.2,
+    });
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(p.l, p.h, p.w),
+      mat
+    );
+    mesh.position.set(sx, sy, sz);
+    mesh.userData.cargoItemId = cargoItemId;
+    mesh.userData.itemId      = item.item_id;
+    mesh.userData.manifestId  = p.manifest_id;
+
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(mesh.geometry),
+      new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.55, transparent: true })
+    );
+    mesh.add(edges);
+
+    vesselGroup.add(mesh);
+    placedItemMeshes.set(cargoItemId, mesh);
+  });
+
+  // Click-to-focus on placed items (raycaster)
+  if (!renderer.domElement._cargoPickerInstalled) {
+    renderer.domElement.addEventListener('click', onCanvasClick);
+    renderer.domElement._cargoPickerInstalled = true;
+  }
+
+  // If a level filter is active (or pinned items need their yellow
+  // edges) the just-built meshes need their visual treatment applied.
+  if (typeof applyLevelFilter === 'function') applyLevelFilter();
+  if (typeof reflectPinnedState === 'function') reflectPinnedState();
+}
+
+function onCanvasClick(e) {
+  if (!placedItemMeshes.size) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, activeCam);
+  const targets = Array.from(placedItemMeshes.values());
+  const hits = raycaster.intersectObjects(targets, false);
+  if (hits.length) {
+    const id = hits[0].object.userData.cargoItemId;
+    if (id !== undefined) focusItem(id);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  Stats bar updates
+// ──────────────────────────────────────────────────────────────────
+
+function showCargoStats() {
+  ['cargoStatDiv','cargoStatLoad','cargoStatDiv2','cargoStatBalance','cargoStatDiv3','cargoStatPlaced']
+    .forEach(id => document.getElementById(id).style.display = '');
+}
+function hideCargoStats() {
+  ['cargoStatDiv','cargoStatLoad','cargoStatDiv2','cargoStatBalance','cargoStatDiv3','cargoStatPlaced']
+    .forEach(id => document.getElementById(id).style.display = 'none');
+}
+
+function updateCargoStats() {
+  if (!currentLayout) return;
+  showCargoStats();
+  const lay = currentLayout;
+  document.getElementById('sCargoLoad').innerHTML =
+    `${(lay.total_weight_kg/1000).toFixed(1)}<span class="u"> t</span>`;
+  const bs = lay.balance_score;
+  const sB = document.getElementById('sBalance');
+  sB.textContent = bs.toFixed(0) + ' / 100';
+  sB.className = 'stat-val ' + (bs >= 80 ? 'ok' : bs >= 60 ? 'warn' : 'bad');
+  const sP = document.getElementById('sPlaced');
+  sP.innerHTML = `${lay.placed_count}<span class="u"> / ${lay.placed_count + lay.unplaced_count}</span>`;
+  sP.className = 'stat-val ' + (lay.unplaced_count === 0 ? 'ok' : 'warn');
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  Upload modal + flow
+// ──────────────────────────────────────────────────────────────────
+
+function openUploadModal() {
+  if (!currentVessel) return;
+  document.getElementById('uploadModal').classList.add('show');
+}
+function closeUploadModal() {
+  document.getElementById('uploadModal').classList.remove('show');
+  document.getElementById('upFile').value = '';
+}
+
+async function submitUpload() {
+  const fileInp = document.getElementById('upFile');
+  if (!fileInp.files || !fileInp.files.length) {
+    showToast('Please choose a file', 'err');
+    return;
+  }
+  const btn = document.getElementById('upSubmit');
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+
+  const fd = new FormData();
+  fd.append('file', fileInp.files[0]);
+  fd.append('voyage_label',   document.getElementById('upVoyage').value || '');
+  fd.append('departure_port', document.getElementById('upDeparturePort').value || '');
+  fd.append('arrival_port',   document.getElementById('upArrivalPort').value || '');
+  fd.append('departure_date', document.getElementById('upDepartureDate').value || '');
+
+  try {
+    const res = await fetch(
+      `/cargo/api/vessels/${currentVessel.id}/manifests/upload?client=${CLIENT_ID}`,
+      { method: 'POST', body: fd, credentials: 'include' }
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+
+    showToast(`Parsed ${data.items_count} items — opening review`, 'ok');
+    setTimeout(() => { window.location = data.preview_url; }, 600);
+  } catch (e) {
+    showToast('Upload failed: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Upload & Review';
+  }
+}
+
+async function repackCurrent() {
+  if (!currentManifests || !currentManifests.length) return;
+  // The repack endpoint runs the joint packer over every active manifest
+  // for the vessel, so picking any one of them produces the same result.
+  const anchor = currentManifests[0];
+  const btn = document.getElementById('btnRepack');
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span style="font-size:11px">Packing…</span>';
+  try {
+    const res = await fetch(`/cargo/api/manifests/${anchor.id}/repack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+    showToast(`Repacked: ${data.layout.placed_count} placed, ${data.layout.unplaced_count} unplaced`, 'ok');
+    await loadManifestForVessel(currentVessel);
+  } catch (e) {
+    showToast('Repack failed: ' + e.message, 'err');
+  } finally {
+    btn.innerHTML = orig;
+    btn.disabled = !(currentManifests && currentManifests.length);
+  }
+}
+
+function showToast(msg, level='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + level;
+  setTimeout(() => t.className = 'toast', 3500);
+}
+
+// Re-render placed items whenever the underlying vessel scene rebuilds
+// (view toggle calls buildScene which clears the group).
+const _origBuildScene = buildScene;
+buildScene = function(v) {
+  _origBuildScene(v);
+  if (currentLayout) renderPlacedItems();
+};
 
 // ── Sidebar ────────────────────────────────────────────────────────
 function renderList(q='') {
@@ -809,12 +1854,788 @@ async function loadVessels() {
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     allVessels=await res.json();
     renderList();
-    setTimeout(()=>{ const first=document.querySelector('.vi'); if(first) first.click(); }, 100);
+    setTimeout(()=>{
+      // Honor ?vessel=<slug> in the URL — set when navigating from the
+      // preview page's "Save & Pack" redirect, or shared as a deep link.
+      // Falls back to the first vessel in the sidebar when no param /
+      // when the param doesn't match a known vessel.
+      const params = new URLSearchParams(window.location.search);
+      const wantSlug = params.get('vessel');
+      let target = null;
+      if (wantSlug) {
+        const items = document.querySelectorAll('.vi');
+        for (const el of items) {
+          const v = allVessels.find(x => x.id === wantSlug
+                                      && el.querySelector('.vi-name').textContent === x.name);
+          if (v) { target = el; break; }
+        }
+        // Fallback: match purely by slug if the name lookup misses
+        if (!target) {
+          const v = allVessels.find(x => x.id === wantSlug);
+          if (v) {
+            const els = document.querySelectorAll('.vi');
+            for (const el of els) {
+              if (el.querySelector('.vi-name').textContent === v.name) {
+                target = el; break;
+              }
+            }
+          }
+        }
+      }
+      if (!target) target = document.querySelector('.vi');
+      if (target) target.click();
+    }, 100);
   } catch(err) {
     document.getElementById('stateMsg').innerHTML=
       `<span style="color:#ef4444;font-size:13px">Failed to load: ${err.message}</span>`;
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════
+//  EDIT-PLACEMENTS MODE  — drag-and-drop manual moves in the 3D scene
+// ══════════════════════════════════════════════════════════════════════
+//
+// Coordinate plumbing
+// -------------------
+// Each placed item is rendered with its CENTER at:
+//   sx = (cx - hL/2) + p.x + p.l/2
+//   sy = floorY      + p.y + p.h/2
+//   sz = (-hB/2)     + p.z + p.w/2
+// where (cx, hL, hB) come from holdPositions() + rendered hold dims, and
+// floorY is the Y of the relevant level's floor (lower / tween).
+//
+// To convert a candidate world-space center back to bin coords:
+//   p.x = sx_center - p.l/2 - (cx - hL/2)
+//   p.y = sy_center - p.h/2 - floorY
+//   p.z = sz_center - p.w/2 - (-hB/2)
+//
+// During drag we project the cursor onto a horizontal plane at floorY
+// for the hovered hold, snap, validate, and on drop POST /move.
+
+const EDIT = {
+  on:           false,           // global edit mode toggle
+  draggingMesh: null,             // the THREE.Mesh currently being dragged
+  origPos:      null,             // mesh.position.clone() at drag-start (snap-back)
+  origUserData: null,             // shallow copy of userData at drag-start
+  origColor:    null,             // material.color.getHex() at drag-start
+  raycaster:    null,
+  pointer:      new THREE.Vector2(),
+  ghostPlane:   new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+  candidate:    null,             // {hold_id, level, x, y, z, l, w, h, ok, reason}
+  pendingPreview: 0,              // throttle id
+  ctxTarget:    null,             // the mesh the context menu was opened on
+};
+
+// ── Helpers: world↔bin geometry ───────────────────────────────────────
+
+function _holdRenderInfo(holdId) {
+  if (!currentVessel) return null;
+  const v = currentVessel;
+  const loa = v.loa, B = v.breadth, D = v.depth;
+  const draft = v.draft || D * 0.65;
+  const deckY = D - draft;
+  const hPos  = holdPositions(v);
+  const idx   = v.holds.findIndex(h => h.id === holdId);
+  if (idx < 0) return null;
+  const h     = v.holds[idx];
+  const hL    = h.length || loa * 0.5;
+  const hB    = Math.min(h.breadth || B * 0.82, B * 0.9);
+  const hH    = h.height || D;
+  const lowerH = h.lower_height || hH;
+  const upperH = h.upper_height || 0;
+  const hasTween = h.has_tween && upperH > 0.5;
+  const lowerFloorY = deckY - hH + 0.08;
+  const tweenFloorY = lowerFloorY + lowerH;
+  return { h, idx, cx: hPos[idx].cx, hL, hB, hH, lowerH, upperH, hasTween,
+           lowerFloorY, tweenFloorY, actualBreadth: h.breadth || B };
+}
+
+function _floorYFor(holdInfo, level) {
+  return level === 'tween' ? holdInfo.tweenFloorY : holdInfo.lowerFloorY;
+}
+
+// World-space AABB of any placed mesh, derived from its placement record.
+// Used for JS collision — much simpler than reading geometry.
+function _meshAABB(cargoItemId) {
+  const item = currentItemsById.get(cargoItemId);
+  if (!item) return null;
+  const placement = (currentLayout?.placements || [])
+    .find(p => p.cargo_item_id === cargoItemId);
+  if (!placement) return null;
+  const hi = _holdRenderInfo(placement.hold_id);
+  if (!hi) return null;
+  const fy = _floorYFor(hi, placement.level);
+  const x0 = (hi.cx - hi.hL / 2) + placement.x;
+  const y0 = fy + placement.y;
+  const z0 = (-hi.hB / 2) + placement.z;
+  return {
+    cargoItemId,
+    placement_id: placement.placement_id, // may be undefined for unpinned snapshots
+    hold_id: placement.hold_id,
+    level:   placement.level || null,
+    x0, y0, z0,
+    x1: x0 + placement.l, y1: y0 + placement.h, z1: z0 + placement.w,
+  };
+}
+
+// AABB intersection (mirrors Python collisions.boxes_overlap, no clearance).
+function _boxesIntersect(a, b) {
+  const E = 1e-6;
+  return !(
+    a.x1 <= b.x0 + E || b.x1 <= a.x0 + E ||
+    a.y1 <= b.y0 + E || b.y1 <= a.y0 + E ||
+    a.z1 <= b.z0 + E || b.z1 <= a.z0 + E
+  );
+}
+
+// Build the list of (hold, level) floor planes — one per packable bin.
+function _allFloorPlanes() {
+  const out = [];
+  if (!currentVessel) return out;
+  for (const h of currentVessel.holds) {
+    const hi = _holdRenderInfo(h.id);
+    if (!hi) continue;
+    out.push({ y: hi.lowerFloorY, hi, level: 'lower' });
+    if (hi.hasTween) out.push({ y: hi.tweenFloorY, hi, level: 'tween' });
+  }
+  return out;
+}
+
+// Raycast against every (hold, level) floor plane and return the closest
+// hit whose (x, z) lies inside that hold's footprint.  Camera-angle
+// independent — works equally well from above the deck or below the
+// keel, which the original y=0 projection didn't.
+function _projectCursorToBestHold(levelPref /* 'lower' | 'tween' | null */) {
+  if (!EDIT.raycaster) EDIT.raycaster = new THREE.Raycaster();
+  EDIT.raycaster.setFromCamera(EDIT.pointer, activeCam);
+  const ray = EDIT.raycaster.ray;
+  let best = null;
+  let bestDist = Infinity;
+  for (const fp of _allFloorPlanes()) {
+    if (levelPref && fp.level !== levelPref) continue;
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -fp.y);
+    const hit = new THREE.Vector3();
+    if (!ray.intersectPlane(plane, hit)) continue;
+    const hi = fp.hi;
+    // Footprint membership (with a half-meter tolerance to forgive edge picks)
+    const TOL = 0.5;
+    if (hit.x < hi.cx - hi.hL / 2 - TOL) continue;
+    if (hit.x > hi.cx + hi.hL / 2 + TOL) continue;
+    if (hit.z < -hi.hB / 2 - TOL)        continue;
+    if (hit.z >  hi.hB / 2 + TOL)        continue;
+    const d = ray.origin.distanceToSquared(hit);
+    if (d < bestDist) { bestDist = d; best = { hit, hi, level: fp.level }; }
+  }
+  return best;
+}
+
+// ── Mode toggle ───────────────────────────────────────────────────────
+
+function toggleEditMode() {
+  if (!EDIT.on) enterEditMode(); else exitEditMode();
+}
+
+function enterEditMode() {
+  if (!currentVessel || !currentLayout) return;
+  EDIT.on = true;
+  document.body.classList.add('edit-mode');
+  document.getElementById('btnEditPlacements').classList.add('editing');
+  document.getElementById('editPlacementsLabel').textContent = 'Done Editing';
+  document.getElementById('editHud').classList.add('show');
+  // Lock the camera while editing — rotate / pan would interfere with
+  // the drag, and the user can use Shift+wheel for the rare horizontal
+  // pan they need.  Zoom stays on so they can still get closer to
+  // small items.
+  if (controls) {
+    EDIT._priorRotate = controls.enableRotate;
+    EDIT._priorPan    = controls.enablePan;
+    controls.enableRotate = false;
+    controls.enablePan    = false;
+    // Zoom is intentionally left enabled.
+  }
+  if (currentLayout && currentLayout.balance_score != null) {
+    setEditBalance(currentLayout.balance_score);
+  }
+  // Mark already-pinned meshes so the user can see what's locked.
+  reflectPinnedState();
+  showEditMsg('', null);
+}
+
+function exitEditMode() {
+  EDIT.on = false;
+  document.body.classList.remove('edit-mode', 'dragging');
+  document.getElementById('btnEditPlacements').classList.remove('editing');
+  document.getElementById('editPlacementsLabel').textContent = 'Edit Placements';
+  document.getElementById('editHud').classList.remove('show');
+  hideCtxMenu();
+  // Restore prior orbit state.
+  if (controls) {
+    if (EDIT._priorRotate !== undefined) controls.enableRotate = EDIT._priorRotate;
+    if (EDIT._priorPan    !== undefined) controls.enablePan    = EDIT._priorPan;
+  }
+  // Drop any in-flight drag state.
+  if (EDIT.draggingMesh) cancelDrag();
+}
+
+// ── HUD updates ───────────────────────────────────────────────────────
+
+function setEditBalance(score) {
+  const el = document.getElementById('editBalance');
+  if (score == null) { el.textContent = '—'; return; }
+  const v = Number(score);
+  el.textContent = v.toFixed(0) + ' / 100';
+  const row = document.getElementById('editRowBalance');
+  row.classList.remove('ok', 'warn', 'bad');
+  row.classList.add(v >= 80 ? 'ok' : v >= 60 ? 'warn' : 'bad');
+}
+
+function setEditDragInfo(itemLabel, holdLabel, posLabel) {
+  document.getElementById('editItemId').textContent  = itemLabel || '—';
+  document.getElementById('editHoldLabel').textContent = holdLabel || '—';
+  document.getElementById('editPosLabel').textContent = posLabel  || '—';
+}
+
+function showEditMsg(text, kind /* 'ok' | 'err' | null */) {
+  const el = document.getElementById('editMsg');
+  el.classList.remove('ok', 'err', 'show');
+  if (!text) { el.textContent = ''; return; }
+  el.textContent = text;
+  if (kind) el.classList.add(kind);
+  el.classList.add('show');
+}
+
+// ── Pin indicators on already-pinned meshes ──────────────────────────
+
+function reflectPinnedState() {
+  if (!currentLayout) return;
+  const pinByItemId = new Map();
+  (currentLayout.placements || []).forEach(p => {
+    if (p.is_pinned) pinByItemId.set(p.cargo_item_id, true);
+  });
+  placedItemMeshes.forEach((mesh, cid) => {
+    const isPinned = pinByItemId.get(cid);
+    // Replace edge color: yellow for pinned, white for free.
+    const edges = mesh.children.find(c => c.isLineSegments);
+    if (edges) {
+      edges.material.color = new THREE.Color(isPinned ? 0xfacc15 : 0xffffff);
+      edges.material.opacity = isPinned ? 0.95 : 0.55;
+      edges.material.needsUpdate = true;
+    }
+    mesh.userData.isPinned = !!isPinned;
+  });
+}
+
+// ── Pointer events ────────────────────────────────────────────────────
+
+function _pointerToNDC(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  EDIT.pointer.set(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+}
+
+function _pickPlacedMeshAt(e) {
+  _pointerToNDC(e);
+  if (!EDIT.raycaster) EDIT.raycaster = new THREE.Raycaster();
+  EDIT.raycaster.setFromCamera(EDIT.pointer, activeCam);
+  const targets = Array.from(placedItemMeshes.values());
+  const hits = EDIT.raycaster.intersectObjects(targets, false);
+  return hits.length ? hits[0].object : null;
+}
+
+function onEditPointerDown(e) {
+  if (!EDIT.on) return;
+  if (e.button !== 0) return;          // left-click only
+  hideCtxMenu();
+  const mesh = _pickPlacedMeshAt(e);
+  if (!mesh) return;
+  e.preventDefault();
+  e.stopPropagation();
+  beginDrag(mesh, e);
+}
+
+function onEditPointerMove(e) {
+  if (!EDIT.on || !EDIT.draggingMesh) return;
+  e.preventDefault();
+  updateDrag(e);
+}
+
+function onEditPointerUp(e) {
+  if (!EDIT.on) return;
+  if (!EDIT.draggingMesh) return;
+  e.preventDefault();
+  finishDrag(e);
+}
+
+function onEditKeyDown(e) {
+  if (!EDIT.on) return;
+  if (e.key === 'Escape') {
+    if (EDIT.draggingMesh) cancelDrag(); else exitEditMode();
+  }
+}
+
+// ── Drag lifecycle ────────────────────────────────────────────────────
+
+function beginDrag(mesh, e) {
+  EDIT.draggingMesh = mesh;
+  EDIT.origPos      = mesh.position.clone();
+  EDIT.origUserData = Object.assign({}, mesh.userData);
+  EDIT.origColor    = mesh.material.color.getHex();
+  document.body.classList.add('dragging');
+  // Lift the mesh above siblings during drag.
+  mesh.material.transparent = true;
+  mesh.material.opacity     = 0.78;
+  mesh.material.needsUpdate = true;
+  updateDrag(e);
+}
+
+function _snapToGrid(v, step = 0.05) {
+  return Math.round(v / step) * step;
+}
+
+function updateDrag(e) {
+  const mesh = EDIT.draggingMesh;
+  if (!mesh) return;
+  _pointerToNDC(e);
+
+  // Level preference: explicit Lower/Tween filter takes priority; in
+  // 'all' mode, holding Shift switches to tween if the hovered hold
+  // has one.
+  let levelPref = null;
+  if (currentLevel === 'lower' || currentLevel === 'tween') {
+    levelPref = currentLevel;
+  } else if (e && e.shiftKey) {
+    levelPref = 'tween';
+  }
+
+  // Camera-angle-robust hold pick: try the preferred level first, then
+  // fall back to any level (so tween-only items still drop somewhere
+  // sensible when Shift is held over a non-tween hold).
+  let best = _projectCursorToBestHold(levelPref);
+  if (!best) best = _projectCursorToBestHold(null);
+  if (!best) {
+    setEditDragInfo(mesh.userData.itemId, 'outside any hold', '—');
+    _markCandidate({ ok: false, reason: 'cursor is outside any hold' });
+    return;
+  }
+  const hi       = best.hi;
+  const level    = best.level;
+  const floorY   = _floorYFor(hi, level);
+  const hitFloor = best.hit;
+
+  // The dragged mesh keeps its current rotation (l, w, h, rotation_deg
+  // come from userData / original placement record).  We need its current
+  // l/w to convert center→corner.
+  const placement = (currentLayout?.placements || [])
+    .find(p => p.cargo_item_id === mesh.userData.cargoItemId);
+  if (!placement) return;
+  const l = placement.l, w = placement.w, h = placement.h;
+  const rotation_deg = placement.rotation_deg || 0;
+
+  // Snap candidate corner to the hold and clamp inside hold bounds.
+  let binX = _snapToGrid(hitFloor.x - l / 2 - (hi.cx - hi.hL / 2));
+  let binZ = _snapToGrid(hitFloor.z - w / 2 - (-hi.hB / 2));
+  binX = Math.max(0, Math.min(binX, hi.hL - l));
+  binZ = Math.max(0, Math.min(binZ, hi.hB - w));
+  const binY = 0;     // resting on the level's floor
+
+  // World-space center for the ghost preview.
+  const sx = (hi.cx - hi.hL / 2) + binX + l / 2;
+  const sy = floorY + binY + h / 2;
+  const sz = (-hi.hB / 2) + binZ + w / 2;
+  mesh.position.set(sx, sy, sz);
+
+  // Build candidate AABB and run JS validation.
+  const candidate = {
+    cargoItemId:  mesh.userData.cargoItemId,
+    placement_id: placement.placement_id,
+    item_id:      mesh.userData.itemId,
+    hold_id:      hi.h.id,
+    level:        level,
+    x: binX, y: binY, z: binZ,
+    l, w, h, rotation_deg,
+    // World AABB for collision tests
+    x0: sx - l/2, y0: sy - h/2, z0: sz - w/2,
+    x1: sx + l/2, y1: sy + h/2, z1: sz + w/2,
+  };
+
+  // Validate against every other placed mesh (skip self).
+  let collisionWith = null;
+  placedItemMeshes.forEach((otherMesh, cid) => {
+    if (cid === mesh.userData.cargoItemId) return;
+    const aabb = _meshAABB(cid);
+    if (!aabb) return;
+    if (_boxesIntersect(aabb, candidate)) {
+      collisionWith ||= aabb;
+    }
+  });
+
+  // Bounds re-check (the snap+clamp should already handle this, but the
+  // height/level mismatch case still needs a guard).
+  let reason = null;
+  const levelHeight = level === 'tween' ? hi.upperH : hi.lowerH;
+  if (h > levelHeight + 1e-6) {
+    reason = `item is too tall for the ${level} level (${h.toFixed(2)} > ${levelHeight.toFixed(2)} m)`;
+  } else if (collisionWith) {
+    const otherItem = currentItemsById.get(collisionWith.cargoItemId);
+    reason = `overlaps ${otherItem ? otherItem.item_id : 'another item'}`;
+  }
+
+  candidate.ok = !reason;
+  candidate.reason = reason;
+  EDIT.candidate = candidate;
+  _renderCandidateColor(mesh, candidate);
+
+  setEditDragInfo(
+    mesh.userData.itemId,
+    `Hold ${hi.h.id} (${level})`,
+    `x=${binX.toFixed(2)} z=${binZ.toFixed(2)} m`,
+  );
+  if (reason) showEditMsg(reason, 'err'); else showEditMsg('', null);
+
+  // Throttled balance preview from the API.
+  _schedulePreview(candidate);
+}
+
+function _renderCandidateColor(mesh, candidate) {
+  if (candidate.ok) {
+    mesh.material.color.setHex(EDIT.origColor);
+    mesh.material.emissive = new THREE.Color(0x10b981);
+    mesh.material.emissiveIntensity = 0.30;
+  } else {
+    mesh.material.emissive = new THREE.Color(0xef4444);
+    mesh.material.emissiveIntensity = 0.55;
+  }
+  mesh.material.needsUpdate = true;
+}
+
+function _markCandidate(partial) {
+  EDIT.candidate = Object.assign({}, EDIT.candidate || {}, partial);
+  if (EDIT.draggingMesh) {
+    _renderCandidateColor(EDIT.draggingMesh, EDIT.candidate);
+  }
+  if (partial.reason) showEditMsg(partial.reason, 'err');
+}
+
+let _previewSeq = 0;
+function _schedulePreview(candidate) {
+  if (!candidate || !candidate.ok) return;
+  if (!currentManifests || !currentManifests.length) return;
+  EDIT.pendingPreview && clearTimeout(EDIT.pendingPreview);
+  const seq = ++_previewSeq;
+  EDIT.pendingPreview = setTimeout(async () => {
+    // Find the manifest that owns this placement.
+    let mid = null;
+    for (const m of currentManifests) {
+      if ((m.items || []).some(it => it.id === candidate.cargoItemId)) {
+        mid = m.id; break;
+      }
+    }
+    if (!mid) return;
+    try {
+      const res = await fetch(`/cargo/api/manifests/${mid}/balance-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          placements: [{
+            placement_id: candidate.placement_id,
+            hold_id:      candidate.hold_id,
+            level:        candidate.level,
+            x_m: candidate.x, y_m: candidate.y, z_m: candidate.z,
+            rotation_deg: candidate.rotation_deg || 0,
+          }],
+        }),
+      });
+      if (seq !== _previewSeq) return;            // stale
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) return;
+      if (data.balance_score != null) setEditBalance(data.balance_score);
+      if (data.errors && data.errors.length) {
+        const e0 = data.errors[0];
+        showEditMsg(e0.reason || 'Server rejected this position', 'err');
+        _markCandidate({ ok: false, reason: e0.reason });
+      }
+    } catch { /* network blip — keep client-side feedback only */ }
+  }, 90);
+}
+
+function cancelDrag() {
+  const mesh = EDIT.draggingMesh;
+  if (!mesh) return;
+  mesh.position.copy(EDIT.origPos);
+  mesh.material.opacity = 1.0;
+  mesh.material.transparent = false;
+  mesh.material.color.setHex(EDIT.origColor);
+  mesh.material.emissive = new THREE.Color(0x000000);
+  mesh.material.emissiveIntensity = 0.0;
+  mesh.material.needsUpdate = true;
+  EDIT.draggingMesh = null;
+  EDIT.candidate    = null;
+  document.body.classList.remove('dragging');
+  setEditDragInfo(null, null, null);
+  showEditMsg('', null);
+}
+
+async function finishDrag(e) {
+  const mesh = EDIT.draggingMesh;
+  const candidate = EDIT.candidate;
+  if (!mesh || !candidate) { cancelDrag(); return; }
+  if (!candidate.ok) {
+    showEditMsg('Cannot drop: ' + (candidate.reason || 'invalid'), 'err');
+    cancelDrag();
+    return;
+  }
+  // Persist via /move
+  try {
+    const res = await fetch(
+      `/cargo/api/placements/${candidate.placement_id}/move`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          hold_id:      candidate.hold_id,
+          level:        candidate.level,
+          x_m:          candidate.x,
+          y_m:          candidate.y,
+          z_m:          candidate.z,
+          rotation_deg: candidate.rotation_deg || 0,
+        }),
+      },
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.ok === false) {
+      const reason = (data && (data.error || data.reason)) || `HTTP ${res.status}`;
+      showEditMsg('Move rejected: ' + reason, 'err');
+      cancelDrag();
+      return;
+    }
+    // Success: update local state to match what the server stored.
+    const placements = (currentLayout?.placements || []);
+    const p = placements.find(p => p.cargo_item_id === candidate.cargoItemId);
+    if (p) {
+      p.hold_id      = candidate.hold_id;
+      p.level        = candidate.level;
+      p.x            = candidate.x;
+      p.y            = candidate.y;
+      p.z            = candidate.z;
+      p.rotation_deg = candidate.rotation_deg || 0;
+      p.is_pinned    = true;
+    }
+    if (data.balance_score != null) setEditBalance(data.balance_score);
+    // Reset visual (drop emissive overlay, restore opacity)
+    mesh.material.opacity = 1.0;
+    mesh.material.transparent = false;
+    mesh.material.color.setHex(EDIT.origColor);
+    mesh.material.emissive = new THREE.Color(0x000000);
+    mesh.material.emissiveIntensity = 0.0;
+    mesh.material.needsUpdate = true;
+    mesh.userData.isPinned = true;
+    // Mark as pinned in the edges
+    const edges = mesh.children.find(c => c.isLineSegments);
+    if (edges) {
+      edges.material.color = new THREE.Color(0xfacc15);
+      edges.material.opacity = 0.95;
+      edges.material.needsUpdate = true;
+    }
+    EDIT.draggingMesh = null;
+    EDIT.candidate    = null;
+    document.body.classList.remove('dragging');
+    showEditMsg('Moved & pinned ✓', 'ok');
+    setTimeout(() => showEditMsg('', null), 1400);
+    setEditDragInfo(null, null, null);
+    // Refresh top-bar stats with new balance
+    if (currentLayout && data.balance_score != null) {
+      currentLayout.balance_score = data.balance_score;
+      updateCargoStats();
+    }
+  } catch (err) {
+    showEditMsg('Move failed: ' + err.message, 'err');
+    cancelDrag();
+  }
+}
+
+// ── Right-click context menu ──────────────────────────────────────────
+
+function onEditContextMenu(e) {
+  if (!EDIT.on) return;
+  const mesh = _pickPlacedMeshAt(e);
+  if (!mesh) { hideCtxMenu(); return; }
+  e.preventDefault();
+  EDIT.ctxTarget = mesh;
+  const placement = (currentLayout?.placements || [])
+    .find(p => p.cargo_item_id === mesh.userData.cargoItemId);
+  const isPinned = placement && placement.is_pinned;
+  const m = document.getElementById('ctxMenu');
+  document.getElementById('ctxPin').classList.toggle('disabled', !!isPinned);
+  document.getElementById('ctxUnpin').classList.toggle('disabled', !isPinned);
+  m.style.left = (e.clientX + 4) + 'px';
+  m.style.top  = (e.clientY + 4) + 'px';
+  m.classList.add('show');
+}
+function hideCtxMenu() {
+  document.getElementById('ctxMenu').classList.remove('show');
+  EDIT.ctxTarget = null;
+}
+async function ctxPin() {
+  // "Pin in place" = move to current position with is_pinned=True.  We
+  // call /move with the existing coordinates; it sets is_pinned for us.
+  const mesh = EDIT.ctxTarget; hideCtxMenu();
+  if (!mesh) return;
+  const p = (currentLayout?.placements || [])
+    .find(pp => pp.cargo_item_id === mesh.userData.cargoItemId);
+  if (!p) return;
+  try {
+    const res = await fetch(`/cargo/api/placements/${p.placement_id}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        hold_id:      p.hold_id, level: p.level,
+        x_m: p.x, y_m: p.y, z_m: p.z,
+        rotation_deg: p.rotation_deg || 0,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.ok === false) throw new Error((data && data.error) || 'Pin failed');
+    p.is_pinned = true;
+    showEditMsg('Pinned ✓', 'ok'); setTimeout(()=>showEditMsg('', null), 1200);
+    reflectPinnedState();
+  } catch (err) {
+    showEditMsg('Pin failed: ' + err.message, 'err');
+  }
+}
+async function ctxUnpin() {
+  const mesh = EDIT.ctxTarget; hideCtxMenu();
+  if (!mesh) return;
+  const p = (currentLayout?.placements || [])
+    .find(pp => pp.cargo_item_id === mesh.userData.cargoItemId);
+  if (!p) return;
+  try {
+    const res = await fetch(`/cargo/api/placements/${p.placement_id}/unpin`, {
+      method: 'POST', credentials: 'include',
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.ok === false) throw new Error((data && data.error) || 'Unpin failed');
+    p.is_pinned = false;
+    showEditMsg('Unpinned — next repack may move it', 'ok');
+    setTimeout(()=>showEditMsg('', null), 1500);
+    reflectPinnedState();
+  } catch (err) {
+    showEditMsg('Unpin failed: ' + err.message, 'err');
+  }
+}
+async function ctxRotate() {
+  // Rotate 90° in place; if it now collides or overflows, server rejects.
+  const mesh = EDIT.ctxTarget; hideCtxMenu();
+  if (!mesh) return;
+  const p = (currentLayout?.placements || [])
+    .find(pp => pp.cargo_item_id === mesh.userData.cargoItemId);
+  if (!p) return;
+  const item = currentItemsById.get(mesh.userData.cargoItemId);
+  if (!item || !item.can_rotate_horizontal) {
+    showEditMsg('This item cannot be rotated horizontally', 'err'); return;
+  }
+  const newRot = (p.rotation_deg || 0) === 90 ? 0 : 90;
+  // The server accepts the rotation IF the resulting AABB still fits and
+  // doesn't collide.  We POST to /move with the current XYZ.
+  try {
+    const res = await fetch(`/cargo/api/placements/${p.placement_id}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        hold_id: p.hold_id, level: p.level,
+        x_m: p.x, y_m: p.y, z_m: p.z,
+        rotation_deg: newRot,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) || 'Rotation rejected');
+    }
+    showEditMsg('Rotated to ' + newRot + '° ✓', 'ok');
+    setTimeout(()=>showEditMsg('', null), 1500);
+    // Easiest way to redraw rotated boxes: refresh the layout.
+    await loadManifestForVessel(currentVessel);
+    if (EDIT.on) reflectPinnedState();
+  } catch (err) {
+    showEditMsg('Rotate failed: ' + err.message, 'err');
+  }
+}
+
+// ── Wire up events once ───────────────────────────────────────────────
+
+(function _installEditModeListeners() {
+  const canvas = document.getElementById('cargo-canvas');
+  if (!canvas) return;
+  canvas.addEventListener('pointerdown',  onEditPointerDown);
+  // Move + up bind to window so dragging past the canvas edge still works.
+  window.addEventListener('pointermove',  onEditPointerMove);
+  window.addEventListener('pointerup',    onEditPointerUp);
+  canvas.addEventListener('contextmenu',  onEditContextMenu);
+  window.addEventListener('keydown',      onEditKeyDown);
+  // Hide context menu on stray clicks
+  window.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.ctx-menu')) hideCtxMenu();
+  });
+
+  // Shift+wheel = horizontal pan (camera-relative right vector).
+  // OrbitControls also listens for `wheel` (for zoom) on the same
+  // element.  We register in the CAPTURE phase so we run BEFORE
+  // OrbitControls and call stopImmediatePropagation when Shift is
+  // held — that prevents zoom from firing alongside our pan.
+  canvas.addEventListener('wheel', (e) => {
+    if (!e.shiftKey) return;
+    if (!activeCam) return;
+    // Block OrbitControls' bubble-phase wheel listener.
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    const dx = e.deltaY * 0.12;          // tune: smaller = slower pan
+    if (activeCam === perspCam) {
+      // Camera-relative right vector for the perspective camera.
+      const fwd = new THREE.Vector3();
+      activeCam.getWorldDirection(fwd);
+      const right = new THREE.Vector3()
+        .crossVectors(activeCam.up, fwd)
+        .normalize();
+      const offset = right.multiplyScalar(dx);
+      activeCam.position.add(offset);
+      if (controls && controls.target) controls.target.add(offset);
+      if (controls) controls.update();
+    } else {
+      // Ortho top/side: shift frustum bounds along world X (instead of
+      // moving the camera, which the orthographic projection ignores
+      // for pan).  Updating the frustum and re-projecting gives a true
+      // pan effect without distorting zoom.
+      activeCam.left   -= dx * 0;     // unchanged width
+      activeCam.right  -= dx * 0;
+      activeCam.position.x += dx;
+      activeCam.updateProjectionMatrix();
+      activeCam.lookAt(
+        activeCam.position.x,
+        currentView === 'side' ? activeCam.position.y : 0,
+        0,
+      );
+    }
+  }, { capture: true, passive: false });
+})();
+
+// Enable the toggle button when a vessel with placements is loaded.
+// We re-check whenever the layout changes by piggybacking on
+// renderCargoSidebar (which runs every load).
+const _origRenderSidebar = renderCargoSidebar;
+renderCargoSidebar = function() {
+  _origRenderSidebar.apply(this, arguments);
+  const btn = document.getElementById('btnEditPlacements');
+  const hasPlaced = !!(currentLayout && (currentLayout.placements || []).length);
+  btn.disabled = !hasPlaced;
+  if (!hasPlaced && EDIT.on) exitEditMode();
+  if (EDIT.on) reflectPinnedState();
+};
 
 loadVessels();
 </script>

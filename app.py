@@ -113,29 +113,46 @@ with app.app_context():
     try:
         db.create_all()
 
-        # ── Idempotent column migrations (Postgres + SQLite 3.35+) ──────────
+        # ── Idempotent column migrations (Postgres + SQLite) ────────────────
         # db.create_all() only creates MISSING tables — it never adds columns
         # to existing ones. Anything new in the SQLAlchemy models that needs
-        # to land on existing rows must also appear here as an ADD COLUMN IF
-        # NOT EXISTS, otherwise Neon (and any non-fresh local SQLite) will
-        # 500 with "column does not exist" on the first SELECT.
+        # to land on existing rows must also appear here, otherwise Neon (and
+        # any non-fresh local SQLite) will 500 with "column does not exist".
+        #
+        # Strategy: Postgres supports ADD COLUMN IF NOT EXISTS natively.
+        # Older SQLite (< 3.35) does not, so for SQLite we strip "IF NOT EXISTS"
+        # and catch the "duplicate column name" error per-column instead.
+        _is_sqlite = db.engine.dialect.name == "sqlite"
         _pending_cols = [
-            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE",
-            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS force_reocr BOOLEAN NOT NULL DEFAULT FALSE",
+            ("documents", "skip_ai_enrichment", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("documents", "force_reocr",         "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("vessels",   "holds_json",           "TEXT"),
+            ("vessels",   "hold_capacity_m3",     "FLOAT"),
+            ("vessels",   "double_bottom_height", "FLOAT"),
+            ("cargo_placements", "is_pinned",     "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]
-        try:
-            with db.engine.begin() as _conn:
-                for _sql in _pending_cols:
+        _applied = 0
+        for _table, _col, _coldef in _pending_cols:
+            if _is_sqlite:
+                _sql = f"ALTER TABLE {_table} ADD COLUMN {_col} {_coldef}"
+            else:
+                _sql = f"ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS {_col} {_coldef}"
+            try:
+                with db.engine.begin() as _conn:
                     _conn.execute(sa_text(_sql))
-            logging.info("[boot] documents column migrations applied (if needed)")
-        except Exception as _ce:
-            logging.warning(
-                "[boot] documents column migration failed — run manually on "
-                "Postgres if needed: "
-                "ALTER TABLE documents ADD COLUMN skip_ai_enrichment BOOLEAN NOT NULL DEFAULT FALSE; "
-                "ALTER TABLE documents ADD COLUMN force_reocr BOOLEAN NOT NULL DEFAULT FALSE; "
-                f"({_ce})"
-            )
+                _applied += 1
+            except Exception as _ce:
+                _msg = str(_ce).lower()
+                if "duplicate column" in _msg or "already exists" in _msg:
+                    pass  # column already present — expected on re-deploys
+                else:
+                    logging.warning(
+                        f"[boot] column migration failed for {_table}.{_col} — "
+                        f"run manually if needed: ALTER TABLE {_table} ADD COLUMN {_col} {_coldef}; "
+                        f"({_ce})"
+                    )
+        if _applied:
+            logging.info(f"[boot] {_applied} column migration(s) applied")
         # ─────────────────────────────────────────────────────────────────────
 
         from models import User
@@ -156,12 +173,18 @@ from auth import auth_bp
 from cms.routes import cms_bp
 from documents.routes import documents_bp
 from da.routes import da_bp
+# Cargo blueprint — completely independent of the documents pipeline.
+# Owns /cargo/api/vessels/<slug>/manifests/* and /cargo/manifests/<id>/preview.
+# Existing /cargo (visualizer page) and /cargo/api/vessels (legacy hold parser)
+# stay defined in this file for backward compatibility.
+from cargo.routes import cargo_bp
 
 app.register_blueprint(chat_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(cms_bp)
 app.register_blueprint(documents_bp)
 app.register_blueprint(da_bp)
+app.register_blueprint(cargo_bp)
 
 # ── Site-wide security headers ────────────────────────────────────────────────
 
@@ -1057,12 +1080,35 @@ def cargo_visualizer():
 
 @app.route("/cargo/api/vessels")
 def cargo_vessels_api():
-    """Return enriched vessel + hold-layer data for the cargo visualizer."""
-    import re
+    """
+    Return enriched vessel + hold-layer data for the cargo visualizer.
 
+    Source-of-truth is now Vessel.holds_json (DB), with transparent
+    fallback to the legacy output/vessels/<slug>/<slug>_data.json files.
+    The resolver in cargo/holds.py owns both paths and auto-caches
+    filesystem hits back to the DB so production environments without
+    those files (Vercel) can still run cargo once an authenticated user
+    has hit the page at least once on a host that does have the files,
+    or has set holds via the manual edit UI.
+    """
     if not _check_chat_cookie():
         return jsonify({"error": "Unauthorized"}), 401
 
+    from cargo.holds import list_vessel_metas
+    client_id = get_client_id_from_request()
+    return jsonify(list_vessel_metas(client_id))
+
+
+# ── Legacy filesystem-only parser (deprecated, kept for reference) ──────────
+# The body below was the original implementation of cargo_vessels_api.
+# It is dead code now that the route above delegates to cargo.holds.
+# Kept commented-out so the regex catalogue is preserved alongside its
+# extracted-into-module form in cargo/holds.py.  Do not remove without
+# confirming cargo/holds.py:parse_vessel_payload_from_json_data has the
+# same regex coverage.
+def _legacy_cargo_vessels_filesystem_parse(_unused=None):
+    """[deprecated] Original filesystem-only parser; lives in cargo.holds now."""
+    import re
     vessel_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "vessels")
     if not os.path.isdir(vessel_dir):
         return jsonify([])

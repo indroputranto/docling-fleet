@@ -66,6 +66,18 @@ check(
     lambda: __import__("da.assistant", fromlist=["run_chat_turn", "generate_da_key_notes"]),
 )
 
+# Cargo blueprint — independent of documents pipeline
+check("cargo.parser importable",
+      lambda: __import__("cargo.parser", fromlist=["parse_packing_list"]))
+check("cargo.packer importable",
+      lambda: __import__("cargo.packer", fromlist=["pack_items"]))
+check("cargo.object_storage importable",
+      lambda: __import__("cargo.object_storage", fromlist=["is_configured"]))
+check("cargo.routes importable",
+      lambda: __import__("cargo.routes", fromlist=["cargo_bp"]))
+check("cargo.holds importable",
+      lambda: __import__("cargo.holds", fromlist=["get_vessel_meta", "set_vessel_holds"]))
+
 # ── 4. Model class presence ───────────────────────────────────────────────────
 print("\n[4] Model class checks")
 
@@ -81,6 +93,21 @@ def _check_models():
     assert hasattr(ChatMessage, "session_id")
 
 check("all model classes present", _check_models)
+
+def _check_cargo_models():
+    from models import Vessel, VesselTrip, CargoManifest, CargoItem, CargoPlacement
+    assert hasattr(VesselTrip,    "vessel_id")
+    assert hasattr(CargoManifest, "trip_id")
+    assert hasattr(CargoManifest, "layout_json")
+    assert hasattr(CargoItem,     "gross_weight_kg")
+    assert hasattr(CargoItem,     "can_stack")
+    assert hasattr(CargoPlacement, "is_placed")
+    # Cargo-pipeline columns added to Vessel:
+    assert hasattr(Vessel, "holds_json")
+    assert hasattr(Vessel, "hold_capacity_m3")
+    assert hasattr(Vessel, "double_bottom_height")
+
+check("cargo model classes present", _check_cargo_models)
 
 # ── 5. Config sanity ──────────────────────────────────────────────────────────
 print("\n[5] Configuration")

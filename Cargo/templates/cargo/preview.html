@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Review Packing List — {{ manifest.filename }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font:'Inter',sans-serif; --bg:#0d1117; --surface:#161b22; --surface2:#1c2230;
+      --primary:#1a1a2e; --border:rgba(255,255,255,.07); --text:#f0ede8; --muted:rgba(240,237,232,.42);
+      --accent:#3b82f6; --accent-h:#60a5fa;
+      --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:80px;}
+
+    /* header */
+    header{display:flex;align-items:center;gap:10px;padding:11px 18px;background:var(--primary);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+    .nav-back{display:flex;align-items:center;gap:5px;color:var(--muted);text-decoration:none;font-size:13px;padding:3px 7px;border-radius:5px;}
+    .nav-back:hover{color:var(--text);background:rgba(255,255,255,.06);}
+    .nav-back svg{width:13px;height:13px;}
+    .nav-div{color:var(--border);font-size:16px;}
+    .nav-title{font-size:14px;font-weight:600;}
+    .badge{margin-left:auto;background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.4);color:var(--amber);font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;}
+
+    main{max-width:1280px;margin:0 auto;padding:24px;}
+    h2{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;}
+    h3{font-size:14px;font-weight:600;margin-bottom:6px;}
+
+    /* meta panel */
+    .meta-panel{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;background:var(--surface);
+                border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:20px;}
+    .meta-panel .row{display:flex;flex-direction:column;gap:5px;}
+    .meta-panel label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
+    .meta-panel input,.meta-panel select{
+      background:var(--bg);border:1px solid var(--border);border-radius:5px;
+      padding:7px 10px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;
+    }
+    .meta-panel input:focus,.meta-panel select:focus{border-color:var(--accent);}
+
+    /* file row */
+    .file-row{display:flex;gap:18px;align-items:center;background:var(--surface2);
+              border:1px solid var(--border);border-radius:6px;padding:11px 14px;margin-bottom:18px;font-size:12px;}
+    .file-row .lbl{color:var(--muted);font-size:11px;}
+    .file-row .v{font-weight:600;}
+
+    /* totals strip */
+    .totals{display:flex;gap:24px;background:var(--surface);border:1px solid var(--border);
+            border-radius:6px;padding:12px 18px;margin-bottom:18px;}
+    .totals .stat{flex-shrink:0;}
+    .totals .stat-lbl{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
+    .totals .stat-val{font-size:16px;font-weight:700;margin-top:2px;}
+    .totals .stat-val .u{font-size:11px;font-weight:400;color:var(--muted);}
+
+    /* table */
+    .items-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:auto;}
+    table{width:100%;border-collapse:collapse;font-size:12px;}
+    thead th{background:var(--surface2);position:sticky;top:0;text-align:left;
+             padding:9px 8px;font-weight:600;font-size:11px;color:var(--muted);
+             text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border);}
+    tbody tr{border-bottom:1px solid var(--border);}
+    tbody tr:hover{background:rgba(255,255,255,.02);}
+    tbody td{padding:6px 8px;vertical-align:middle;}
+    tbody td.id{font-weight:600;font-family:'SF Mono',Menlo,monospace;font-size:11px;color:var(--accent-h);}
+    tbody td input[type=number]{width:70px;background:transparent;border:1px solid transparent;border-radius:4px;
+                                 padding:4px 6px;color:var(--text);font-family:var(--font);font-size:12px;outline:none;}
+    tbody td input[type=number]:hover{border-color:var(--border);}
+    tbody td input[type=number]:focus{border-color:var(--accent);background:var(--bg);}
+    tbody td input[type=text]{width:100%;background:transparent;border:1px solid transparent;border-radius:4px;
+                              padding:4px 6px;color:var(--text);font-family:var(--font);font-size:12px;outline:none;}
+    tbody td input[type=text]:focus{border-color:var(--accent);background:var(--bg);}
+    tbody td input[type=checkbox]{accent-color:var(--accent);}
+    .desc-cell{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);}
+
+    /* action bar */
+    .action-bar{position:fixed;bottom:0;left:0;right:0;background:var(--primary);
+                border-top:1px solid var(--border);padding:13px 24px;
+                display:flex;justify-content:space-between;align-items:center;gap:14px;z-index:100;}
+    .action-bar .summary{font-size:12px;color:var(--muted);}
+    .btn{padding:9px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;
+         font-family:var(--font);border:1px solid transparent;transition:background .12s;}
+    .btn-primary{background:var(--accent);color:#fff;}
+    .btn-primary:hover{background:var(--accent-h);}
+    .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+    .btn-secondary{background:transparent;color:var(--muted);border-color:var(--border);}
+    .btn-secondary:hover{color:var(--text);border-color:var(--text);}
+    .btn-danger{background:transparent;color:var(--red);border-color:rgba(239,68,68,.3);}
+    .btn-danger:hover{background:rgba(239,68,68,.1);}
+
+    /* toast */
+    .toast{position:fixed;top:60px;right:24px;background:var(--surface);
+           border:1px solid var(--border);border-radius:6px;padding:10px 14px;
+           font-size:12px;display:none;z-index:200;max-width:360px;}
+    .toast.show{display:block;}
+    .toast.ok{border-color:var(--green);}
+    .toast.err{border-color:var(--red);color:var(--red);}
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="nav-back" href="/cargo">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 12L6 8l4-4"/>
+    </svg>
+    Cargo Visualizer
+  </a>
+  <span class="nav-div">/</span>
+  <span class="nav-title">Review &amp; Pack — {{ vessel.name }}</span>
+  <span class="badge">DRAFT</span>
+</header>
+
+<main>
+  <div class="file-row">
+    <div><span class="lbl">File:</span> <span class="v">{{ manifest.filename }}</span></div>
+    <div><span class="lbl">Type:</span> <span class="v">.{{ manifest.file_type }}</span></div>
+    <div><span class="lbl">Uploaded:</span> <span class="v">{{ manifest.uploaded_at.strftime('%Y-%m-%d %H:%M UTC') if manifest.uploaded_at else '—' }}</span></div>
+    <div><span class="lbl">By:</span> <span class="v">{{ manifest.uploaded_by or '—' }}</span></div>
+  </div>
+
+  <h2>Trip metadata</h2>
+  <div class="meta-panel">
+    <div class="row">
+      <label for="voyage_label">Voyage / shipment label</label>
+      <input type="text" id="voyage_label" value="{{ manifest.voyage_label or '' }}" placeholder="e.g. Pluto 2nd Shipment Livorno"/>
+    </div>
+    <div class="row">
+      <label for="trip_id">Existing trip (optional)</label>
+      <select id="trip_id">
+        <option value="">— No trip —</option>
+        {% for t in trips %}
+          <option value="{{ t.id }}" {% if manifest.trip_id == t.id %}selected{% endif %}>{{ t.label }} ({{ t.status }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="row">
+      <label for="departure_date">Departure date</label>
+      <input type="date" id="departure_date" value="{{ manifest.departure_date.isoformat() if manifest.departure_date else '' }}"/>
+    </div>
+    <div class="row">
+      <label for="departure_port">Departure port</label>
+      <input type="text" id="departure_port" value="{{ manifest.departure_port or '' }}" placeholder="e.g. Marina di Carrara"/>
+    </div>
+    <div class="row">
+      <label for="arrival_port">Arrival port</label>
+      <input type="text" id="arrival_port" value="{{ manifest.arrival_port or '' }}" placeholder="e.g. Livorno"/>
+    </div>
+    <div class="row">
+      <label>Items detected</label>
+      <input type="text" disabled value="{{ items|length }} items, {{ '%.1f'|format(manifest.total_weight_kg/1000) }} t total"/>
+    </div>
+  </div>
+
+  <h2>Items</h2>
+  <div class="totals">
+    <div class="stat"><div class="stat-lbl">Items</div><div class="stat-val">{{ items|length }}</div></div>
+    <div class="stat"><div class="stat-lbl">Total weight</div><div class="stat-val" id="totW">{{ '%.1f'|format(manifest.total_weight_kg/1000) }}<span class="u"> t</span></div></div>
+    <div class="stat"><div class="stat-lbl">Total volume</div><div class="stat-val" id="totV">{{ '%.1f'|format(manifest.total_volume_m3) }}<span class="u"> m³</span></div></div>
+    <div class="stat"><div class="stat-lbl">Largest piece</div><div class="stat-val" id="maxDim">—</div></div>
+  </div>
+
+  <div class="items-table-wrap">
+    <table id="itemsTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Item ID</th>
+          <th>Description</th>
+          <th>L (m)</th>
+          <th>W (m)</th>
+          <th>H (m)</th>
+          <th>Volume (m³)</th>
+          <th>Net (kg)</th>
+          <th>Gross (kg)</th>
+          <th>IMO</th>
+          <th>Stack</th>
+          <th>Rotate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr data-id="{{ it.id }}">
+          <td>{{ loop.index }}</td>
+          <td class="id">{{ it.item_id }}</td>
+          <td class="desc-cell" title="{{ it.description or '' }}"><input type="text" data-field="description" value="{{ it.description or '' }}"/></td>
+          <td><input type="number" step="0.001" min="0" data-field="length_m" value="{{ '%.3f'|format(it.length_m) }}"/></td>
+          <td><input type="number" step="0.001" min="0" data-field="width_m" value="{{ '%.3f'|format(it.width_m) }}"/></td>
+          <td><input type="number" step="0.001" min="0" data-field="height_m" value="{{ '%.3f'|format(it.height_m) }}"/></td>
+          <td><input type="number" step="0.001" min="0" data-field="volume_m3" value="{{ '%.3f'|format(it.volume_m3) }}"/></td>
+          <td><input type="number" step="0.1" min="0" data-field="net_weight_kg" value="{{ '%.1f'|format(it.net_weight_kg) if it.net_weight_kg else '' }}"/></td>
+          <td><input type="number" step="0.1" min="0" data-field="gross_weight_kg" value="{{ '%.1f'|format(it.gross_weight_kg) }}"/></td>
+          <td><input type="checkbox" data-field="imo_flag" {% if it.imo_flag %}checked{% endif %}/></td>
+          <td><input type="checkbox" data-field="can_stack" {% if it.can_stack %}checked{% endif %}/></td>
+          <td><input type="checkbox" data-field="can_rotate_horizontal" {% if it.can_rotate_horizontal %}checked{% endif %}/></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<div class="action-bar">
+  <div class="summary">
+    Review the items above, then save to run the auto-packer and view the 3D layout.
+  </div>
+  <div style="display:flex;gap:10px;">
+    <button class="btn btn-danger" onclick="discardManifest()">Discard</button>
+    <button class="btn btn-secondary" onclick="saveItemsOnly()">Save changes</button>
+    <button class="btn btn-primary" id="btnSavePack" onclick="saveAndPack()">Save &amp; Pack</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const MANIFEST_ID = {{ manifest.id }};
+const VESSEL_SLUG = {{ (vessel.name | lower | replace(' ', '_')) | tojson }};
+
+function $(sel, root=document){ return root.querySelector(sel); }
+function $$(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
+
+function showToast(msg, level='ok'){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + level;
+  setTimeout(() => t.className = 'toast', 3500);
+}
+
+function collectItems() {
+  const items = [];
+  $$('#itemsTable tbody tr').forEach(tr => {
+    const id = parseInt(tr.dataset.id, 10);
+    const e = { id };
+    $$('input[data-field]', tr).forEach(inp => {
+      const f = inp.dataset.field;
+      if (inp.type === 'checkbox') e[f] = inp.checked;
+      else if (inp.type === 'number') {
+        const v = inp.value.trim();
+        if (v !== '') e[f] = parseFloat(v);
+      } else {
+        e[f] = inp.value;
+      }
+    });
+    items.push(e);
+  });
+  return items;
+}
+
+function collectManifest() {
+  return {
+    voyage_label:    $('#voyage_label').value || null,
+    departure_port:  $('#departure_port').value || null,
+    arrival_port:    $('#arrival_port').value || null,
+    departure_date:  $('#departure_date').value || null,
+    trip_id:         $('#trip_id').value || null,
+  };
+}
+
+function recomputeTotals() {
+  let totW = 0, totV = 0, maxL = 0, maxW = 0, maxH = 0;
+  $$('#itemsTable tbody tr').forEach(tr => {
+    const get = f => parseFloat($(`input[data-field=${f}]`, tr).value) || 0;
+    const L = get('length_m'), W = get('width_m'), H = get('height_m');
+    const V = get('volume_m3') || (L * W * H);
+    const Wk = get('gross_weight_kg');
+    totW += Wk; totV += V;
+    if (L > maxL) maxL = L;
+    if (W > maxW) maxW = W;
+    if (H > maxH) maxH = H;
+  });
+  $('#totW').innerHTML = (totW/1000).toFixed(1) + '<span class="u"> t</span>';
+  $('#totV').innerHTML = totV.toFixed(1) + '<span class="u"> m³</span>';
+  $('#maxDim').textContent = `${maxL.toFixed(1)} × ${maxW.toFixed(1)} × ${maxH.toFixed(1)} m`;
+}
+
+document.addEventListener('input', e => {
+  if (e.target.matches('#itemsTable input[data-field]')) recomputeTotals();
+});
+recomputeTotals();
+
+async function postJSON(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+    credentials: 'include',
+  });
+  let data = null;
+  try { data = await resp.json(); } catch {}
+  if (!resp.ok) throw new Error((data && data.error) || `HTTP ${resp.status}`);
+  return data;
+}
+
+async function saveItemsOnly() {
+  try {
+    await postJSON(`/cargo/api/manifests/${MANIFEST_ID}/items`, {
+      items:    collectItems(),
+      manifest: collectManifest(),
+    });
+    showToast('Saved', 'ok');
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'err');
+  }
+}
+
+async function saveAndPack() {
+  const btn = $('#btnSavePack');
+  btn.disabled = true;
+  btn.textContent = 'Packing…';
+  try {
+    await postJSON(`/cargo/api/manifests/${MANIFEST_ID}/items`, {
+      items:    collectItems(),
+      manifest: collectManifest(),
+    });
+    const r = await postJSON(`/cargo/api/manifests/${MANIFEST_ID}/save`, {});
+    showToast(`Packed ${r.layout.placed_count} of ${r.layout.placed_count + r.layout.unplaced_count} items`, 'ok');
+    setTimeout(() => { window.location = r.redirect_url; }, 800);
+  } catch (e) {
+    showToast('Pack failed: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Save & Pack';
+  }
+}
+
+async function discardManifest() {
+  if (!confirm('Discard this draft manifest? This cannot be undone.')) return;
+  try {
+    const resp = await fetch(`/cargo/api/manifests/${MANIFEST_ID}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!resp.ok) {
+      const d = await resp.json().catch(() => null);
+      throw new Error((d && d.error) || `HTTP ${resp.status}`);
+    }
+    window.location = '/cargo?vessel=' + encodeURIComponent(VESSEL_SLUG);
+  } catch (e) {
+    showToast('Discard failed: ' + e.message, 'err');
+  }
+}
+</script>
+
+</body>
+</html>

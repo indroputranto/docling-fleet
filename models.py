@@ -384,6 +384,29 @@ class Vessel(db.Model):
     # ── Free text ─────────────────────────────────────────────────────────────
     notes            = db.Column(db.Text, nullable=True)
 
+    # ── Cargo-pipeline hold geometry ─────────────────────────────────────────
+    # JSON-serialized list of hold dicts that the cargo visualizer + packer
+    # consume.  Schema (per element):
+    #   {id, length, breadth, height,
+    #    has_tween, lower_height, upper_height,
+    #    estimated, tween_estimated}
+    # Source-of-truth on Vercel and any environment without the legacy
+    # output/vessels/<slug>/<slug>_data.json files on disk.  When a vessel
+    # has filesystem hold data, cargo.holds.get_holds_for_vessel() will
+    # parse it on first read and cache the result here automatically.
+    # NULL when no hold data has been set yet — the cargo upload flow will
+    # surface a "set holds first" prompt.
+    holds_json           = db.Column(db.Text,  nullable=True)
+
+    # Total volumetric capacity across all holds (m³).  Used by the cargo
+    # visualizer's stats bar and the packer's weight-target heuristic.
+    hold_capacity_m3     = db.Column(db.Float, nullable=True)
+
+    # Double-bottom height in meters (the structural void below the tank
+    # top).  Defaults to 1.5m when null — matches the historical default
+    # used by the side-view renderer.
+    double_bottom_height = db.Column(db.Float, nullable=True)
+
     documents = db.relationship(
         "Document",
         back_populates="vessel",
@@ -566,3 +589,377 @@ class UsageLog(db.Model):
     def __repr__(self):
         return (f"<UsageLog client={self.client_id} date={self.date} "
                 f"in={self.tokens_in} out={self.tokens_out}>")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cargo / Packing-list pipeline models
+#
+# These tables are entirely self-contained.  They do NOT modify any existing
+# table (documents, document_chunks, vessels, …) and they do NOT import from
+# the documents/ pipeline.  Vessel-side relationship attributes are attached
+# via SQLAlchemy `backref` so the Vessel class above is left untouched.
+#
+# Schema layout:
+#   vessel_trips        — optional voyage container; one vessel has many trips
+#   cargo_manifests     — one uploaded packing list; belongs to vessel & (opt) trip
+#   cargo_items         — one row of the spreadsheet; child of manifest
+#   cargo_placements    — packer output: where each item ended up (or unplaced)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class VesselTrip(db.Model):
+    """
+    A scheduled or completed voyage of a vessel.
+
+    Trips are an optional grouping concept for cargo manifests — a single
+    trip can carry one active packing list at a time.  When trip_id is left
+    NULL on a manifest, the "one active per vessel" rule is used as a
+    fallback so the feature works before the trip UI is built.
+
+    Vessel-side accessor: `vessel.trips`  (added via backref below).
+    """
+    __tablename__ = "vessel_trips"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    client_id       = db.Column(db.String(100), nullable=False, index=True)
+
+    vessel_id       = db.Column(
+        db.Integer,
+        db.ForeignKey("vessels.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vessel          = db.relationship(
+        "Vessel",
+        backref=db.backref("trips", lazy="dynamic", cascade="all, delete-orphan"),
+    )
+
+    label           = db.Column(db.String(500), nullable=False, default="Untitled trip")
+    departure_port  = db.Column(db.String(255), nullable=True)
+    arrival_port    = db.Column(db.String(255), nullable=True)
+    departure_date  = db.Column(db.Date, nullable=True)
+    arrival_date    = db.Column(db.Date, nullable=True)
+
+    # planned | in_progress | completed | cancelled
+    status          = db.Column(db.String(20),  nullable=False, default="planned")
+
+    notes           = db.Column(db.Text, nullable=True)
+
+    created_at      = db.Column(db.DateTime, nullable=False,
+                                default=lambda: datetime.now(timezone.utc))
+    updated_at      = db.Column(db.DateTime, nullable=False,
+                                default=lambda: datetime.now(timezone.utc),
+                                onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "id":             self.id,
+            "client_id":      self.client_id,
+            "vessel_id":      self.vessel_id,
+            "label":          self.label,
+            "departure_port": self.departure_port,
+            "arrival_port":   self.arrival_port,
+            "departure_date": self.departure_date.isoformat() if self.departure_date else None,
+            "arrival_date":   self.arrival_date.isoformat()   if self.arrival_date   else None,
+            "status":         self.status,
+            "notes":          self.notes,
+            "created_at":     self.created_at.isoformat() if self.created_at else None,
+            "updated_at":     self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return (f"<VesselTrip {self.label} vessel={self.vessel_id} "
+                f"status={self.status}>")
+
+
+class CargoManifest(db.Model):
+    """
+    One uploaded packing list for a vessel (and optionally a specific trip).
+
+    Lifecycle:
+      draft     → file uploaded + parsed; user is reviewing items in /preview
+      active    → committed; packer has run; rendered in the cargo visualizer
+      archived  → superseded by a newer active manifest for the same trip/vessel
+
+    "One active per vessel trip" rule is enforced in the route layer when the
+    manifest is moved to `active`: any prior active manifest with the same
+    (trip_id) — or same (vessel_id) when trip_id is NULL — is flipped to
+    `archived` first.
+
+    `layout_json` caches the full packer output so the visualizer can render
+    in one query.  Shape (also returned by the API):
+        {
+          "placements":     [ {item_id, hold_id, level, x, y, z, rotation, ...}, ... ],
+          "unplaced":       [ {item_id, reason}, ... ],
+          "weight_per_hold": { "1": 12345.6, "2": 9876.5 },
+          "fill_pct_per_hold": { "1": 78.4, "2": 61.2 },
+          "balance_score":  87.5,
+          "generated_at":   "2026-05-06T..."
+        }
+
+    Vessel-side accessor: `vessel.cargo_manifests`  (added via backref below).
+    Trip-side  accessor:  `trip.cargo_manifests`    (added via backref below).
+    """
+    __tablename__ = "cargo_manifests"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    client_id       = db.Column(db.String(100), nullable=False, index=True)
+
+    vessel_id       = db.Column(
+        db.Integer,
+        db.ForeignKey("vessels.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vessel          = db.relationship(
+        "Vessel",
+        backref=db.backref("cargo_manifests", lazy="dynamic", cascade="all, delete-orphan"),
+    )
+
+    trip_id         = db.Column(
+        db.Integer,
+        db.ForeignKey("vessel_trips.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    trip            = db.relationship(
+        "VesselTrip",
+        backref=db.backref("cargo_manifests", lazy="dynamic"),
+    )
+
+    # ── File ────────────────────────────────────────────────────────────────
+    filename        = db.Column(db.String(500), nullable=False)
+    file_type       = db.Column(db.String(10),  nullable=False)   # xlsx | xls
+    storage_key     = db.Column(db.String(1000), nullable=True)   # DO Spaces
+
+    # ── Status ──────────────────────────────────────────────────────────────
+    status          = db.Column(db.String(20),  nullable=False, default="draft")
+    error_message   = db.Column(db.Text, nullable=True)
+
+    # ── Voyage metadata (mirrored from trip when one is set, else freeform) ─
+    voyage_label    = db.Column(db.String(500), nullable=True)
+    departure_port  = db.Column(db.String(255), nullable=True)
+    arrival_port    = db.Column(db.String(255), nullable=True)
+    departure_date  = db.Column(db.Date, nullable=True)
+
+    # ── Aggregates (populated after parse + pack) ───────────────────────────
+    total_items      = db.Column(db.Integer, nullable=False, default=0)
+    total_weight_kg  = db.Column(db.Float,   nullable=False, default=0.0)
+    total_volume_m3  = db.Column(db.Float,   nullable=False, default=0.0)
+    placed_count     = db.Column(db.Integer, nullable=False, default=0)
+    unplaced_count   = db.Column(db.Integer, nullable=False, default=0)
+    balance_score    = db.Column(db.Float,   nullable=True)   # 0-100, higher = better
+
+    # ── Cached packer output (full layout JSON for the 3D viewer) ───────────
+    layout_json      = db.Column(db.Text, nullable=True)
+
+    # ── Audit ───────────────────────────────────────────────────────────────
+    uploaded_by      = db.Column(db.String(255), nullable=True)
+    uploaded_at      = db.Column(db.DateTime, nullable=False,
+                                 default=lambda: datetime.now(timezone.utc))
+    packed_at        = db.Column(db.DateTime, nullable=True)
+    updated_at       = db.Column(db.DateTime, nullable=False,
+                                 default=lambda: datetime.now(timezone.utc),
+                                 onupdate=lambda: datetime.now(timezone.utc))
+
+    items = db.relationship(
+        "CargoItem",
+        backref="manifest",
+        cascade="all, delete-orphan",
+        order_by="CargoItem.position",
+        lazy="dynamic",
+    )
+
+    placements = db.relationship(
+        "CargoPlacement",
+        backref="manifest",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+    )
+
+    def to_dict(self, include_items: bool = False) -> dict:
+        d = {
+            "id":               self.id,
+            "client_id":        self.client_id,
+            "vessel_id":        self.vessel_id,
+            "trip_id":          self.trip_id,
+            "filename":         self.filename,
+            "file_type":        self.file_type,
+            "storage_key":      self.storage_key,
+            "status":           self.status,
+            "error_message":    self.error_message,
+            "voyage_label":     self.voyage_label,
+            "departure_port":   self.departure_port,
+            "arrival_port":     self.arrival_port,
+            "departure_date":   self.departure_date.isoformat() if self.departure_date else None,
+            "total_items":      self.total_items,
+            "total_weight_kg":  self.total_weight_kg,
+            "total_volume_m3":  self.total_volume_m3,
+            "placed_count":     self.placed_count,
+            "unplaced_count":   self.unplaced_count,
+            "balance_score":    self.balance_score,
+            "uploaded_by":      self.uploaded_by,
+            "uploaded_at":      self.uploaded_at.isoformat() if self.uploaded_at else None,
+            "packed_at":        self.packed_at.isoformat() if self.packed_at else None,
+            "updated_at":       self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_items:
+            d["items"] = [it.to_dict() for it in self.items]
+        return d
+
+    def __repr__(self):
+        return (f"<CargoManifest {self.id} vessel={self.vessel_id} "
+                f"trip={self.trip_id} status={self.status} "
+                f"items={self.total_items}>")
+
+
+class CargoItem(db.Model):
+    """
+    One row from the parsed packing-list spreadsheet.
+
+    Dimensional values are normalized to METERS, weights to KILOGRAMS,
+    volume to CUBIC METERS, regardless of the source file's units.
+
+    `raw_row_json` preserves the original spreadsheet row as a dict so
+    later features can surface fields we don't currently model
+    (destination, customs, expiry dates, etc.) without re-parsing.
+    """
+    __tablename__ = "cargo_items"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    manifest_id     = db.Column(
+        db.Integer,
+        db.ForeignKey("cargo_manifests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    position        = db.Column(db.Integer, nullable=False)         # order in source file
+    item_id         = db.Column(db.String(255), nullable=False)     # PL N° / NR. PLIST
+    description     = db.Column(db.Text, nullable=True)
+    packing_type    = db.Column(db.String(100), nullable=True)
+
+    # ── Geometry (meters) ───────────────────────────────────────────────────
+    length_m        = db.Column(db.Float, nullable=False, default=0.0)
+    width_m         = db.Column(db.Float, nullable=False, default=0.0)
+    height_m        = db.Column(db.Float, nullable=False, default=0.0)
+    volume_m3       = db.Column(db.Float, nullable=False, default=0.0)
+
+    # ── Weight (kilograms) ─────────────────────────────────────────────────
+    net_weight_kg   = db.Column(db.Float, nullable=True)
+    gross_weight_kg = db.Column(db.Float, nullable=False, default=0.0)
+
+    # ── Flags ──────────────────────────────────────────────────────────────
+    imo_flag                 = db.Column(db.Boolean, nullable=False, default=False)
+    can_stack                = db.Column(db.Boolean, nullable=False, default=True)
+    can_rotate_horizontal    = db.Column(db.Boolean, nullable=False, default=True)
+
+    # ── Visual / extra ─────────────────────────────────────────────────────
+    color_hex       = db.Column(db.String(20), nullable=True)
+    raw_row_json    = db.Column(db.Text, nullable=True)
+
+    created_at      = db.Column(db.DateTime, nullable=False,
+                                default=lambda: datetime.now(timezone.utc))
+
+    placement = db.relationship(
+        "CargoPlacement",
+        backref="item",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id":                    self.id,
+            "manifest_id":           self.manifest_id,
+            "position":              self.position,
+            "item_id":               self.item_id,
+            "description":           self.description,
+            "packing_type":          self.packing_type,
+            "length_m":              self.length_m,
+            "width_m":               self.width_m,
+            "height_m":              self.height_m,
+            "volume_m3":             self.volume_m3,
+            "net_weight_kg":         self.net_weight_kg,
+            "gross_weight_kg":       self.gross_weight_kg,
+            "imo_flag":              self.imo_flag,
+            "can_stack":             self.can_stack,
+            "can_rotate_horizontal": self.can_rotate_horizontal,
+            "color_hex":             self.color_hex,
+        }
+
+    def __repr__(self):
+        return (f"<CargoItem {self.item_id} {self.length_m}x{self.width_m}x"
+                f"{self.height_m}m {self.gross_weight_kg}kg>")
+
+
+class CargoPlacement(db.Model):
+    """
+    Where the packer chose to put one CargoItem.
+
+    is_placed=False means the item didn't fit anywhere; hold_id is NULL
+    and `unplaced_reason` carries the diagnostic ("too tall for any hold",
+    "exceeds remaining weight", "no extreme point fits", …).
+
+    Coordinates are relative to the hold origin:
+      x = forward (along ship length, +X is bow)
+      y = up      (vertical, +Y is up)
+      z = port    (athwart, +Z is port)
+    Units are meters.
+    """
+    __tablename__ = "cargo_placements"
+
+    id              = db.Column(db.Integer, primary_key=True)
+    manifest_id     = db.Column(
+        db.Integer,
+        db.ForeignKey("cargo_manifests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    item_id         = db.Column(
+        db.Integer,
+        db.ForeignKey("cargo_items.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,        # one placement per item
+        index=True,
+    )
+
+    is_placed       = db.Column(db.Boolean, nullable=False, default=False)
+    hold_id         = db.Column(db.Integer, nullable=True)         # 1, 2, 3 …
+    level           = db.Column(db.String(20), nullable=True)      # lower | tween | None
+
+    x_m             = db.Column(db.Float, nullable=True)
+    y_m             = db.Column(db.Float, nullable=True)
+    z_m             = db.Column(db.Float, nullable=True)
+    rotation_deg    = db.Column(db.Integer, nullable=False, default=0)   # 0 | 90
+
+    # Manual override flag — when True, the joint packer treats this
+    # placement as a fixed obstacle on repack instead of recomputing it.
+    # Set by the manual-move UI; cleared by the unpin endpoint or by
+    # discarding / re-uploading the manifest.
+    is_pinned       = db.Column(
+        db.Boolean, nullable=False, default=False, server_default="0"
+    )
+
+    unplaced_reason = db.Column(db.String(255), nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id":              self.id,
+            "manifest_id":     self.manifest_id,
+            "item_id":         self.item_id,
+            "is_placed":       self.is_placed,
+            "hold_id":         self.hold_id,
+            "level":           self.level,
+            "x_m":             self.x_m,
+            "y_m":             self.y_m,
+            "z_m":             self.z_m,
+            "rotation_deg":    self.rotation_deg,
+            "is_pinned":       bool(self.is_pinned),
+            "unplaced_reason": self.unplaced_reason,
+        }
+
+    def __repr__(self):
+        if self.is_placed:
+            return (f"<CargoPlacement item={self.item_id} hold={self.hold_id} "
+                    f"level={self.level} rot={self.rotation_deg}>")
+        return f"<CargoPlacement item={self.item_id} UNPLACED ({self.unplaced_reason})>"
